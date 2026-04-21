@@ -249,6 +249,7 @@
 
   async function processQueue() {
     if (queueProcessing || queue.length === 0) return
+    queueCancelled = false  // nouvelle exécution de queue — on lève le flag
     queueProcessing = true
     queueResults = []
     // Snapshot de la fiche TMDB déjà sélectionnée (typiquement le show TV pour
@@ -869,6 +870,7 @@
   // --- Post ---
   async function lancerPost() {
     if (!selectedHydracker || !postQuality || !postLanguages.length) return
+    queueCancelled = false  // nouveau cycle de post — on lève le flag d'annulation
     postLoading = true
     postResult = null
     nzbStatus = ''; nzbParparPct = 0; nzbNyuuPct = 0; nzbNyuuSpeed = ''; nzbNyuuETA = ''; nzbNyuuArticles = ''
@@ -988,8 +990,12 @@
   }
 
   async function stopPost() {
+    // Flag d'annulation maintenu jusqu'au prochain lancerPost/processQueue
+    // (ne PAS reset via setTimeout — sinon un retry en cours voit le flag
+    // effacé et relance un workflow que l'utilisateur vient d'annuler).
     queueCancelled = true
     queue = []
+    queueTMDBHint = 0
     try { await CancelAllWorkflows() } catch(e) {}
     postLoading = false
     queueProcessing = false
@@ -997,7 +1003,6 @@
     resetAllProgress()
     postResult = { ok: false, message: 'Arrêté par l\'utilisateur' }
     addLog('QUEUE', '■ Stop — tout arrêté, queue vidée')
-    setTimeout(() => { queueCancelled = false }, 500)
   }
 
   // --- Hydracker ---
