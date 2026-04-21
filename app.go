@@ -42,7 +42,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "1.2.16"
+const Version = "1.2.17"
 
 type App struct {
 	ctx         context.Context
@@ -302,11 +302,31 @@ func (a *App) workContext() context.Context {
 	return a.workCtx
 }
 
+// effectiveHydrackerURL retourne l'URL API à utiliser.
+// Si un DefaultHydrackerBaseURL est injecté au build (secret CI), il prime sur
+// la config user. Sinon on utilise ce que l'user a renseigné dans Réglages.
+func effectiveHydrackerURL(cfg *config.Config) string {
+	if config.DefaultHydrackerBaseURL != "" {
+		return config.DefaultHydrackerBaseURL
+	}
+	return cfg.HydrackerBaseURL
+}
+
+// IsHydrackerURLManaged indique si l'URL API est verrouillée au build (non modifiable par user).
+func (a *App) IsHydrackerURLManaged() bool {
+	return config.DefaultHydrackerBaseURL != ""
+}
+
+// GetEffectiveHydrackerURL retourne l'URL utilisée en ce moment (build-time > user config).
+func (a *App) GetEffectiveHydrackerURL() string {
+	return effectiveHydrackerURL(a.cfg)
+}
+
 func NewApp() *App {
 	cfg := config.Load()
 	hist, _ := history.Open()
 	return &App{
-		client:      api.NewClient(cfg.HydrackerToken, cfg.HydrackerBaseURL),
+		client:      api.NewClient(cfg.HydrackerToken, effectiveHydrackerURL(cfg)),
 		cfg:         cfg,
 		hist:        hist,
 		hostCancels: map[string]context.CancelFunc{},
@@ -476,7 +496,7 @@ func (a *App) GetConfig() *config.Config {
 func (a *App) SaveConfig(cfg config.Config) error {
 	a.cfg = &cfg
 	a.client.SetToken(cfg.HydrackerToken)
-	a.client.SetBaseURL(cfg.HydrackerBaseURL)
+	a.client.SetBaseURL(effectiveHydrackerURL(&cfg))
 	return config.Save(&cfg)
 }
 

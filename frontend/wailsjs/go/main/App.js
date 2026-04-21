@@ -46,6 +46,10 @@ export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
+export function GetEffectiveHydrackerURL() {
+  return window['go']['main']['App']['GetEffectiveHydrackerURL']();
+}
+
 export function GetFileSize(arg1) {
   return window['go']['main']['App']['GetFileSize'](arg1);
 }
@@ -96,6 +100,10 @@ export function HydrackerGetByTmdbID(arg1) {
 
 export function HydrackerSearch(arg1) {
   return window['go']['main']['App']['HydrackerSearch'](arg1);
+}
+
+export function IsHydrackerURLManaged() {
+  return window['go']['main']['App']['IsHydrackerURLManaged']();
 }
 
 export function IsLihdlPasswordManaged() {

@@ -78,6 +78,10 @@ var (
 	// DefaultLihdlUnlockHash : hash SHA-256 du mot de passe de déverrouillage de la section LiHDL.
 	// Injecté au build depuis le secret GitHub LIHDL_UNLOCK_HASH. Non modifiable par l'utilisateur.
 	DefaultLihdlUnlockHash = ""
+	// DefaultHydrackerBaseURL : URL de base de l'API Hydracker.
+	// Injectée au build depuis le secret GitHub HYDRACKER_URL. Si non-vide, verrouille
+	// l'URL côté utilisateur (pas modifiable dans Réglages).
+	DefaultHydrackerBaseURL = ""
 )
 
 func Load() *Config {

@@ -5,7 +5,7 @@
   import HydrackerTab from './HydrackerTab.svelte'
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged } from '../wailsjs/go/main/App.js'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL } from '../wailsjs/go/main/App.js'
 
   // --- Tabs ---
   const TABS = [
@@ -47,6 +47,7 @@
   let lihdlUnlocked = false
   let lihdlHasPassword = false
   let lihdlManaged = false // true = mdp imposé au build, user ne peut pas le modifier
+  let hydrackerURLManaged = false // true = URL API imposée au build
   let lihdlModal = null  // null | 'unlock' | 'create' | 'change' | 'remove'
   let lihdlPwdInput = ''
   let lihdlPwdCurrent = ''
@@ -261,6 +262,10 @@
     try { appVersion = await GetVersion() } catch {}
     try { updateInfo = await CheckForUpdate() } catch {}
     checkLihdlPasswordStatus()
+    try { hydrackerURLManaged = await IsHydrackerURLManaged() } catch {}
+    if (hydrackerURLManaged) {
+      try { cfg.hydracker_base_url = await GetEffectiveHydrackerURL() } catch {}
+    }
     EventsOn('watch:status', s => { watchRunning = !!s.running; if (s.running) addLog('WATCH', `Surveillance active : ${s.folder}`) })
     EventsOn('update:progress', p => { updateState = { ...updateState, stage: p.stage || '', msg: p.msg || '', percent: p.percent || 0 } })
     EventsOn('watch:newfile', path => {
@@ -595,8 +600,11 @@
               <div class="test-result" class:ok={testResults.hydracker.ok}>{testResults.hydracker.message}</div>
             {/if}
             <div class="field">
-              <label>URL de base</label>
-              <input type="text" bind:value={cfg.hydracker_base_url} placeholder="https://exemple.tld  (sans /api/v1, ajouté auto)" />
+              <label>URL de base {#if hydrackerURLManaged}<span style="color:#ffe066;font-size:10px;font-weight:600">🔒 verrouillée</span>{/if}</label>
+              <input type="text" bind:value={cfg.hydracker_base_url} placeholder="https://exemple.tld  (sans /api/v1, ajouté auto)" disabled={hydrackerURLManaged} style:opacity={hydrackerURLManaged ? 0.6 : 1} />
+              {#if hydrackerURLManaged}
+                <div class="field-hint">URL définie au build — non modifiable par l'utilisateur.</div>
+              {/if}
             </div>
             <div class="field">
               <label>Token d'accès</label>

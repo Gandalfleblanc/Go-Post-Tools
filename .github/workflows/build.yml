@@ -56,9 +56,11 @@ jobs:
       - name: Build
         env:
           LIHDL_UNLOCK_HASH: ${{ secrets.LIHDL_UNLOCK_HASH }}
+          HYDRACKER_URL: ${{ secrets.HYDRACKER_URL }}
         run: |
           wails build -platform darwin/${{ matrix.arch }} -ldflags "-s -w \
-            -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}'"
+            -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}' \
+            -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}'"
       - name: Ad-hoc codesign
         run: codesign --force --deep --sign - "build/bin/Go Post Tools.app"
       - name: Zip .app (preserve exec bits)
@@ -104,9 +106,11 @@ jobs:
       - name: Build
         env:
           LIHDL_UNLOCK_HASH: ${{ secrets.LIHDL_UNLOCK_HASH }}
+          HYDRACKER_URL: ${{ secrets.HYDRACKER_URL }}
         run: |
           wails build -platform linux/amd64 -tags webkit2_41 -ldflags "-s -w \
-            -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}'"
+            -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}' \
+            -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}'"
       - uses: actions/upload-artifact@v4
         with:
           name: Go-Post-Tools-linux-amd64
@@ -140,9 +144,11 @@ jobs:
         shell: bash
         env:
           LIHDL_UNLOCK_HASH: ${{ secrets.LIHDL_UNLOCK_HASH }}
+          HYDRACKER_URL: ${{ secrets.HYDRACKER_URL }}
         run: |
           wails build -platform windows/amd64 -nsis -ldflags "-s -w \
-            -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}'"
+            -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}' \
+            -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}'"
       - name: List output
         shell: bash
         run: ls -la build/bin/

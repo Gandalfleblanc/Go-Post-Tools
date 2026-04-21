@@ -31,6 +31,8 @@ export function FicheGetContent(arg1:number):Promise<main.FicheContent>;
 
 export function GetConfig():Promise<config.Config>;
 
+export function GetEffectiveHydrackerURL():Promise<string>;
+
 export function GetFileSize(arg1:string):Promise<number>;
 
 export function GetMetaLangs():Promise<Array<api.Lang>>;
@@ -56,6 +58,8 @@ export function HydrackerGetByID(arg1:number):Promise<api.PartialTitle>;
 export function HydrackerGetByTmdbID(arg1:number):Promise<api.PartialTitle>;
 
 export function HydrackerSearch(arg1:string):Promise<Array<api.PartialTitle>>;
+
+export function IsHydrackerURLManaged():Promise<boolean>;
 
 export function IsLihdlPasswordManaged():Promise<boolean>;
 
