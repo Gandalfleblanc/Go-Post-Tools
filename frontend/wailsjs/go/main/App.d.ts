@@ -23,11 +23,15 @@ export function DeleteNzb(arg1:number):Promise<void>;
 
 export function DeleteTorrent(arg1:number):Promise<void>;
 
+export function DownloadToDownloads(arg1:string,arg2:string):Promise<string>;
+
 export function DownloadUpdate():Promise<string>;
 
 export function FetchImageBase64(arg1:string):Promise<string>;
 
 export function FicheGetContent(arg1:number):Promise<main.FicheContent>;
+
+export function FindHydrackerSources(arg1:number,arg2:number,arg3:number):Promise<main.FindHydrackerSourcesResult>;
 
 export function GetConfig():Promise<config.Config>;
 

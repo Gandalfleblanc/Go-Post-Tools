@@ -5,7 +5,7 @@
   import HydrackerTab from './HydrackerTab.svelte'
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL } from '../wailsjs/go/main/App.js'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, DownloadToDownloads, Notify } from '../wailsjs/go/main/App.js'
 
   // --- Tabs ---
   const TABS = [
@@ -212,6 +212,37 @@
   function reseedReset() {
     reseedTorrentPath = ''; reseedMkvPath = ''; reseedPrep = null
     reseedStage = ''; reseedMsg = ''; reseedPct = 0; reseedSpeed = 0
+    reseedSources = null; reseedSourcesLoading = false
+  }
+
+  // Télécharge un .torrent / NZB directement dans ~/Downloads (via signed URL Hydracker)
+  async function downloadFromHydracker(url, name) {
+    if (!url) return
+    try {
+      const path = await DownloadToDownloads(url, name)
+      addLog('RES', `⬇ Téléchargé : ${path}`)
+      try { Notify('✓ Téléchargement terminé', name) } catch(e) {}
+    } catch(e) { addLog('RES', '✗ ' + e) }
+  }
+
+  // Sources Hydracker : cherche tous les contenus alt (liens/nzbs/torrents) via API gratuite
+  let reseedSources = null
+  let reseedSourcesLoading = false
+  async function reseedFindSources() {
+    if (!reseedPrep?.hydracker_fiche?.id) return
+    reseedSourcesLoading = true
+    reseedSources = null
+    try {
+      // Pour le reseed, on essaie de deviner saison/épisode depuis le nom du torrent
+      // (parser basique). Si non détecté, on cherche tout le titre.
+      const name = reseedPrep.torrent_name || ''
+      const se = name.match(/[Ss](\d{1,2})[Ee](\d{1,3})/)
+      const sa = se ? parseInt(se[1]) : 0
+      const ep = se ? parseInt(se[2]) : 0
+      reseedSources = await FindHydrackerSources(reseedPrep.hydracker_fiche.id, sa, ep)
+      addLog('RES', `Sources Hydracker : ${reseedSources?.liens?.length || 0} liens · ${reseedSources?.nzbs?.length || 0} NZB · ${reseedSources?.torrents?.length || 0} torrents`)
+    } catch(e) { addLog('RES', '✗ ' + e) }
+    reseedSourcesLoading = false
   }
 
   // Ouvre l'onglet Hydracker avec le .torrent + la fiche Hydracker pré-remplis.
@@ -480,12 +511,54 @@
                 <button class="btn-save" on:click={() => reseedOpenInHydracker(reseedPrep)} title="Ouvre l'onglet Hydracker avec le .torrent et la fiche pré-remplis">
                   🎬 Poster sur Hydracker
                 </button>
+                <button class="btn-save" on:click={reseedFindSources} disabled={reseedSourcesLoading} title="Liste les liens DDL / NZB / torrents dispo sur Hydracker pour ce titre">
+                  {reseedSourcesLoading ? '…' : '🔍 Chercher sources Hydracker'}
+                </button>
                 {#if !reseedMkvPath && cfg.seedbox_url}
                   <span style="color:var(--text3);font-size:11px;align-self:center">💡 Fournis un MKV pour activer le re-seed seedbox</span>
                 {:else if !cfg.seedbox_url}
                   <span style="color:var(--text3);font-size:11px;align-self:center">💡 Configure une seedbox dans Réglages pour activer le re-seed</span>
                 {/if}
               </div>
+
+              {#if reseedSources}
+                <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+                  <div class="recap-key" style="margin-bottom:8px">🌐 Sources Hydracker disponibles</div>
+                  {#if reseedSources.liens?.length}
+                    <div style="margin:6px 0"><strong>Liens DDL ({reseedSources.liens.length})</strong></div>
+                    {#each reseedSources.liens as l}
+                      <div class="recap-row" style="gap:8px">
+                        <span class="recap-key" style="width:auto;flex:none">{l.host || '?'}</span>
+                        <code style="flex:1;font-size:11px;color:#7ef0c0;word-break:break-all">{l.lien}</code>
+                        <button class="btn-test" on:click={() => OpenBrowser(l.lien)}>Ouvrir</button>
+                      </div>
+                    {/each}
+                  {/if}
+                  {#if reseedSources.nzbs?.length}
+                    <div style="margin:10px 0 6px"><strong>NZB ({reseedSources.nzbs.length})</strong></div>
+                    {#each reseedSources.nzbs as n}
+                      <div class="recap-row" style="gap:8px">
+                        <span class="recap-key" style="width:auto;flex:none">#{n.id}</span>
+                        <span class="recap-val" style="flex:1">{n.name || '(sans nom)'}</span>
+                        <button class="btn-test" on:click={() => downloadFromHydracker(n.download_url, (n.name || ('hydracker-nzb-' + n.id)) + '.nzb')}>⬇ Télécharger</button>
+                      </div>
+                    {/each}
+                  {/if}
+                  {#if reseedSources.torrents?.length}
+                    <div style="margin:10px 0 6px"><strong>Torrents ({reseedSources.torrents.length})</strong></div>
+                    {#each reseedSources.torrents as t}
+                      <div class="recap-row" style="gap:8px">
+                        <span class="recap-key" style="width:auto;flex:none">#{t.id}</span>
+                        <span class="recap-val" style="flex:1">{t.name || '(sans nom)'}{t.size ? ` · ${(t.size/1e9).toFixed(2)} GB` : ''}</span>
+                        <button class="btn-test" on:click={() => downloadFromHydracker(t.download_url, (t.name || ('hydracker-torrent-' + t.id)) + '.torrent')}>⬇ Télécharger</button>
+                      </div>
+                    {/each}
+                  {/if}
+                  {#if !reseedSources.liens?.length && !reseedSources.nzbs?.length && !reseedSources.torrents?.length}
+                    <div style="color:var(--text3);font-size:12px">Aucune source trouvée (aucun uploader n'a partagé via API pour ce titre/épisode).</div>
+                  {/if}
+                </div>
+              {/if}
             {:else}
               <div class="recap-row"><span class="recap-key">Fiche Hydracker</span><span class="recap-val" style="color:#ff9585">✗ Pas de fiche correspondante</span></div>
             {/if}

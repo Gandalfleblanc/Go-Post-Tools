@@ -30,6 +30,10 @@ export function DeleteTorrent(arg1) {
   return window['go']['main']['App']['DeleteTorrent'](arg1);
 }
 
+export function DownloadToDownloads(arg1, arg2) {
+  return window['go']['main']['App']['DownloadToDownloads'](arg1, arg2);
+}
+
 export function DownloadUpdate() {
   return window['go']['main']['App']['DownloadUpdate']();
 }
@@ -40,6 +44,10 @@ export function FetchImageBase64(arg1) {
 
 export function FicheGetContent(arg1) {
   return window['go']['main']['App']['FicheGetContent'](arg1);
+}
+
+export function FindHydrackerSources(arg1, arg2, arg3) {
+  return window['go']['main']['App']['FindHydrackerSources'](arg1, arg2, arg3);
 }
 
 export function GetConfig() {

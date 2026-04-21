@@ -42,7 +42,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "1.2.18"
+const Version = "1.2.19"
 
 type App struct {
 	ctx         context.Context
@@ -986,6 +986,113 @@ type TorrentWorkflowResult struct {
 	HydrackerID     int    `json:"hydracker_id"`
 	HydrackerTorPath string `json:"hydracker_torrent_path"` // chemin local du .torrent téléchargé depuis Hydracker
 	SeedboxPath     string `json:"seedbox_path"`
+}
+
+// DownloadToDownloads télécharge un fichier via signed URL vers ~/Downloads avec un nom donné.
+// Utilisé pour récupérer automatiquement les .torrent/NZB depuis Hydracker (download_url signée 5 min).
+func (a *App) DownloadToDownloads(url, suggestedName string) (string, error) {
+	if url == "" {
+		return "", fmt.Errorf("URL manquante")
+	}
+	home, _ := os.UserHomeDir()
+	downloads := filepath.Join(home, "Downloads")
+	_ = os.MkdirAll(downloads, 0755)
+	// Nettoie le nom pour système de fichiers
+	name := strings.TrimSpace(suggestedName)
+	if name == "" {
+		name = fmt.Sprintf("hydracker-%d.bin", time.Now().Unix())
+	}
+	for _, r := range []string{"/", "\\", ":", "?", "*", "|", "\""} {
+		name = strings.ReplaceAll(name, r, "_")
+	}
+	outPath := filepath.Join(downloads, name)
+
+	req, _ := http.NewRequestWithContext(a.workContext(), "GET", url, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	if a.cfg.HydrackerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+a.cfg.HydrackerToken)
+	}
+	c := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		b, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
+	}
+
+	out, err := os.Create(outPath)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		return "", err
+	}
+
+	// Ouvre le Finder/Explorer sur le fichier téléchargé
+	switch runtime.GOOS {
+	case "darwin":
+		_ = exec.Command("open", "-R", outPath).Run()
+	case "linux":
+		_ = exec.Command("xdg-open", downloads).Run()
+	case "windows":
+		_ = exec.Command("explorer", "/select,", outPath).Run()
+	}
+	return outPath, nil
+}
+
+// FindHydrackerSourcesResult regroupe tous les contenus alternatifs disponibles sur Hydracker
+// pour un titre/épisode donné — utile pour retrouver un .torrent ou un lien DDL quand un
+// re-seed est nécessaire.
+type FindHydrackerSourcesResult struct {
+	Liens    []api.Lien        `json:"liens"`
+	Nzbs     []api.Nzb         `json:"nzbs"`
+	Torrents []api.TorrentItem `json:"torrents"`
+}
+
+// FindHydrackerSources interroge les 3 endpoints content (liens/nzbs/torrents) pour un titre
+// (et éventuellement saison/épisode) et retourne toutes les sources disponibles.
+func (a *App) FindHydrackerSources(titleID, saison, episode int) (*FindHydrackerSourcesResult, error) {
+	if titleID <= 0 {
+		return nil, fmt.Errorf("title_id manquant")
+	}
+	logEv := func(msg string) {
+		wailsruntime.EventsEmit(a.ctx, "check:log", "[FindSources] "+msg)
+	}
+	filter := api.ContentFilter{Season: saison, Episode: episode}
+	logEv(fmt.Sprintf("title=%d saison=%d episode=%d", titleID, saison, episode))
+	res := &FindHydrackerSourcesResult{}
+
+	if liens, err := a.client.GetLiens(titleID, filter); err != nil {
+		logEv("liens err: " + err.Error())
+	} else {
+		res.Liens = liens.Liens
+		logEv(fmt.Sprintf("liens: %d (charged=%.3f€, already_paid=%d, count=%d)",
+			len(liens.Liens), liens.Charged, liens.AlreadyPaid, liens.Count))
+	}
+	if nzbs, err := a.client.GetNzbs(titleID, filter); err != nil {
+		logEv("nzbs err: " + err.Error())
+	} else {
+		res.Nzbs = nzbs.Nzbs
+		logEv(fmt.Sprintf("nzbs: %d (charged=%.3f€)", len(nzbs.Nzbs), nzbs.Charged))
+	}
+	if torrents, err := a.client.GetTorrents(titleID, filter); err != nil {
+		logEv("torrents err: " + err.Error())
+	} else {
+		res.Torrents = torrents.Torrents
+		logEv(fmt.Sprintf("torrents: %d (charged=%.3f€)", len(torrents.Torrents), torrents.Charged))
+	}
+	if api.LastRawTorrents != "" {
+		raw := api.LastRawTorrents
+		if len(raw) > 500 {
+			raw = raw[:500] + "…"
+		}
+		logEv("torrents raw: " + raw)
+	}
+	return res, nil
 }
 
 // PostExistingTorrent poste un .torrent déjà existant à Hydracker (sans FTP ni seedbox).
