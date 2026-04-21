@@ -1,0 +1,786 @@
+export namespace api {
+	
+	export class Lang {
+	    id: number;
+	    name: string;
+	    code?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Lang(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.code = source["code"];
+	    }
+	}
+	export class Lien {
+	    id: number;
+	    lien: string;
+	    lang_id?: number;
+	    qual_id?: number;
+	    episode?: number;
+	    saison?: number;
+	    host?: string;
+	    id_user?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Lien(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.lien = source["lien"];
+	        this.lang_id = source["lang_id"];
+	        this.qual_id = source["qual_id"];
+	        this.episode = source["episode"];
+	        this.saison = source["saison"];
+	        this.host = source["host"];
+	        this.id_user = source["id_user"];
+	    }
+	}
+	export class LiensResult {
+	    liens: Lien[];
+	    count: number;
+	    charged: number;
+	    already_paid: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiensResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.liens = this.convertValues(source["liens"], Lien);
+	        this.count = source["count"];
+	        this.charged = source["charged"];
+	        this.already_paid = source["already_paid"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Nzb {
+	    id: number;
+	    name: string;
+	    download_url: string;
+	    lang_id?: number;
+	    qual_id?: number;
+	    episode?: number;
+	    saison?: number;
+	    id_user?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Nzb(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.download_url = source["download_url"];
+	        this.lang_id = source["lang_id"];
+	        this.qual_id = source["qual_id"];
+	        this.episode = source["episode"];
+	        this.saison = source["saison"];
+	        this.id_user = source["id_user"];
+	    }
+	}
+	export class NzbsResult {
+	    nzbs: Nzb[];
+	    count: number;
+	    charged: number;
+	    already_paid: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NzbsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nzbs = this.convertValues(source["nzbs"], Nzb);
+	        this.count = source["count"];
+	        this.charged = source["charged"];
+	        this.already_paid = source["already_paid"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PartialTitle {
+	    id: number;
+	    name: string;
+	    type: string;
+	    poster?: string;
+	    release_date?: string;
+	    score?: number;
+	    runtime?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PartialTitle(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.poster = source["poster"];
+	        this.release_date = source["release_date"];
+	        this.score = source["score"];
+	        this.runtime = source["runtime"];
+	    }
+	}
+	export class Quality {
+	    id: number;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Quality(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
+	}
+	export class TorrentItem {
+	    id: number;
+	    name: string;
+	    download_url: string;
+	    lang_id?: number;
+	    qual_id?: number;
+	    episode?: number;
+	    saison?: number;
+	    size?: number;
+	    id_user?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TorrentItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.download_url = source["download_url"];
+	        this.lang_id = source["lang_id"];
+	        this.qual_id = source["qual_id"];
+	        this.episode = source["episode"];
+	        this.saison = source["saison"];
+	        this.size = source["size"];
+	        this.id_user = source["id_user"];
+	    }
+	}
+	export class TorrentsResult {
+	    torrents: TorrentItem[];
+	    count: number;
+	    charged: number;
+	    already_paid: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TorrentsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.torrents = this.convertValues(source["torrents"], TorrentItem);
+	        this.count = source["count"];
+	        this.charged = source["charged"];
+	        this.already_paid = source["already_paid"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class UploadLienItem {
+	    id: number;
+	    active: any;
+	    lien: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UploadLienItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.active = source["active"];
+	        this.lien = source["lien"];
+	    }
+	}
+	export class UploadLienResult {
+	    status: string;
+	    liens: UploadLienItem[];
+	
+	    static createFrom(source: any = {}) {
+	        return new UploadLienResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.liens = this.convertValues(source["liens"], UploadLienItem);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class UploadNzbResult {
+	    success: boolean;
+	    message: string;
+	    // Go type: struct { ID int "json:\"id\""; Active interface {} "json:\"active\"" }
+	    nzb: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new UploadNzbResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.message = source["message"];
+	        this.nzb = this.convertValues(source["nzb"], Object);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class UploadTorrentResult {
+	    success: boolean;
+	    message: string;
+	    download_url: string;
+	    expires_at: string;
+	    // Go type: struct { ID int "json:\"id\""; Hash string "json:\"hash\""; Active bool "json:\"active\""; TitleID int "json:\"title_id,string\""; Qualite int "json:\"qualite,string\"" }
+	    torrent: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new UploadTorrentResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.message = source["message"];
+	        this.download_url = source["download_url"];
+	        this.expires_at = source["expires_at"];
+	        this.torrent = this.convertValues(source["torrent"], Object);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace config {
+	
+	export class Config {
+	    hydracker_token: string;
+	    tmdb_api_key: string;
+	    one_fichier_api_key: string;
+	    sendcm_api_key: string;
+	    usenet_host: string;
+	    usenet_port: number;
+	    usenet_ssl: boolean;
+	    usenet_user: string;
+	    usenet_password: string;
+	    usenet_connections: number;
+	    usenet_group: string;
+	    parpar_redundancy: number;
+	    parpar_threads: number;
+	    parpar_slice_size: number;
+	    ftp_host: string;
+	    ftp_port: number;
+	    ftp_user: string;
+	    ftp_password: string;
+	    ftp_path: string;
+	    seedbox_url: string;
+	    seedbox_user: string;
+	    seedbox_password: string;
+	    seedbox_label: string;
+	    tracker_url: string;
+	    torrent_piece_size: number;
+	    hydracker_base_url: string;
+	    lihdl_base_url: string;
+	    media_search_url: string;
+	    lihdl_user: string;
+	    lihdl_password: string;
+	    lihdl_settings_password_hash: string;
+	    watch_folder: string;
+	    watch_auto_start: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Config(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hydracker_token = source["hydracker_token"];
+	        this.tmdb_api_key = source["tmdb_api_key"];
+	        this.one_fichier_api_key = source["one_fichier_api_key"];
+	        this.sendcm_api_key = source["sendcm_api_key"];
+	        this.usenet_host = source["usenet_host"];
+	        this.usenet_port = source["usenet_port"];
+	        this.usenet_ssl = source["usenet_ssl"];
+	        this.usenet_user = source["usenet_user"];
+	        this.usenet_password = source["usenet_password"];
+	        this.usenet_connections = source["usenet_connections"];
+	        this.usenet_group = source["usenet_group"];
+	        this.parpar_redundancy = source["parpar_redundancy"];
+	        this.parpar_threads = source["parpar_threads"];
+	        this.parpar_slice_size = source["parpar_slice_size"];
+	        this.ftp_host = source["ftp_host"];
+	        this.ftp_port = source["ftp_port"];
+	        this.ftp_user = source["ftp_user"];
+	        this.ftp_password = source["ftp_password"];
+	        this.ftp_path = source["ftp_path"];
+	        this.seedbox_url = source["seedbox_url"];
+	        this.seedbox_user = source["seedbox_user"];
+	        this.seedbox_password = source["seedbox_password"];
+	        this.seedbox_label = source["seedbox_label"];
+	        this.tracker_url = source["tracker_url"];
+	        this.torrent_piece_size = source["torrent_piece_size"];
+	        this.hydracker_base_url = source["hydracker_base_url"];
+	        this.lihdl_base_url = source["lihdl_base_url"];
+	        this.media_search_url = source["media_search_url"];
+	        this.lihdl_user = source["lihdl_user"];
+	        this.lihdl_password = source["lihdl_password"];
+	        this.lihdl_settings_password_hash = source["lihdl_settings_password_hash"];
+	        this.watch_folder = source["watch_folder"];
+	        this.watch_auto_start = source["watch_auto_start"];
+	    }
+	}
+
+}
+
+export namespace history {
+	
+	export class Entry {
+	    id: number;
+	    timestamp: string;
+	    type: string;
+	    title_id: number;
+	    title_name: string;
+	    saison: number;
+	    episode: number;
+	    qualite: number;
+	    qualite_name: string;
+	    hydracker_id: number;
+	    filename: string;
+	    links: string;
+	    status: string;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Entry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.timestamp = source["timestamp"];
+	        this.type = source["type"];
+	        this.title_id = source["title_id"];
+	        this.title_name = source["title_name"];
+	        this.saison = source["saison"];
+	        this.episode = source["episode"];
+	        this.qualite = source["qualite"];
+	        this.qualite_name = source["qualite_name"];
+	        this.hydracker_id = source["hydracker_id"];
+	        this.filename = source["filename"];
+	        this.links = source["links"];
+	        this.status = source["status"];
+	        this.error = source["error"];
+	    }
+	}
+
+}
+
+export namespace main {
+	
+	export class CheckTorrentEntry {
+	    hash: string;
+	    name: string;
+	    file_name: string;
+	    has_error: boolean;
+	    message: string;
+	    is_active: number;
+	    state: number;
+	    size: number;
+	    done: number;
+	    lihdl_url: string;
+	    lihdl_name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CheckTorrentEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hash = source["hash"];
+	        this.name = source["name"];
+	        this.file_name = source["file_name"];
+	        this.has_error = source["has_error"];
+	        this.message = source["message"];
+	        this.is_active = source["is_active"];
+	        this.state = source["state"];
+	        this.size = source["size"];
+	        this.done = source["done"];
+	        this.lihdl_url = source["lihdl_url"];
+	        this.lihdl_name = source["lihdl_name"];
+	    }
+	}
+	export class DDLWorkflowResult {
+	    links: string[];
+	    hydracker_id: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DDLWorkflowResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.links = source["links"];
+	        this.hydracker_id = source["hydracker_id"];
+	    }
+	}
+	export class FicheContent {
+	    torrents?: api.TorrentsResult;
+	    nzbs?: api.NzbsResult;
+	    liens?: api.LiensResult;
+	    charged_total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new FicheContent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.torrents = this.convertValues(source["torrents"], api.TorrentsResult);
+	        this.nzbs = this.convertValues(source["nzbs"], api.NzbsResult);
+	        this.liens = this.convertValues(source["liens"], api.LiensResult);
+	        this.charged_total = source["charged_total"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class NzbWorkflowResult {
+	    nzb_path: string;
+	    hydracker_id: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NzbWorkflowResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nzb_path = source["nzb_path"];
+	        this.hydracker_id = source["hydracker_id"];
+	    }
+	}
+	export class ReseedPrepareResult {
+	    torrent_name: string;
+	    first_file_name: string;
+	    size: number;
+	    info_hash: string;
+	    search?: mediasearch.SearchResult;
+	    hydracker_fiche?: api.PartialTitle;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReseedPrepareResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.torrent_name = source["torrent_name"];
+	        this.first_file_name = source["first_file_name"];
+	        this.size = source["size"];
+	        this.info_hash = source["info_hash"];
+	        this.search = this.convertValues(source["search"], mediasearch.SearchResult);
+	        this.hydracker_fiche = this.convertValues(source["hydracker_fiche"], api.PartialTitle);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TorrentWorkflowResult {
+	    torrent_path: string;
+	    hydracker_id: number;
+	    hydracker_torrent_path: string;
+	    seedbox_path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TorrentWorkflowResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.torrent_path = source["torrent_path"];
+	        this.hydracker_id = source["hydracker_id"];
+	        this.hydracker_torrent_path = source["hydracker_torrent_path"];
+	        this.seedbox_path = source["seedbox_path"];
+	    }
+	}
+	export class UpdateInfo {
+	    available: boolean;
+	    current: string;
+	    latest: string;
+	    url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.current = source["current"];
+	        this.latest = source["latest"];
+	        this.url = source["url"];
+	    }
+	}
+
+}
+
+export namespace mediasearch {
+	
+	export class SearchResult {
+	    tmdb_id: number;
+	    media_type: string;
+	    title_fr: string;
+	    title_vo: string;
+	    year: string;
+	    poster_url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SearchResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tmdb_id = source["tmdb_id"];
+	        this.media_type = source["media_type"];
+	        this.title_fr = source["title_fr"];
+	        this.title_vo = source["title_vo"];
+	        this.year = source["year"];
+	        this.poster_url = source["poster_url"];
+	    }
+	}
+
+}
+
+export namespace parser {
+	
+	export class FileInfo {
+	    title: string;
+	    year: string;
+	    quality: string;
+	    source: string;
+	    video_codec: string;
+	    audio_codec: string;
+	    languages: string[];
+	    group: string;
+	    season: number;
+	    episode: number;
+	    raw: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.year = source["year"];
+	        this.quality = source["quality"];
+	        this.source = source["source"];
+	        this.video_codec = source["video_codec"];
+	        this.audio_codec = source["audio_codec"];
+	        this.languages = source["languages"];
+	        this.group = source["group"];
+	        this.season = source["season"];
+	        this.episode = source["episode"];
+	        this.raw = source["raw"];
+	    }
+	}
+
+}
+
+export namespace tester {
+	
+	export class Result {
+	    ok: boolean;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Result(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.message = source["message"];
+	    }
+	}
+
+}
+
+export namespace tmdb {
+	
+	export class Movie {
+	    id: number;
+	    title: string;
+	    name: string;
+	    overview: string;
+	    poster_path: string;
+	    release_date: string;
+	    first_air_date: string;
+	    vote_average: number;
+	    media_type: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Movie(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.name = source["name"];
+	        this.overview = source["overview"];
+	        this.poster_path = source["poster_path"];
+	        this.release_date = source["release_date"];
+	        this.first_air_date = source["first_air_date"];
+	        this.vote_average = source["vote_average"];
+	        this.media_type = source["media_type"];
+	    }
+	}
+
+}
+

@@ -1,0 +1,212 @@
+name: Build
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  PARPAR_VERSION: "0.4.5"
+  NYUU_VERSION: "0.4.2-Obfuscate1.4"
+
+jobs:
+
+  build-macos:
+    name: Build macOS (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+            parpar_asset: parpar-v0.4.5-macos-x64.xz
+            nyuu_asset: nyuu-v0.4.2-Obfuscate1.4-mac-arm64.txz
+            bindir: darwin-arm64
+          - arch: amd64
+            runner: macos-latest
+            parpar_asset: parpar-v0.4.5-macos-x64.xz
+            nyuu_asset: nyuu-v0.4.2-Obfuscate1.4-mac-x64.txz
+            bindir: darwin-amd64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Download & extract ParPar
+        run: |
+          mkdir -p binaries/${{ matrix.bindir }}
+          curl -sL -o /tmp/${{ matrix.parpar_asset }} "https://github.com/animetosho/ParPar/releases/download/v${{ env.PARPAR_VERSION }}/${{ matrix.parpar_asset }}"
+          xz -d /tmp/${{ matrix.parpar_asset }}
+          mv /tmp/$(echo "${{ matrix.parpar_asset }}" | sed 's/\.xz$//') binaries/${{ matrix.bindir }}/parpar
+          chmod +x binaries/${{ matrix.bindir }}/parpar
+
+      - name: Download & extract Nyuu
+        run: |
+          curl -sL -o /tmp/${{ matrix.nyuu_asset }} "https://github.com/Antidote2151/Nyuu-Obfuscation/releases/download/v${{ env.NYUU_VERSION }}/${{ matrix.nyuu_asset }}"
+          tar -xf /tmp/${{ matrix.nyuu_asset }} -C binaries/${{ matrix.bindir }}/ nyuu
+          chmod +x binaries/${{ matrix.bindir }}/nyuu
+
+      - name: Build
+        env:
+          LIHDL_UNLOCK_HASH: ${{ secrets.LIHDL_UNLOCK_HASH }}
+        run: |
+          wails build -platform darwin/${{ matrix.arch }} -ldflags "-s -w \
+            -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}'"
+      - name: Ad-hoc codesign
+        run: codesign --force --deep --sign - "build/bin/Go Post Tools.app"
+      - name: Zip .app (preserve exec bits)
+        run: cd build/bin && zip -r Go-Post-Tools-macos-${{ matrix.arch }}.zip "Go Post Tools.app"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Go-Post-Tools-macos-${{ matrix.arch }}
+          path: build/bin/Go-Post-Tools-macos-${{ matrix.arch }}.zip
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Download & extract ParPar
+        run: |
+          mkdir -p binaries/linux-amd64
+          curl -sL -o /tmp/parpar-v${{ env.PARPAR_VERSION }}-linux-static-amd64.xz "https://github.com/animetosho/ParPar/releases/download/v${{ env.PARPAR_VERSION }}/parpar-v${{ env.PARPAR_VERSION }}-linux-static-amd64.xz"
+          xz -d /tmp/parpar-v${{ env.PARPAR_VERSION }}-linux-static-amd64.xz
+          mv /tmp/parpar-v${{ env.PARPAR_VERSION }}-linux-static-amd64 binaries/linux-amd64/parpar
+          chmod +x binaries/linux-amd64/parpar
+
+      - name: Download & extract Nyuu
+        run: |
+          curl -sL -o /tmp/nyuu-linux-amd64.tar.xz "https://github.com/Antidote2151/Nyuu-Obfuscation/releases/download/v${{ env.NYUU_VERSION }}/nyuu-v${{ env.NYUU_VERSION }}-linux-amd64.tar.xz"
+          tar -xf /tmp/nyuu-linux-amd64.tar.xz -C binaries/linux-amd64/ nyuu
+          chmod +x binaries/linux-amd64/nyuu
+
+      - name: Build
+        env:
+          LIHDL_UNLOCK_HASH: ${{ secrets.LIHDL_UNLOCK_HASH }}
+        run: |
+          wails build -platform linux/amd64 -tags webkit2_41 -ldflags "-s -w \
+            -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Go-Post-Tools-linux-amd64
+          path: build/bin/Go Post Tools
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Download & extract ParPar + Nyuu
+        shell: bash
+        run: |
+          mkdir -p binaries/windows-amd64
+          curl -sL -o /tmp/parpar-win64.7z "https://github.com/animetosho/ParPar/releases/download/v${{ env.PARPAR_VERSION }}/parpar-v${{ env.PARPAR_VERSION }}-win64.7z"
+          7z x /tmp/parpar-win64.7z -o/tmp/parpar-extracted -y
+          find /tmp/parpar-extracted -name 'parpar.exe' -exec mv {} binaries/windows-amd64/parpar.exe \;
+          curl -sL -o /tmp/nyuu-win64.7z "https://github.com/Antidote2151/Nyuu-Obfuscation/releases/download/v${{ env.NYUU_VERSION }}/nyuu-v${{ env.NYUU_VERSION }}-win64.7z"
+          7z x /tmp/nyuu-win64.7z -o/tmp/nyuu-extracted -y
+          find /tmp/nyuu-extracted -name 'nyuu.exe' -exec mv {} binaries/windows-amd64/nyuu.exe \;
+
+      - name: Build Windows (NSIS installer + exe stripped)
+        shell: bash
+        env:
+          LIHDL_UNLOCK_HASH: ${{ secrets.LIHDL_UNLOCK_HASH }}
+        run: |
+          wails build -platform windows/amd64 -nsis -ldflags "-s -w \
+            -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}'"
+      - name: List output
+        shell: bash
+        run: ls -la build/bin/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Go-Post-Tools-windows-amd64
+          path: |
+            build/bin/Go Post Tools.exe
+            build/bin/Go Post Tools-amd64-installer.exe
+
+  release:
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Package Linux binary
+        run: |
+          cd Go-Post-Tools-linux-amd64 && tar -czf "../Go-Post-Tools-linux-amd64.tar.gz" "Go Post Tools" && cd ..
+      - name: Package Windows binary (portable exe)
+        run: |
+          cd Go-Post-Tools-windows-amd64 && zip ../Go-Post-Tools-windows-amd64.zip "Go Post Tools.exe" && cd ..
+      - name: Rename Windows installer
+        run: |
+          if [ -f "Go-Post-Tools-windows-amd64/Go Post Tools-amd64-installer.exe" ]; then
+            cp "Go-Post-Tools-windows-amd64/Go Post Tools-amd64-installer.exe" Go-Post-Tools-windows-amd64-installer.exe
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Go-Post-Tools-macos-arm64/Go-Post-Tools-macos-arm64.zip
+            Go-Post-Tools-macos-amd64/Go-Post-Tools-macos-amd64.zip
+            Go-Post-Tools-linux-amd64.tar.gz
+            Go-Post-Tools-windows-amd64.zip
+            Go-Post-Tools-windows-amd64-installer.exe
+          body: |
+            ## Installation
+
+            ### macOS
+            Télécharger le `.zip` correspondant à ton Mac :
+            - **Apple Silicon** (M1, M2, M3, M4) → `macos-arm64.zip`
+            - **Intel** → `macos-amd64.zip`
+
+            Dézipper, puis **à la première utilisation** ouvrir un Terminal et exécuter :
+            ```bash
+            xattr -cr "/chemin/vers/Go Post Tools.app"
+            ```
+            (ou glisser le `.app` dans la commande après `xattr -cr ` pour auto-remplir le chemin)
+
+            Cette commande retire l'attribut "quarantaine" macOS sur l'app non signée Apple Developer. À faire une seule fois après chaque téléchargement.
+
+            ### Windows
+            - **Option recommandée** : télécharger `Go-Post-Tools-windows-amd64-installer.exe`, double-cliquer, suivre l'assistant. Raccourci menu Démarrer + désinstallation propre via Panneau de configuration.
+            - **Option portable** : télécharger `Go-Post-Tools-windows-amd64.zip`, dézipper, lancer `Go Post Tools.exe`.
+
+            ⚠ **Faux positif antivirus** : l'app n'est pas signée avec un certificat EV (coûte ~300€/an). Windows Defender / certains AV peuvent afficher une alerte.
+            - SmartScreen → **Informations complémentaires** → **Exécuter quand même**
+            - Si un AV supprime le fichier : exclure le dossier d'installation dans les paramètres AV, ou compiler toi-même depuis le code source (projet 100% open source)
+            - Tu peux vérifier le binaire sur [VirusTotal](https://www.virustotal.com/) — les détections sont des heuristiques génériques sur Go/Wails/binaires embedés (parpar, nyuu)
+
+            ### Linux
+            ```bash
+            tar -xzf Go-Post-Tools-linux-amd64.tar.gz
+            chmod +x "Go Post Tools"
+            ./"Go Post Tools"
+            ```
+            Nécessite `libwebkit2gtk-4.1` (Ubuntu 24.04+, Debian 13+, Fedora 39+).

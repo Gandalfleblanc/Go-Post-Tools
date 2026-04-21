@@ -1,0 +1,8 @@
+build/
+binaries/
+frontend/dist/
+frontend/node_modules/
+frontend/package-lock.json
+frontend/package.json.md5
+.DS_Store
+**/.DS_Store

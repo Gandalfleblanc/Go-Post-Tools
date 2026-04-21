@@ -1,0 +1,1475 @@
+<script>
+  import { onMount, onDestroy } from 'svelte'
+  import { GetConfig, SaveConfig, TestHydracker, TestTMDB, TestOneFichier, TestSendCm, TestFTP, TestSeedbox, TestUsenet, TestLihdl } from '../wailsjs/go/main/App.js'
+  import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime.js'
+  import HydrackerTab from './HydrackerTab.svelte'
+  import { logEntries, addLog, clearLogs } from './logs.js'
+  import logo from './assets/logo.png'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged } from '../wailsjs/go/main/App.js'
+
+  // --- Tabs ---
+  const TABS = [
+    { id: 'hydracker', label: '🎬 Hydracker' },
+    { id: 'history',   label: '📚 Historique' },
+    { id: 'check',     label: '🔍 Check Torrent' },
+    { id: 'reseed',    label: '♻️ Reseed' },
+    { id: 'api',       label: '🔑 API' },
+    { id: 'settings',  label: '⚙️ Réglages' },
+    { id: 'log',       label: '📋 Journal' },
+  ]
+  let activeTab = 'hydracker'
+
+  // --- Config ---
+  let cfg = {
+    hydracker_token: '',
+    tmdb_api_key: '',
+    one_fichier_api_key: '',
+    sendcm_api_key: '',
+    usenet_host: '', usenet_port: 119, usenet_ssl: false,
+    usenet_user: '', usenet_password: '', usenet_connections: 20,
+    usenet_group: 'alt.binaries.test',
+    parpar_redundancy: 5, parpar_threads: 8, parpar_slice_size: 768000,
+    ftp_host: '', ftp_port: 21, ftp_user: '', ftp_password: '', ftp_path: '/',
+    seedbox_url: '', seedbox_user: '', seedbox_password: '', seedbox_label: '',
+    tracker_url: '', torrent_piece_size: 8388608,
+    lihdl_user: '', lihdl_password: '',
+    watch_folder: '', watch_auto_start: false,
+  }
+  let appVersion = ''
+  let watchRunning = false
+  let updateInfo = null  // { available, current, latest, url }
+  let cfgSaved = false
+  let sidebarCollapsed = false
+  let updateChecking = false
+  let updateCheckMsg = ''
+
+  // Protection par mot de passe de la section LiHDL
+  let lihdlUnlocked = false
+  let lihdlHasPassword = false
+  let lihdlManaged = false // true = mdp imposé au build, user ne peut pas le modifier
+  let lihdlModal = null  // null | 'unlock' | 'create' | 'change' | 'remove'
+  let lihdlPwdInput = ''
+  let lihdlPwdCurrent = ''
+  let lihdlPwdNew = ''
+  let lihdlPwdConfirm = ''
+  let lihdlPwdError = ''
+
+  async function checkLihdlPasswordStatus() {
+    try { lihdlHasPassword = await HasLihdlSettingsPassword() } catch(e) { lihdlHasPassword = false }
+    try { lihdlManaged = await IsLihdlPasswordManaged() } catch(e) { lihdlManaged = false }
+  }
+
+  function openLihdlLockModal() {
+    lihdlPwdInput = ''; lihdlPwdCurrent = ''; lihdlPwdNew = ''; lihdlPwdConfirm = ''; lihdlPwdError = ''
+    lihdlModal = lihdlHasPassword ? 'unlock' : 'create'
+  }
+
+  async function submitLihdlPwd() {
+    lihdlPwdError = ''
+    try {
+      if (lihdlModal === 'unlock') {
+        const ok = await VerifyLihdlSettingsPassword(lihdlPwdInput)
+        if (!ok) { lihdlPwdError = 'Mot de passe incorrect'; return }
+        lihdlUnlocked = true
+        lihdlModal = null
+      } else if (lihdlModal === 'create') {
+        if (lihdlPwdNew.length < 4) { lihdlPwdError = 'Mot de passe trop court (4 min)'; return }
+        if (lihdlPwdNew !== lihdlPwdConfirm) { lihdlPwdError = 'Les mots de passe ne correspondent pas'; return }
+        await SetLihdlSettingsPassword('', lihdlPwdNew)
+        lihdlHasPassword = true
+        lihdlUnlocked = true
+        lihdlModal = null
+      } else if (lihdlModal === 'change') {
+        if (lihdlPwdNew.length < 4) { lihdlPwdError = 'Mot de passe trop court (4 min)'; return }
+        if (lihdlPwdNew !== lihdlPwdConfirm) { lihdlPwdError = 'Les mots de passe ne correspondent pas'; return }
+        await SetLihdlSettingsPassword(lihdlPwdCurrent, lihdlPwdNew)
+        lihdlModal = null
+      } else if (lihdlModal === 'remove') {
+        await ClearLihdlSettingsPassword(lihdlPwdCurrent)
+        lihdlHasPassword = false
+        lihdlModal = null
+      }
+    } catch(e) { lihdlPwdError = String(e).replace('Error: ', '') }
+  }
+
+  async function recheckUpdate() {
+    updateChecking = true
+    updateCheckMsg = ''
+    addLog('UPDATE', '🔄 Vérification des mises à jour…')
+    try {
+      updateInfo = await CheckForUpdate()
+      addLog('UPDATE', `GitHub: v${updateInfo?.latest || '?'} · Local: v${updateInfo?.current || '?'} · Dispo: ${updateInfo?.available}`)
+      if (updateInfo?.available) {
+        updateCheckMsg = `🆕 v${updateInfo.latest}`
+      } else {
+        updateCheckMsg = `✓ À jour (v${updateInfo?.current || ''})`
+        setTimeout(() => { updateCheckMsg = '' }, 5000)
+      }
+    } catch(e) {
+      updateCheckMsg = '✗ Erreur'
+      addLog('UPDATE', `✗ Erreur check maj: ${e}`)
+      setTimeout(() => { updateCheckMsg = '' }, 8000)
+    }
+    updateChecking = false
+  }
+
+  // Update modal
+  let showUpdateModal = false
+  let updateState = { stage: '', msg: '', percent: 0, downloading: false, downloadedPath: '' }
+
+  async function startDownloadUpdate() {
+    updateState = { stage: '', msg: '', percent: 0, downloading: true, downloadedPath: '' }
+    try {
+      const path = await DownloadUpdate()
+      updateState = { ...updateState, downloading: false, downloadedPath: path, stage: 'done' }
+    } catch(e) {
+      updateState = { ...updateState, downloading: false, stage: 'error', msg: String(e) }
+      addLog('UPDATE', '✗ ' + e)
+    }
+  }
+
+  // Historique
+  let histEntries = []
+  let histFilter = ''      // '' | 'torrent' | 'nzb' | 'ddl'
+  let histQuery = ''
+  let histStats = { total: 0, ok: 0, error: 0, torrent: 0, nzb: 0, ddl: 0 }
+  let histLoading = false
+
+  async function loadHistory() {
+    histLoading = true
+    try {
+      histEntries = await HistoryList(histFilter, histQuery, 0, 500) || []
+      histStats = await HistoryStats() || histStats
+    } catch(e) { addLog('HIST', '✗ ' + e) }
+    histLoading = false
+  }
+  $: if (activeTab === 'history') loadHistory()
+
+  async function deleteHistEntry(id) {
+    if (!confirm('Supprimer cette entrée ?')) return
+    try { await HistoryDelete(id); await loadHistory() } catch(e) {}
+  }
+
+  function formatDate(iso) {
+    if (!iso) return ''
+    const d = new Date(iso)
+    return d.toLocaleString('fr-FR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' })
+  }
+
+  // NZB live status (partagé avec l'onglet NZB)
+  let nzbStatus = ''
+  let nzbParparPct = 0
+  let nzbNyuuPct = 0
+  let nzbNyuuSpeed = ''
+  let nzbNyuuETA = ''
+  let nzbNyuuArticles = ''
+  let nzbDone = false
+  let nzbResult = null  // { ok, message }
+
+  // Show passwords
+  let showPwd = {}
+
+  // Reseed
+  let reseedTorrentPath = ''
+  let reseedMkvPath = ''
+  let reseedPrepLoading = false
+  let reseedPrep = null  // { torrent_name, first_file_name, size, info_hash, search, hydracker_fiche }
+  let reseedRunning = false
+  let reseedStage = ''
+  let reseedMsg = ''
+  let reseedPct = 0
+  let reseedSpeed = 0
+
+  async function reseedPickTorrent() {
+    try {
+      const p = await SelectAnyTorrentFile()
+      if (p) { reseedTorrentPath = p; reseedPrep = null }
+    } catch(e) { addLog('RES', '✗ ' + e) }
+  }
+  async function reseedPickMkv() {
+    try {
+      const p = await SelectMkvFile()
+      if (p) reseedMkvPath = p
+    } catch(e) { addLog('RES', '✗ ' + e) }
+  }
+  async function reseedAnalyze() {
+    if (!reseedTorrentPath) return
+    reseedPrepLoading = true
+    reseedPrep = null
+    try { reseedPrep = await ReseedPrepare(reseedTorrentPath) }
+    catch(e) { addLog('RES', '✗ analyse: ' + e) }
+    reseedPrepLoading = false
+  }
+  async function reseedConfirm() {
+    if (!reseedTorrentPath || !reseedMkvPath) return
+    reseedRunning = true
+    reseedStage = 'start'; reseedMsg = 'Démarrage…'; reseedPct = 0; reseedSpeed = 0
+    try { await ReseedExecute(reseedTorrentPath, reseedMkvPath) }
+    catch(e) { addLog('RES', '✗ ' + e) }
+    reseedRunning = false
+  }
+  function reseedReset() {
+    reseedTorrentPath = ''; reseedMkvPath = ''; reseedPrep = null
+    reseedStage = ''; reseedMsg = ''; reseedPct = 0; reseedSpeed = 0
+  }
+
+// Check Torrent
+  let checkTorrents = []
+  let checkLoading = false
+  let checkState = {}  // { [hash]: { stage, msg, percent, speed } }
+  let checkFilter = 'all'  // 'all' | 'active' | 'inactive'
+  function isIncomplete(t) { return t.size > 0 && t.done < t.size }
+  $: filteredCheckTorrents = checkTorrents.filter(t => {
+    if (checkFilter === 'active')   return t.is_active === 1
+    if (checkFilter === 'inactive') return isIncomplete(t)
+    return true
+  })
+
+  async function loadCheckTorrents(refresh = false) {
+    checkLoading = true
+    try { checkTorrents = await ListCheckTorrents(refresh) || [] }
+    catch(e) { addLog('CHK', '✗ ' + e) }
+    checkLoading = false
+  }
+  async function reseedOne(t) {
+    if (!t.lihdl_url || !t.file_name) return
+    checkState = { ...checkState, [t.hash]: { stage: 'download', msg: 'Démarrage…', percent: 0, speed: 0 } }
+    try { await ReseedFromLihdl(t.hash, t.lihdl_url, t.file_name) }
+    catch(e) { addLog('CHK', '✗ ' + e) }
+  }
+
+  onMount(async () => {
+    try {
+      const loaded = await GetConfig()
+      if (loaded) cfg = { ...cfg, ...loaded }
+    } catch {}
+    try { appVersion = await GetVersion() } catch {}
+    try { updateInfo = await CheckForUpdate() } catch {}
+    checkLihdlPasswordStatus()
+    EventsOn('watch:status', s => { watchRunning = !!s.running; if (s.running) addLog('WATCH', `Surveillance active : ${s.folder}`) })
+    EventsOn('update:progress', p => { updateState = { ...updateState, stage: p.stage || '', msg: p.msg || '', percent: p.percent || 0 } })
+    EventsOn('watch:newfile', path => {
+      addLog('WATCH', `📥 Nouveau fichier : ${path}`)
+      window.dispatchEvent(new CustomEvent('watch:newfile', { detail: path }))
+    })
+    // Démarrage auto si configuré
+    if (cfg.watch_auto_start && cfg.watch_folder) {
+      try { await StartWatchFolder(cfg.watch_folder) } catch(e) { addLog('WATCH', '✗ ' + e) }
+    }
+    EventsOn('nzb:status', s => {
+      nzbStatus = s
+      if (s === 'Terminé') nzbDone = true
+      addLog('NZB', s)
+    })
+    EventsOn('nzb:parpar', p => { if (p.percent !== undefined) nzbParparPct = p.percent })
+    EventsOn('nzb:nyuu',   p => {
+      if (p.percent  !== undefined) nzbNyuuPct     = p.percent
+      if (p.speed    !== undefined) nzbNyuuSpeed   = p.speed
+      if (p.eta      !== undefined) nzbNyuuETA     = p.eta
+      if (p.articles !== undefined) nzbNyuuArticles = p.articles
+    })
+    EventsOn('nzb:result', r => { nzbResult = r; nzbDone = true; addLog('NZB', r.message) })
+    EventsOn('ddl:log',    msg => addLog('DDL', msg))
+    EventsOn('check:log',  msg => addLog('CHK', msg))
+    EventsOn('check:status', p => {
+      if (!p.hash) return
+      checkState = { ...checkState, [p.hash]: { ...(checkState[p.hash] || {}), stage: p.stage, msg: p.msg } }
+      addLog('CHK', p.msg)
+    })
+    EventsOn('check:progress', p => {
+      if (!p.hash) return
+      checkState = { ...checkState, [p.hash]: { ...(checkState[p.hash] || {}), percent: p.percent ?? 0, speed: p.speed ?? 0 } }
+    })
+    EventsOn('reseed:status', p => {
+      reseedStage = p.stage || ''
+      reseedMsg = p.msg || ''
+      addLog('RES', p.msg || p.stage)
+    })
+    EventsOn('reseed:progress', p => {
+      reseedPct = p.percent ?? 0
+      reseedSpeed = p.speed_mb ?? 0
+    })
+  })
+
+  onDestroy(() => EventsOff('nzb:status', 'nzb:parpar', 'nzb:nyuu', 'nzb:result', 'ddl:log'))
+
+  async function saveConfig() {
+    await SaveConfig(cfg)
+    cfgSaved = true
+    setTimeout(() => cfgSaved = false, 2000)
+  }
+
+  // --- Tests ---
+  let testResults = {}
+  let testLoading = {}
+
+  async function runTest(key, fn) {
+    testLoading[key] = true
+    testLoading = testLoading
+    try {
+      testResults[key] = await fn()
+    } catch(e) {
+      testResults[key] = { ok: false, message: e.toString() }
+    }
+    testLoading[key] = false
+    testLoading = testLoading
+    testResults = testResults
+  }
+</script>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar" class:collapsed={sidebarCollapsed}>
+    <button class="sidebar-toggle" on:click={() => sidebarCollapsed = !sidebarCollapsed} title={sidebarCollapsed ? 'Déplier la barre' : 'Replier la barre'}>
+      {sidebarCollapsed ? '›' : '‹'}
+    </button>
+    <div class="brand">
+      <img src={logo} alt="" class="brand-logo" />
+      {#if !sidebarCollapsed}
+        <div class="logo">GO Post Tools</div>
+        {#if appVersion}<div class="brand-version">v{appVersion}</div>{/if}
+        <div class="brand-author">By GANDALF</div>
+      {/if}
+    </div>
+    <nav>
+      {#each TABS as tab}
+        <button class="nav-item" class:active={activeTab === tab.id}
+          on:click={() => activeTab = tab.id} title={sidebarCollapsed ? tab.label : ''}>
+          {sidebarCollapsed ? tab.label.split(' ')[0] : tab.label}
+        </button>
+      {/each}
+    </nav>
+    <div class="sidebar-footer">
+      {#if updateInfo?.available}
+        <button class="btn-update" on:click={() => showUpdateModal = true} title="Télécharger la nouvelle version">
+          {sidebarCollapsed ? '🆕' : `🆕 Mise à jour v${updateInfo.latest}`}
+        </button>
+      {:else}
+        <button class="btn-check-update" on:click={recheckUpdate} disabled={updateChecking} title="Vérifier les mises à jour">
+          {#if updateChecking}⌛{:else}🔄{/if}
+          {#if !sidebarCollapsed}<span>{updateCheckMsg || 'Vérifier maj'}</span>{/if}
+        </button>
+      {/if}
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="content">
+
+    <!-- HydrackerTab toujours monté pour préserver l'état -->
+    <div style="display:{activeTab === 'hydracker' ? 'contents' : 'none'}">
+      <HydrackerTab />
+    </div>
+
+    {#if activeTab !== 'hydracker'}
+
+    <!-- ===== HISTORIQUE ===== -->
+    {#if activeTab === 'history'}
+      <div class="tab-content">
+        <h2>📚 Historique</h2>
+        <div class="hist-stats">
+          <span class="hist-stat">Total <b>{histStats.total}</b></span>
+          <span class="hist-stat ok">OK <b>{histStats.ok}</b></span>
+          <span class="hist-stat err">Erreurs <b>{histStats.error}</b></span>
+          <span class="hist-stat">Torrent <b>{histStats.torrent}</b></span>
+          <span class="hist-stat">NZB <b>{histStats.nzb}</b></span>
+          <span class="hist-stat">DDL <b>{histStats.ddl}</b></span>
+        </div>
+        <div class="hist-filters">
+          <input class="hist-search" type="text" placeholder="🔍 Recherche (titre, fichier, lien…)" bind:value={histQuery} on:input={loadHistory} />
+          <div class="hist-type-btns">
+            <button class:active={histFilter === ''} on:click={() => { histFilter = ''; loadHistory() }}>Tous</button>
+            <button class:active={histFilter === 'torrent'} on:click={() => { histFilter = 'torrent'; loadHistory() }}>🧲 Torrent</button>
+            <button class:active={histFilter === 'nzb'} on:click={() => { histFilter = 'nzb'; loadHistory() }}>📰 NZB</button>
+            <button class:active={histFilter === 'ddl'} on:click={() => { histFilter = 'ddl'; loadHistory() }}>🔗 DDL</button>
+          </div>
+        </div>
+        {#if histLoading}
+          <div class="hist-empty">Chargement…</div>
+        {:else if histEntries.length === 0}
+          <div class="hist-empty">Aucune entrée. Les posts s'ajoutent automatiquement ici.</div>
+        {:else}
+          <div class="hist-list">
+            {#each histEntries as e}
+              <div class="hist-row" class:err={e.status === 'error'}>
+                <div class="hist-col-date">{formatDate(e.timestamp)}</div>
+                <div class="hist-col-type hist-type-{e.type}">{e.type.toUpperCase()}</div>
+                <div class="hist-col-main">
+                  <div class="hist-title">{e.title_name || `#${e.title_id}`}{#if e.saison || e.episode} · S{String(e.saison).padStart(2,'0')}E{String(e.episode).padStart(2,'0')}{/if}</div>
+                  <div class="hist-sub">{e.qualite_name || ''} · {e.filename}</div>
+                  {#if e.links}<div class="hist-links">{e.links}</div>{/if}
+                  {#if e.error}<div class="hist-error">✗ {e.error}</div>{/if}
+                </div>
+                <div class="hist-col-id">#{e.hydracker_id || '—'}</div>
+                <button class="hist-del" on:click={() => deleteHistEntry(e.id)} title="Supprimer">✕</button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+
+    <!-- ===== RESEED ===== -->
+    {:else if activeTab === 'reseed'}
+      <div class="tab-content">
+        <h2>♻️ Reseed</h2>
+        <div class="section">
+          <div class="section-header"><span>Fichiers</span></div>
+          <div class="field">
+            <label>Fichier .torrent</label>
+            <div class="pwd-row">
+              <input type="text" value={reseedTorrentPath} readonly placeholder="Aucun fichier sélectionné" />
+              <button class="btn-test" on:click={reseedPickTorrent}>Parcourir</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Fichier MKV</label>
+            <div class="pwd-row">
+              <input type="text" value={reseedMkvPath} readonly placeholder="Aucun fichier sélectionné" />
+              <button class="btn-test" on:click={reseedPickMkv}>Parcourir</button>
+            </div>
+          </div>
+          <div class="post-actions">
+            <button class="btn-save" on:click={reseedAnalyze} disabled={!reseedTorrentPath || reseedPrepLoading}>
+              {reseedPrepLoading ? '…' : '🔍 Analyser'}
+            </button>
+            <button class="btn-reset" on:click={reseedReset}>↺ Réinitialiser</button>
+          </div>
+        </div>
+
+        {#if reseedPrep}
+          <div class="section">
+            <div class="section-header"><span>Résultat de l'analyse</span></div>
+            <div class="recap-row"><span class="recap-key">Nom torrent</span><span class="recap-val">{reseedPrep.torrent_name}</span></div>
+            <div class="recap-row"><span class="recap-key">Fichier principal</span><span class="recap-val">{reseedPrep.first_file_name}</span></div>
+            <div class="recap-row"><span class="recap-key">Taille</span><span class="recap-val">{(reseedPrep.size / 1e9).toFixed(2)} GB</span></div>
+            <div class="recap-row"><span class="recap-key">Info hash</span><span class="recap-val recap-file">{reseedPrep.info_hash}</span></div>
+            {#if reseedPrep.search}
+              <div class="recap-row"><span class="recap-key">TMDB</span><span class="recap-val recap-id">#{reseedPrep.search.tmdb_id} — {reseedPrep.search.title_fr || reseedPrep.search.title_vo} ({reseedPrep.search.year})</span></div>
+            {:else}
+              <div class="recap-row"><span class="recap-key">Recherche TMDB</span><span class="recap-val" style="color:#ff9585">Aucun match</span></div>
+            {/if}
+            {#if reseedPrep.hydracker_fiche}
+              <div class="recap-row"><span class="recap-key">Fiche Hydracker</span><span class="recap-val" style="color:#7ef0c0">✓ {reseedPrep.hydracker_fiche.name} (#{reseedPrep.hydracker_fiche.id})</span></div>
+              <div class="post-actions">
+                <button class="btn-save" on:click={reseedConfirm} disabled={!reseedMkvPath || reseedRunning}>
+                  {reseedRunning ? '…' : '▶ Confirmer et Re-seed'}
+                </button>
+              </div>
+            {:else}
+              <div class="recap-row"><span class="recap-key">Fiche Hydracker</span><span class="recap-val" style="color:#ff9585">✗ Pas de fiche correspondante</span></div>
+            {/if}
+          </div>
+        {/if}
+
+        {#if reseedStage}
+          <div class="section">
+            <div class="section-header"><span>Progression</span></div>
+            <div class="nzb-live-status" class:done={reseedStage === 'done'}>{reseedMsg}</div>
+            {#if reseedStage === 'ftp' || reseedStage === 'ftp_done'}
+              <div class="nzb-live-step">
+                <span>FTP</span>
+                <div class="progress-bar"><div class="progress-fill" style="width:{reseedPct}%"></div></div>
+                <span class="pct">{reseedPct.toFixed(0)}%</span>
+              </div>
+              <div class="nzb-live-meta">
+                {#if reseedSpeed}<span>⚡ {reseedSpeed.toFixed(1)} MB/s</span>{/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
+    <!-- ===== CHECK TORRENT ===== -->
+    {:else if activeTab === 'check'}
+      <div class="tab-content check-tab">
+        <div class="check-header">
+          <h2>🔍 Check Torrent</h2>
+          <div class="check-actions">
+            <button class="btn-test" on:click={() => loadCheckTorrents(false)} disabled={checkLoading}>
+              {checkLoading ? '…' : 'Charger'}
+            </button>
+          </div>
+        </div>
+        {#if checkTorrents.length > 0}
+          <div class="check-filters">
+            <button class="filter-btn" class:active={checkFilter === 'all'} on:click={() => checkFilter = 'all'}>
+              Tous <span class="filter-count">{checkTorrents.length}</span>
+            </button>
+            <button class="filter-btn" class:active={checkFilter === 'active'} on:click={() => checkFilter = 'active'}>
+              Actif <span class="filter-count">{checkTorrents.filter(t => t.is_active === 1).length}</span>
+            </button>
+            <button class="filter-btn" class:active={checkFilter === 'inactive'} on:click={() => checkFilter = 'inactive'}>
+              Inactif <span class="filter-count">{checkTorrents.filter(t => isIncomplete(t)).length}</span>
+            </button>
+          </div>
+        {/if}
+        {#if !checkTorrents.length && !checkLoading}
+          <p class="coming-soon">Clique sur <b>Charger</b> pour lister les torrents de la seedbox.</p>
+        {:else}
+          {#each filteredCheckTorrents as t (t.hash)}
+            {@const st = checkState[t.hash] || {}}
+            <div class="chk-card" class:err={t.has_error} class:ok={!t.has_error}>
+              <div class="chk-head">
+                <div class="chk-name" title={t.name}>{t.name}</div>
+                {#if t.has_error}
+                  <span class="chk-badge err">⚠ Erreur</span>
+                {:else if t.is_active}
+                  <span class="chk-badge ok">✓ Actif</span>
+                {:else}
+                  <span class="chk-badge">Inactif</span>
+                {/if}
+              </div>
+              {#if t.message}
+                <div class="chk-msg">{t.message}</div>
+              {/if}
+              {#if t.file_name}
+                <div class="chk-file">📄 {t.file_name}</div>
+              {/if}
+              {#if t.lihdl_url}
+                <div class="chk-lihdl">
+                  <span>✓ Match LiHDL : <code>{t.lihdl_name}</code></span>
+                </div>
+                {#if st.stage && st.stage !== 'done'}
+                  <div class="chk-progress">
+                    <div class="chk-status">{st.msg}{#if st.speed} · {st.speed.toFixed(1)} MB/s{/if}</div>
+                    {#if st.percent >= 0}
+                      <div class="progress-bar"><div class="progress-fill" style="width:{st.percent}%"></div></div>
+                      <span class="chk-pct">{(st.percent || 0).toFixed(0)}%</span>
+                    {/if}
+                  </div>
+                {:else if st.stage === 'done'}
+                  <div class="chk-done">✓ {st.msg}</div>
+                {:else}
+                  <button class="btn-save chk-btn" on:click={() => reseedOne(t)}>
+                    ⬇ Télécharger et re-seed
+                  </button>
+                {/if}
+              {:else}
+                <div class="chk-nomatch">Pas de MKV correspondant sur LiHDL</div>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+      </div>
+
+    <!-- ===== API ===== -->
+    {:else if activeTab === 'api'}
+      <div class="tab-content">
+        <h2>Clés API</h2>
+        <div class="sections">
+
+          <div class="section">
+            <div class="section-header">
+              <span>Hydracker</span>
+              <button class="btn-test" on:click={() => runTest('hydracker', () => TestHydracker(cfg.hydracker_base_url, cfg.hydracker_token))}>
+                {#if testLoading.hydracker}…{:else}Tester{/if}
+              </button>
+            </div>
+            {#if testResults.hydracker}
+              <div class="test-result" class:ok={testResults.hydracker.ok}>{testResults.hydracker.message}</div>
+            {/if}
+            <div class="field">
+              <label>URL de base</label>
+              <input type="text" bind:value={cfg.hydracker_base_url} placeholder="https://exemple.tld  (sans /api/v1, ajouté auto)" />
+            </div>
+            <div class="field">
+              <label>Token d'accès</label>
+              <input type="password" bind:value={cfg.hydracker_token} placeholder="Bearer token" />
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <span>TMDB</span>
+              <button class="btn-test" on:click={() => runTest('tmdb', () => TestTMDB(cfg.tmdb_api_key))}>
+                {#if testLoading.tmdb}…{:else}Tester{/if}
+              </button>
+            </div>
+            {#if testResults.tmdb}
+              <div class="test-result" class:ok={testResults.tmdb.ok}>{testResults.tmdb.message}</div>
+            {/if}
+            <div class="field">
+              <label>Clé API TMDB</label>
+              <input type="password" bind:value={cfg.tmdb_api_key} placeholder="API key" />
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <span>1Fichier</span>
+              <button class="btn-test" on:click={() => runTest('onefichier', () => TestOneFichier(cfg.one_fichier_api_key))}>
+                {#if testLoading.onefichier}…{:else}Tester{/if}
+              </button>
+            </div>
+            {#if testResults.onefichier}
+              <div class="test-result" class:ok={testResults.onefichier.ok}>{testResults.onefichier.message}</div>
+            {/if}
+            <div class="field">
+              <label>Clé API 1Fichier</label>
+              <input type="password" bind:value={cfg.one_fichier_api_key} placeholder="API key" />
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <span>Send.now</span>
+              <button class="btn-test" on:click={() => runTest('sendcm', () => TestSendCm(cfg.sendcm_api_key))}>
+                {#if testLoading.sendcm}…{:else}Tester{/if}
+              </button>
+            </div>
+            {#if testResults.sendcm}
+              <div class="test-result" class:ok={testResults.sendcm.ok}>{testResults.sendcm.message}</div>
+            {/if}
+            <div class="field">
+              <label>Clé API Send.now</label>
+              <input type="password" bind:value={cfg.sendcm_api_key} placeholder="API key" />
+            </div>
+          </div>
+
+        </div>
+
+        <button class="btn-save" on:click={saveConfig}>
+          {cfgSaved ? '✓ Sauvegardé' : 'Sauvegarder'}
+        </button>
+      </div>
+
+    <!-- ===== RÉGLAGES ===== -->
+    {:else if activeTab === 'settings'}
+      <div class="tab-content">
+        <h2>Réglages</h2>
+        <div class="sections">
+
+          <!-- Usenet -->
+          <div class="section">
+            <div class="section-header">
+              <span>Usenet</span>
+              <button class="btn-test" on:click={() => runTest('usenet', () => TestUsenet(cfg.usenet_host, cfg.usenet_port))}>
+                {#if testLoading.usenet}…{:else}Tester{/if}
+              </button>
+            </div>
+            {#if testResults.usenet}
+              <div class="test-result" class:ok={testResults.usenet.ok}>{testResults.usenet.message}</div>
+            {/if}
+            <div class="fields-grid">
+              <div class="field">
+                <label>Serveur</label>
+                <input type="text" bind:value={cfg.usenet_host} placeholder="news.example.com" />
+              </div>
+              <div class="field">
+                <label>Port</label>
+                <input type="number" bind:value={cfg.usenet_port} />
+              </div>
+              <div class="field">
+                <label>Utilisateur</label>
+                <input type="text" bind:value={cfg.usenet_user} />
+              </div>
+              <div class="field">
+                <label>Mot de passe</label>
+                <input type="password" bind:value={cfg.usenet_password} />
+              </div>
+              <div class="field">
+                <label>Connexions</label>
+                <input type="number" bind:value={cfg.usenet_connections} />
+              </div>
+              <div class="field field-checkbox">
+                <label>
+                  <input type="checkbox" bind:checked={cfg.usenet_ssl} />
+                  SSL/TLS
+                </label>
+              </div>
+              <div class="field">
+                <label for="usenet-group">Newsgroup</label>
+                <input id="usenet-group" type="text" bind:value={cfg.usenet_group} placeholder="alt.binaries.test" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Watch folder -->
+          <div class="section">
+            <div class="section-header">
+              <span>Dossier surveillé (auto-post)</span>
+              {#if watchRunning}
+                <button class="btn-test" style="color:#ff9585" on:click={async () => { try { await StopWatchFolder() } catch(e){} }}>■ Arrêter</button>
+              {:else}
+                <button class="btn-test" on:click={async () => { try { await StartWatchFolder(cfg.watch_folder) } catch(e){ addLog('WATCH', '✗ ' + e) } }}>▶ Démarrer</button>
+              {/if}
+            </div>
+            <div class="field">
+              <label for="watch-folder">Chemin</label>
+              <input id="watch-folder" type="text" bind:value={cfg.watch_folder} placeholder="/Users/gandalf/Desktop/LiHDL" />
+              <div class="field-hint">Chaque nouveau .mkv/.mp4 dans ce dossier déclenche l'analyse (et l'auto-post si Full Auto est activé).</div>
+            </div>
+            <div class="field field-checkbox">
+              <label>
+                <input type="checkbox" bind:checked={cfg.watch_auto_start} />
+                Démarrer automatiquement au lancement de l'app
+              </label>
+            </div>
+            {#if watchRunning}
+              <div class="test-result ok">● Surveillance active sur : {cfg.watch_folder}</div>
+            {/if}
+          </div>
+
+
+          <!-- LiHDL Index (URL + Basic Auth) — protégée par mot de passe -->
+          <div class="section">
+            <div class="section-header">
+              <span>🔒 LiHDL Index + recherche TMDB</span>
+              {#if lihdlUnlocked}
+                <div style="display:flex;gap:6px">
+                  {#if !lihdlManaged}
+                    <button class="btn-test" on:click={() => { lihdlPwdInput=''; lihdlPwdCurrent=''; lihdlPwdNew=''; lihdlPwdConfirm=''; lihdlPwdError=''; lihdlModal='change' }}>Changer mdp</button>
+                    {#if lihdlHasPassword}
+                      <button class="btn-test" on:click={() => { lihdlPwdInput=''; lihdlPwdCurrent=''; lihdlPwdError=''; lihdlModal='remove' }}>Retirer mdp</button>
+                    {/if}
+                  {/if}
+                  <button class="btn-test" on:click={() => { lihdlUnlocked = false }}>Re-verrouiller</button>
+                  <button class="btn-test" on:click={() => runTest('lihdl', () => TestLihdl(cfg.lihdl_base_url, cfg.lihdl_user, cfg.lihdl_password))}>
+                    {#if testLoading.lihdl}…{:else}Tester{/if}
+                  </button>
+                </div>
+              {:else}
+                <button class="btn-test" on:click={openLihdlLockModal}>
+                  {lihdlHasPassword ? '🔓 Déverrouiller' : '🔐 Définir mdp'}
+                </button>
+              {/if}
+            </div>
+            {#if !lihdlUnlocked}
+              <div class="locked-box">
+                Section protégée — {lihdlHasPassword ? 'entre le mot de passe pour voir et éditer.' : 'définis un mot de passe pour accéder aux URL et credentials.'}
+              </div>
+            {:else}
+              {#if testResults.lihdl}
+                <div class="test-result" class:ok={testResults.lihdl.ok}>{testResults.lihdl.message}</div>
+              {/if}
+              <div class="field">
+                <label for="lihdl-base-url">URL dossier LiHDL</label>
+                <input id="lihdl-base-url" type="text" bind:value={cfg.lihdl_base_url} placeholder="https://exemple.tld/chemin/LiHDL/" />
+              </div>
+              <div class="field">
+                <label for="sp-search-url">URL recherche TMDB</label>
+                <input id="sp-search-url" type="text" bind:value={cfg.media_search_url} placeholder="https://exemple.tld/stats/search.php?query=" />
+              </div>
+              <div class="fields-grid">
+                <div class="field">
+                  <label for="lihdl-user">Utilisateur</label>
+                  <input id="lihdl-user" type="text" bind:value={cfg.lihdl_user} autocomplete="off" />
+                </div>
+                <div class="field">
+                  <label for="lihdl-password">Mot de passe</label>
+                  <div class="pwd-row">
+                    {#if showPwd.lihdl}
+                      <input id="lihdl-password" type="text" bind:value={cfg.lihdl_password} autocomplete="off" />
+                    {:else}
+                      <input id="lihdl-password" type="password" bind:value={cfg.lihdl_password} autocomplete="off" />
+                    {/if}
+                    <button type="button" class="pwd-toggle" on:click={() => showPwd = { ...showPwd, lihdl: !showPwd.lihdl }} title={showPwd.lihdl ? 'Cacher' : 'Afficher'}>
+                      {showPwd.lihdl ? '🙈' : '👁'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            {/if}
+          </div>
+
+          <!-- Torrent -->
+          <div class="section">
+            <div class="section-header"><span>Torrent</span></div>
+            <div class="field">
+              <label for="tracker-url">URL tracker Hydracker (announce)</label>
+              <input id="tracker-url" type="text" bind:value={cfg.tracker_url} placeholder="https://hydracker.com/announce/TOKEN" />
+            </div>
+            <div class="field">
+              <label for="torrent-piece">Piece size (octets)</label>
+              <input id="torrent-piece" type="number" bind:value={cfg.torrent_piece_size} step="1048576" />
+              <div class="field-hint">8 MiB = 8388608 · 4 MiB = 4194304 · 16 MiB = 16777216</div>
+            </div>
+          </div>
+
+          <!-- ParPar -->
+          <div class="section">
+            <div class="section-header"><span>ParPar (PAR2)</span></div>
+            <div class="fields-grid">
+              <div class="field">
+                <label for="parpar-redundancy">Redondance (%)</label>
+                <input id="parpar-redundancy" type="number" bind:value={cfg.parpar_redundancy} min="1" max="100" step="1" />
+              </div>
+              <div class="field">
+                <label for="parpar-threads">Threads</label>
+                <input id="parpar-threads" type="number" bind:value={cfg.parpar_threads} min="1" max="64" />
+              </div>
+              <div class="field">
+                <label for="parpar-slice">Slice size (octets)</label>
+                <input id="parpar-slice" type="number" bind:value={cfg.parpar_slice_size} step="1024" />
+              </div>
+            </div>
+          </div>
+
+          <!-- FTP -->
+          <div class="section">
+            <div class="section-header">
+              <span>FTP</span>
+              <button class="btn-test" on:click={() => runTest('ftp', () => TestFTP(cfg.ftp_host, cfg.ftp_port, cfg.ftp_user, cfg.ftp_password))}>
+                {#if testLoading.ftp}…{:else}Tester{/if}
+              </button>
+            </div>
+            {#if testResults.ftp}
+              <div class="test-result" class:ok={testResults.ftp.ok}>{testResults.ftp.message}</div>
+            {/if}
+            <div class="fields-grid">
+              <div class="field">
+                <label>Hôte</label>
+                <input type="text" bind:value={cfg.ftp_host} placeholder="ftp.example.com" />
+              </div>
+              <div class="field">
+                <label>Port</label>
+                <input type="number" bind:value={cfg.ftp_port} />
+              </div>
+              <div class="field">
+                <label>Utilisateur</label>
+                <input type="text" bind:value={cfg.ftp_user} />
+              </div>
+              <div class="field">
+                <label>Mot de passe</label>
+                <input type="password" bind:value={cfg.ftp_password} />
+              </div>
+              <div class="field">
+                <label>Dossier distant</label>
+                <input type="text" bind:value={cfg.ftp_path} placeholder="/" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Seedbox -->
+          <div class="section">
+            <div class="section-header">
+              <span>Seedbox (ruTorrent WebUI)</span>
+              <button class="btn-test" on:click={() => runTest('seedbox', () => TestSeedbox(cfg.seedbox_url, cfg.seedbox_user, cfg.seedbox_password))}>
+                {#if testLoading.seedbox}…{:else}Tester{/if}
+              </button>
+            </div>
+            {#if testResults.seedbox}
+              <div class="test-result" class:ok={testResults.seedbox.ok}>{testResults.seedbox.message}</div>
+            {/if}
+            <div class="field">
+              <label for="seedbox-url">URL ruTorrent</label>
+              <input id="seedbox-url" type="text" bind:value={cfg.seedbox_url} placeholder="https://my-seedbox.example/seedbox-XXXX/rutorrent/" />
+            </div>
+            <div class="fields-grid">
+              <div class="field">
+                <label>Utilisateur</label>
+                <input type="text" bind:value={cfg.seedbox_user} />
+              </div>
+              <div class="field">
+                <label>Mot de passe</label>
+                <input type="password" bind:value={cfg.seedbox_password} />
+              </div>
+            </div>
+            <div class="field">
+              <label for="seedbox-label">Label (optionnel)</label>
+              <input id="seedbox-label" type="text" bind:value={cfg.seedbox_label} placeholder="hydracker" />
+            </div>
+          </div>
+
+        </div>
+
+        <button class="btn-save" on:click={saveConfig}>
+          {cfgSaved ? '✓ Sauvegardé' : 'Sauvegarder'}
+        </button>
+      </div>
+
+    <!-- ===== JOURNAL ===== -->
+    {:else if activeTab === 'log'}
+      <div class="tab-content">
+        <h2>Journal d'activité</h2>
+        {#if $logEntries.length === 0}
+          <p class="coming-soon">Les logs en temps réel apparaîtront ici</p>
+        {:else}
+          <div class="log-toolbar">
+            <button class="btn-log-clear" on:click={clearLogs}>Effacer</button>
+          </div>
+          <div class="log-list">
+            {#each $logEntries as e}
+              <div class="log-line">
+                <span class="log-ts">{e.ts}</span>
+                <span class="log-prefix log-prefix-{e.prefix.toLowerCase()}">{e.prefix}</span>
+                <span class="log-msg">{e.msg}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    {/if}<!-- fin activeTab !== hydracker -->
+
+  </main>
+</div>
+
+<!-- ===== Modale mot de passe LiHDL ===== -->
+{#if lihdlModal}
+  <div class="modal-backdrop" on:click|self={() => lihdlModal = null}>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>
+          {#if lihdlModal === 'unlock'}🔓 Déverrouiller LiHDL
+          {:else if lihdlModal === 'create'}🔐 Définir un mot de passe
+          {:else if lihdlModal === 'change'}🔑 Changer le mot de passe
+          {:else}🗑 Retirer la protection{/if}
+        </h3>
+        <button class="modal-close" on:click={() => lihdlModal = null}>✕</button>
+      </div>
+      <div class="modal-body">
+        <form on:submit|preventDefault={submitLihdlPwd}>
+          {#if lihdlModal === 'unlock'}
+            <div class="field"><label>Mot de passe</label>
+              <input type="password" bind:value={lihdlPwdInput} autofocus autocomplete="off" /></div>
+          {:else if lihdlModal === 'create'}
+            <div class="field"><label>Nouveau mot de passe</label>
+              <input type="password" bind:value={lihdlPwdNew} autofocus autocomplete="off" /></div>
+            <div class="field"><label>Confirmer</label>
+              <input type="password" bind:value={lihdlPwdConfirm} autocomplete="off" /></div>
+          {:else if lihdlModal === 'change'}
+            <div class="field"><label>Mot de passe actuel</label>
+              <input type="password" bind:value={lihdlPwdCurrent} autofocus autocomplete="off" /></div>
+            <div class="field"><label>Nouveau mot de passe</label>
+              <input type="password" bind:value={lihdlPwdNew} autocomplete="off" /></div>
+            <div class="field"><label>Confirmer</label>
+              <input type="password" bind:value={lihdlPwdConfirm} autocomplete="off" /></div>
+          {:else}
+            <div class="field"><label>Mot de passe actuel</label>
+              <input type="password" bind:value={lihdlPwdCurrent} autofocus autocomplete="off" /></div>
+            <p class="modal-hint">La section redeviendra accessible sans mot de passe.</p>
+          {/if}
+          {#if lihdlPwdError}<p class="modal-err">✗ {lihdlPwdError}</p>{/if}
+          <div class="modal-actions" style="margin-top:12px">
+            <button type="button" class="btn-secondary" on:click={() => lihdlModal = null}>Annuler</button>
+            <button type="submit" class="btn-primary">Valider</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- ===== Modale mise à jour ===== -->
+{#if showUpdateModal && updateInfo?.available}
+  <div class="modal-backdrop" on:click|self={() => { if (!updateState.downloading) showUpdateModal = false }}>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🆕 Mise à jour disponible</h3>
+        <button class="modal-close" on:click={() => { if (!updateState.downloading) showUpdateModal = false }}>✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Version actuelle : <b>v{updateInfo.current}</b> → nouvelle : <b>v{updateInfo.latest}</b></p>
+        {#if !updateState.stage}
+          <p class="modal-hint">Télécharger la nouvelle version dans ton dossier Téléchargements.</p>
+        {:else if updateState.downloading}
+          <div class="update-progress">
+            <div class="update-bar"><div class="update-bar-fill" style="width:{updateState.percent}%"></div></div>
+            <div class="update-msg">{updateState.msg} · {updateState.percent.toFixed(0)}%</div>
+          </div>
+        {:else if updateState.stage === 'done'}
+          <p class="modal-ok">✓ Téléchargé. Le Finder s'est ouvert sur le fichier. Dézippe et remplace l'app.</p>
+          <p class="modal-hint" style="margin-top:8px">Chemin : <code>{updateState.downloadedPath}</code></p>
+        {:else if updateState.stage === 'error'}
+          <p class="modal-err">✗ Erreur : {updateState.msg}</p>
+        {/if}
+      </div>
+      <div class="modal-actions">
+        {#if !updateState.stage || updateState.stage === 'error'}
+          <button class="btn-primary" on:click={startDownloadUpdate}>⬇ Télécharger</button>
+          <button class="btn-secondary" on:click={() => OpenBrowser(updateInfo.url)}>Voir sur GitHub</button>
+        {:else if updateState.stage === 'done'}
+          <button class="btn-primary" on:click={() => showUpdateModal = false}>Fermer</button>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
+
+<style>
+  :global(:root) {
+    color-scheme: dark;
+    --bg:         #0d0a10;
+    --bg-tint:    #14101a;
+    --bg2:        #1a1420;
+    --bg3:        #241c2a;
+    --border:     rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.14);
+    --red:        #e63946;
+    --red-hot:    #ff5a4a;
+    --orange:     #f77f00;
+    --blue:       #00b4d8;
+    --blue-hot:   #48cae4;
+    --yellow:     #ffd60a;
+    --accent:     var(--red);
+    --accent-glow: rgba(230, 57, 70, 0.45);
+    --success:    #22c55e;
+    --warning:    #ffd60a;
+    --danger:     #ef4444;
+    --text:       #f5efe7;
+    --text2:      #b5a9a1;
+    --text3:      #7a6e68;
+    --grad-primary:       linear-gradient(180deg, #ff6b3d 0%, #e8431a 100%);
+    --grad-primary-hover: linear-gradient(180deg, #ff7a4f 0%, #f14a24 100%);
+  }
+  :global(*) { box-sizing: border-box; margin: 0; padding: 0; }
+  :global(body) {
+    margin: 0;
+    font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    color: var(--text);
+    background:
+      radial-gradient(ellipse 120% 80% at 50% -10%, rgba(230, 57, 70, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse 80% 60% at 20% 110%, rgba(0, 180, 216, 0.06) 0%, transparent 55%),
+      var(--bg);
+    height: 100vh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  :global(body::before) {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    mix-blend-mode: overlay;
+  }
+  :global(input[type=text]),
+  :global(input[type=password]),
+  :global(input[type=number]),
+  :global(input[type=email]),
+  :global(select) {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 8px 11px;
+    font: inherit;
+    font-size: 13px;
+    outline: none;
+    width: 100%;
+    transition: border-color 140ms, background 140ms;
+  }
+  :global(input:focus), :global(select:focus) {
+    border-color: rgba(0, 180, 216, 0.45);
+    background: rgba(255,255,255,0.05);
+  }
+  :global(button) { cursor: pointer; border: none; border-radius: 8px; font-size: 13px; font-weight: 500; transition: all 140ms ease; }
+  :global(::-webkit-scrollbar) { width: 6px; height: 6px; }
+  :global(::-webkit-scrollbar-track) { background: transparent; }
+  :global(::-webkit-scrollbar-thumb) { background: rgba(255,255,255,0.1); border-radius: 3px; }
+  :global(::-webkit-scrollbar-thumb:hover) { background: rgba(255,255,255,0.2); }
+
+  .layout { display: flex; height: 100vh; position: relative; z-index: 2; }
+
+  .sidebar {
+    width: 200px; min-width: 200px;
+    background: rgba(20, 16, 26, 0.6);
+    backdrop-filter: blur(12px);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    padding: 18px 12px;
+    position: relative;
+    transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+  }
+  .sidebar.collapsed { width: 56px; min-width: 56px; padding: 18px 6px; }
+  .sidebar.collapsed .brand { margin-bottom: 14px; }
+  .sidebar.collapsed .brand-logo { width: 36px; }
+  .sidebar.collapsed .nav-item {
+    padding: 8px 4px; font-size: 16px; text-align: center;
+    white-space: nowrap; overflow: hidden;
+  }
+  .sidebar.collapsed .btn-update { padding: 8px 4px; font-size: 14px; }
+
+  .sidebar-toggle {
+    position: absolute; top: 14px; right: -12px; z-index: 5;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--bg2); border: 1px solid var(--border);
+    color: var(--text2); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; line-height: 1; font-weight: 700;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  .sidebar-toggle:hover { background: var(--bg3); color: var(--text); }
+  .brand {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 10px; margin-bottom: 24px; padding: 4px 6px;
+  }
+  .brand-logo {
+    width: 78px; height: auto;
+    filter: drop-shadow(0 0 14px rgba(230, 57, 70, 0.45));
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .logo {
+    font-size: 12px; font-weight: 700;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, #ff6b3d 0%, #ffd60a 55%, #00b4d8 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    user-select: none;
+    text-align: center;
+  }
+  nav { display: flex; flex-direction: column; gap: 3px; }
+  .nav-item {
+    text-align: left; padding: 10px 13px; border-radius: 9px;
+    background: transparent; color: var(--text2); font-size: 13px; width: 100%;
+    transition: all 160ms ease;
+  }
+  .nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+  .nav-item.active {
+    background: rgba(0, 180, 216, 0.08);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+    border: 1px solid rgba(0, 180, 216, 0.2);
+  }
+
+  .content { flex: 1; overflow-y: auto; }
+
+  .hist-stats { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  .hist-stat { padding:5px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:14px; font-size:12px; color:var(--text2); }
+  .hist-stat b { color:var(--text1); margin-left:4px; }
+  .hist-stat.ok b { color:#22c55e; }
+  .hist-stat.err b { color:#ef4444; }
+  .hist-filters { display:flex; gap:10px; margin-bottom:14px; align-items:center; flex-wrap:wrap; }
+  .hist-search { flex:1; min-width:260px; padding:8px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--text1); font-size:13px; }
+  .hist-type-btns { display:flex; gap:4px; }
+  .hist-type-btns button { padding:6px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:8px; color:var(--text2); font-size:12px; cursor:pointer; }
+  .hist-type-btns button.active { background:rgba(255,90,60,0.15); border-color:#ff5a3c; color:#ff5a3c; }
+  .hist-list { display:flex; flex-direction:column; gap:6px; max-height:calc(100vh - 260px); overflow-y:auto; }
+  .hist-row { display:grid; grid-template-columns:110px 70px 1fr 80px 24px; gap:12px; padding:10px 14px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; align-items:start; }
+  .hist-row.err { border-color:rgba(239,68,68,0.3); background:rgba(239,68,68,0.05); }
+  .hist-col-date { font-size:11px; color:var(--text3); font-family:monospace; }
+  .hist-col-type { font-size:10px; font-weight:700; letter-spacing:0.5px; padding:2px 6px; border-radius:4px; text-align:center; align-self:start; }
+  .hist-type-torrent { background:rgba(34,197,94,0.15); color:#22c55e; }
+  .hist-type-nzb { background:rgba(59,130,246,0.15); color:#3b82f6; }
+  .hist-type-ddl { background:rgba(168,85,247,0.15); color:#a855f7; }
+  .hist-col-main { min-width:0; }
+  .hist-title { font-size:13px; color:var(--text1); font-weight:600; }
+  .hist-sub { font-size:11px; color:var(--text3); margin-top:2px; }
+  .hist-links { font-size:10px; color:#00b4d8; margin-top:4px; word-break:break-all; white-space:pre-line; }
+  .hist-error { font-size:11px; color:#ef4444; margin-top:4px; }
+  .hist-col-id { font-size:12px; color:var(--text2); font-family:monospace; }
+  .hist-del { background:transparent; border:0; color:var(--text3); cursor:pointer; font-size:14px; padding:0; }
+  .hist-del:hover { color:#ef4444; }
+  .hist-empty { padding:40px; text-align:center; color:var(--text3); font-size:13px; background:rgba(255,255,255,0.02); border-radius:8px; }
+
+  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; z-index:9999; }
+  .modal-card { background:#151119; border:1px solid rgba(255,255,255,0.1); border-radius:12px; width:min(90vw, 520px); box-shadow:0 20px 60px rgba(0,0,0,0.5); }
+  .modal-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  .modal-header h3 { margin:0; font-size:16px; color:var(--text1); }
+  .modal-close { background:transparent; border:0; color:var(--text3); font-size:18px; cursor:pointer; }
+  .modal-close:hover { color:var(--text1); }
+  .modal-body { padding:20px; color:var(--text2); font-size:13px; line-height:1.5; }
+  .modal-body p { margin:0 0 8px; }
+  .modal-hint { color:var(--text3); font-size:12px; }
+  .modal-ok { color:#22c55e; }
+  .modal-err { color:#ef4444; }
+  .modal-body code { font-family:monospace; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; color:var(--text1); word-break:break-all; }
+  .update-progress { margin-top:12px; }
+  .update-bar { height:8px; background:rgba(255,255,255,0.06); border-radius:4px; overflow:hidden; }
+  .update-bar-fill { height:100%; background:linear-gradient(90deg, #ff5a3c, #ff8b6b); transition:width 0.2s; }
+  .update-msg { margin-top:8px; font-size:12px; color:var(--text3); font-family:monospace; }
+  .modal-actions { display:flex; gap:10px; justify-content:flex-end; padding:14px 20px; border-top:1px solid rgba(255,255,255,0.08); }
+  .btn-primary { background:#ff5a3c; border:0; color:white; padding:8px 18px; border-radius:8px; font-weight:600; cursor:pointer; font-size:13px; }
+  .btn-primary:hover { background:#ff6b4f; }
+  .btn-secondary { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:var(--text1); padding:8px 18px; border-radius:8px; cursor:pointer; font-size:13px; }
+  .btn-secondary:hover { background:rgba(255,255,255,0.1); }
+
+  .tab-content { padding: 28px 32px; max-width: 900px; }
+  .tab-content h2 {
+    font-size: 18px; font-weight: 700; margin-bottom: 22px;
+    color: var(--text); letter-spacing: -0.01em;
+  }
+
+  .coming-soon {
+    background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%);
+    border: 1px dashed var(--border);
+    border-radius: 14px; padding: 48px;
+    text-align: center; color: var(--text3); font-size: 14px;
+  }
+
+  .sections { display: flex; flex-direction: column; gap: 16px; }
+
+  .section {
+    position: relative;
+    background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.05),
+      0 1px 2px rgba(0,0,0,0.4);
+    animation: card-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes card-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .section-header span {
+    font-weight: 600; color: var(--text2); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 1.2px;
+  }
+
+  .btn-test {
+    background: rgba(255,255,255,0.04);
+    color: var(--text2);
+    border: 1px solid var(--border);
+    padding: 6px 14px; font-size: 11px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .btn-test:hover {
+    background: rgba(0, 180, 216, 0.08);
+    border-color: rgba(0, 180, 216, 0.35);
+    color: var(--text);
+  }
+
+  .locked-box {
+    padding: 16px; text-align: center;
+    background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1);
+    border-radius: 10px; color: var(--text3); font-size: 12px;
+  }
+
+  .test-result {
+    font-size: 12px; padding: 7px 11px; border-radius: 8px; margin-bottom: 12px;
+    background: rgba(239, 68, 68, 0.08); color: #ff9585;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+  }
+  .test-result.ok {
+    background: rgba(34, 197, 94, 0.08); color: #7ef0c0;
+    border-color: rgba(34, 197, 94, 0.25);
+  }
+
+  .field { margin-bottom: 12px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { display: block; font-size: 11px; color: var(--text3); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .field-checkbox label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text); margin-top: 8px; text-transform: none; letter-spacing: 0; }
+  .field-hint { font-size: 11px; color: var(--text3); margin-top: 4px; }
+  .pwd-row { display: flex; gap: 6px; align-items: stretch; }
+  .pwd-row input { flex: 1; }
+  .pwd-toggle {
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    padding: 0 12px; font-size: 14px; border-radius: 8px;
+    color: var(--text2); flex: none;
+  }
+  .pwd-toggle:hover { background: rgba(0, 180, 216, 0.08); border-color: rgba(0, 180, 216, 0.35); }
+  .field-checkbox input[type=checkbox] { width: auto; }
+
+  .fields-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+
+  .btn-save {
+    margin-top: 24px;
+    color: #fff;
+    background: var(--grad-primary);
+    border: 1px solid rgba(0,0,0,0.25);
+    padding: 11px 28px; font-size: 14px; font-weight: 600;
+    letter-spacing: 0.2px;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.25),
+      inset 0 -1px 0 rgba(0,0,0,0.2),
+      0 1px 2px rgba(0,0,0,0.4),
+      0 8px 24px -6px var(--accent-glow);
+  }
+  .btn-save:hover {
+    background: var(--grad-primary-hover);
+    filter: brightness(1.05);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.3),
+      inset 0 -1px 0 rgba(0,0,0,0.2),
+      0 2px 6px rgba(0,0,0,0.5),
+      0 12px 32px -4px var(--accent-glow);
+  }
+  .btn-save:active { transform: translateY(1px); filter: brightness(0.95); }
+
+  /* NZB live */
+  .nzb-live { display: flex; flex-direction: column; gap: 14px; max-width: 600px; }
+  .nzb-live-status {
+    font-size: 14px; font-weight: 600; color: var(--blue-hot);
+    padding: 11px 15px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%);
+    border: 1px solid var(--border); border-radius: 10px;
+  }
+  .nzb-live-status.done { color: #7ef0c0; border-color: rgba(34, 197, 94, 0.3); background: rgba(34, 197, 94, 0.05); }
+  .nzb-live-step { display: flex; align-items: center; gap: 10px; }
+  .nzb-live-step > span:first-child { width: 60px; font-size: 11px; color: var(--text3); flex: none; text-transform: uppercase; letter-spacing: 0.6px; }
+  .nzb-live-step .progress-bar { flex: 1; height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+  .nzb-live-step .progress-fill { height: 100%; background: var(--grad-primary); border-radius: 4px; transition: width 0.3s; box-shadow: 0 0 12px rgba(230, 57, 70, 0.3); }
+  .nzb-live-step .pct { width: 40px; text-align: right; font-size: 12px; color: var(--text2); flex: none; font-variant-numeric: tabular-nums; }
+  .nzb-live-meta { display: flex; gap: 16px; font-size: 12px; color: var(--text3); }
+  .nzb-live-result { padding: 11px 15px; border-radius: 10px; font-size: 13px; font-weight: 500; }
+  .nzb-live-result.ok {
+    background: rgba(34, 197, 94, 0.08);
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    color: #7ef0c0;
+  }
+  .nzb-live-result:not(.ok) {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    color: #ff9585;
+  }
+
+  /* Journal */
+  .log-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+  .btn-log-clear {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border); color: var(--text2);
+    padding: 6px 14px; font-size: 11px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .btn-log-clear:hover { color: var(--red-hot); border-color: rgba(239, 68, 68, 0.3); }
+  .log-list { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .log-line {
+    display: flex; gap: 10px; align-items: baseline;
+    padding: 5px 10px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .log-ts { color: var(--text3); flex: none; }
+  .log-prefix { flex: none; font-weight: 700; padding: 2px 7px; border-radius: 4px; font-size: 10px; letter-spacing: 0.4px; }
+  .log-prefix-ddl { background: rgba(0, 180, 216, 0.15); color: var(--blue-hot); }
+  .log-prefix-nzb { background: rgba(247, 127, 0, 0.15); color: var(--orange); }
+  .log-prefix-mi  { background: rgba(34, 197, 94, 0.15); color: #7ef0c0; }
+  .log-prefix-meta{ background: rgba(255, 214, 10, 0.15); color: var(--yellow); }
+  .log-prefix-tor { background: rgba(230, 57, 70, 0.18); color: var(--red-hot); }
+  .log-msg { color: var(--text); word-break: break-all; }
+  .log-prefix-chk { background: rgba(72, 202, 228, 0.18); color: var(--blue-hot); }
+  .log-prefix-res { background: rgba(247, 127, 0, 0.15); color: var(--orange); }
+  .log-prefix-watch { background: rgba(255, 214, 10, 0.18); color: var(--yellow); }
+  .log-prefix-queue { background: rgba(255, 214, 10, 0.22); color: #ffe066; font-weight: 700; }
+  .brand-version {
+    font-size: 10px; color: var(--text3);
+    font-family: ui-monospace, Menlo, monospace;
+    letter-spacing: 0.6px; user-select: none;
+  }
+  .brand-author {
+    font-size: 9px; color: var(--text3); opacity: 0.75;
+    letter-spacing: 1.2px; text-transform: uppercase;
+    margin-top: 2px; user-select: none;
+  }
+  .sidebar-footer { margin-top: auto; padding-top: 14px; }
+  .btn-update {
+    width: 100%;
+    background: var(--grad-primary);
+    color: #fff;
+    border: 1px solid rgba(0,0,0,0.25);
+    padding: 9px 12px;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.5px;
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 6px 18px -6px var(--accent-glow);
+    animation: pulse-update 2.4s ease-in-out infinite;
+  }
+  .btn-update:hover { filter: brightness(1.1); }
+
+  .btn-check-update {
+    width: 100%;
+    background: rgba(255,255,255,0.04);
+    color: var(--text3);
+    border: 1px solid rgba(255,255,255,0.08);
+    padding: 7px 10px;
+    font-size: 11px; font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 6px; justify-content: center;
+  }
+  .btn-check-update:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+  .btn-check-update:disabled { opacity: 0.5; cursor: not-allowed; }
+  .sidebar.collapsed .btn-check-update { padding: 7px 4px; }
+  @keyframes pulse-update {
+    0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 6px 18px -6px var(--accent-glow); }
+    50%      { box-shadow: inset 0 1px 0 rgba(255,255,255,0.3),  0 10px 28px -4px var(--accent-glow); }
+  }
+  .log-prefix-fic { background: rgba(230, 57, 70, 0.18); color: var(--red-hot); }
+  .fic-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .fic-item:last-child { border-bottom: none; }
+  .fic-main { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .fic-name { font-size: 12px; color: var(--text); word-break: break-all; }
+  .fic-meta { display: flex; flex-wrap: wrap; gap: 5px; }
+  .fic-actions { display: flex; gap: 5px; flex: none; }
+
+  /* Check Torrent */
+  .check-tab { display: flex; flex-direction: column; gap: 14px; max-width: 1100px; }
+  .check-header { display: flex; align-items: center; justify-content: space-between; }
+  .check-actions { display: flex; gap: 8px; }
+  .check-filters { display: flex; gap: 6px; }
+  .filter-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    padding: 7px 14px; font-size: 12px; font-weight: 500;
+    border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    transition: all 160ms ease;
+  }
+  .filter-btn:hover {
+    background: rgba(0, 180, 216, 0.06);
+    border-color: rgba(0, 180, 216, 0.25);
+    color: var(--text);
+  }
+  .filter-btn.active {
+    background: rgba(0, 180, 216, 0.12);
+    border-color: rgba(0, 180, 216, 0.4);
+    color: var(--text);
+  }
+  .filter-count {
+    background: rgba(0,0,0,0.3); color: var(--text2);
+    padding: 1px 7px; border-radius: 9999px; font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .filter-btn.active .filter-count { background: rgba(0, 180, 216, 0.25); color: var(--blue-hot); }
+
+  .chk-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 8px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .chk-card.err { border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.04); }
+  .chk-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .chk-name {
+    font-weight: 600; color: var(--text); font-size: 13px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .chk-badge {
+    font-size: 11px; font-weight: 600;
+    padding: 3px 10px; border-radius: 9999px;
+    background: rgba(255,255,255,0.06); color: var(--text2);
+    border: 1px solid var(--border);
+    flex: none;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .chk-badge.err { background: rgba(239, 68, 68, 0.12); color: #ff9585; border-color: rgba(239, 68, 68, 0.3); }
+  .chk-badge.ok  { background: rgba(34, 197, 94, 0.12); color: #7ef0c0; border-color: rgba(34, 197, 94, 0.3); }
+  .chk-msg { font-size: 11px; color: #ff9585; }
+  .chk-file { font-size: 11px; color: var(--text3); font-family: ui-monospace, Menlo, monospace; }
+  .chk-lihdl { font-size: 12px; color: #7ef0c0; }
+  .chk-lihdl code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: rgba(0,0,0,0.25); padding: 1px 6px; border-radius: 4px; }
+  .chk-nomatch { font-size: 11px; color: var(--text3); font-style: italic; }
+  .chk-btn { margin-top: 4px; padding: 9px 18px; font-size: 13px; }
+  .chk-progress { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text2); }
+  .chk-progress .progress-bar { flex: 1; height: 7px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+  .chk-progress .progress-fill { height: 100%; background: var(--grad-primary); transition: width 0.15s; }
+  .chk-pct { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+  .chk-status { min-width: 180px; }
+  .chk-done { font-size: 12px; color: #7ef0c0; font-weight: 600; }
+</style>
