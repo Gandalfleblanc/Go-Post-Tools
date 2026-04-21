@@ -42,7 +42,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "1.2.14"
+const Version = "1.2.15"
 
 type App struct {
 	ctx         context.Context
@@ -966,6 +966,37 @@ type TorrentWorkflowResult struct {
 	HydrackerID     int    `json:"hydracker_id"`
 	HydrackerTorPath string `json:"hydracker_torrent_path"` // chemin local du .torrent téléchargé depuis Hydracker
 	SeedboxPath     string `json:"seedbox_path"`
+}
+
+// PostExistingTorrent poste un .torrent déjà existant à Hydracker (sans FTP ni seedbox).
+// Utilisé quand l'utilisateur n'a pas de seedbox ou garde son MKV sur un NAS/local.
+func (a *App) PostExistingTorrent(titleID, qualite int, langues, subs []string, torrentPath, nfo string, saison, episode int) (*TorrentWorkflowResult, error) {
+	a.resetCancellation()
+	if strings.TrimSpace(torrentPath) == "" {
+		return nil, fmt.Errorf("chemin .torrent manquant")
+	}
+	wailsruntime.EventsEmit(a.ctx, "torrent:status", map[string]interface{}{"stage": "post", "msg": "Post du .torrent sur Hydracker…"})
+	uploaded, err := a.client.UploadTorrent(titleID, qualite, langues, subs, torrentPath, nfo, saison, episode)
+	if err != nil {
+		return nil, fmt.Errorf("hydracker: %w", err)
+	}
+	wailsruntime.EventsEmit(a.ctx, "torrent:status", map[string]interface{}{"stage": "done", "msg": fmt.Sprintf("Torrent #%d ajouté", uploaded.Torrent.ID)})
+	a.recordHistory(history.Entry{
+		Type:        "torrent",
+		TitleID:     titleID,
+		TitleName:   a.titleName(titleID),
+		Saison:      saison,
+		Episode:     episode,
+		Qualite:     qualite,
+		QualiteName: a.qualiteName(qualite),
+		HydrackerID: uploaded.Torrent.ID,
+		Filename:    filepath.Base(torrentPath),
+		Status:      "ok",
+	})
+	return &TorrentWorkflowResult{
+		TorrentPath: torrentPath,
+		HydrackerID: uploaded.Torrent.ID,
+	}, nil
 }
 
 func (a *App) PostTorrentWorkflow(titleID, qualite int, langues, subs []string, mkvPath, nfo string, saison, episode int) (*TorrentWorkflowResult, error) {

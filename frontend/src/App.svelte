@@ -213,6 +213,21 @@
     reseedStage = ''; reseedMsg = ''; reseedPct = 0; reseedSpeed = 0
   }
 
+  // Ouvre l'onglet Hydracker avec le .torrent + la fiche Hydracker pré-remplis.
+  // Utile quand on a un .torrent existant (sans seedbox) : on saute la phase de
+  // création/FTP et on poste directement le fichier à Hydracker.
+  function reseedOpenInHydracker(prep) {
+    if (!prep) return
+    activeTab = 'hydracker'
+    window.dispatchEvent(new CustomEvent('hydracker:preload-torrent', { detail: {
+      torrentPath: reseedTorrentPath,
+      mkvPath: reseedMkvPath || '',
+      hydrackerFiche: prep.hydracker_fiche,
+      tmdbSearch: prep.search,
+      torrentName: prep.torrent_name,
+    } }))
+  }
+
 // Check Torrent
   let checkTorrents = []
   let checkLoading = false
@@ -422,10 +437,11 @@
             </div>
           </div>
           <div class="field">
-            <label>Fichier MKV</label>
+            <label>Fichier MKV <span style="color:var(--text3);font-weight:normal;font-size:11px">(optionnel — requis uniquement pour re-seed via seedbox)</span></label>
             <div class="pwd-row">
-              <input type="text" value={reseedMkvPath} readonly placeholder="Aucun fichier sélectionné" />
+              <input type="text" value={reseedMkvPath} readonly placeholder="Optionnel si tu n'as pas de seedbox" />
               <button class="btn-test" on:click={reseedPickMkv}>Parcourir</button>
+              {#if reseedMkvPath}<button class="btn-test" on:click={() => reseedMkvPath = ''} title="Retirer">✕</button>{/if}
             </div>
           </div>
           <div class="post-actions">
@@ -450,10 +466,20 @@
             {/if}
             {#if reseedPrep.hydracker_fiche}
               <div class="recap-row"><span class="recap-key">Fiche Hydracker</span><span class="recap-val" style="color:#7ef0c0">✓ {reseedPrep.hydracker_fiche.name} (#{reseedPrep.hydracker_fiche.id})</span></div>
-              <div class="post-actions">
-                <button class="btn-save" on:click={reseedConfirm} disabled={!reseedMkvPath || reseedRunning}>
-                  {reseedRunning ? '…' : '▶ Confirmer et Re-seed'}
+              <div class="post-actions" style="gap:8px;flex-wrap:wrap">
+                {#if reseedMkvPath && cfg.seedbox_url}
+                  <button class="btn-save" on:click={reseedConfirm} disabled={reseedRunning} title="Upload MKV sur FTP + ajoute le .torrent à ruTorrent + force re-check">
+                    {reseedRunning ? '…' : '🔄 Re-seed via seedbox'}
+                  </button>
+                {/if}
+                <button class="btn-save" on:click={() => reseedOpenInHydracker(reseedPrep)} title="Ouvre l'onglet Hydracker avec le .torrent et la fiche pré-remplis">
+                  🎬 Poster sur Hydracker
                 </button>
+                {#if !reseedMkvPath && cfg.seedbox_url}
+                  <span style="color:var(--text3);font-size:11px;align-self:center">💡 Fournis un MKV pour activer le re-seed seedbox</span>
+                {:else if !cfg.seedbox_url}
+                  <span style="color:var(--text3);font-size:11px;align-self:center">💡 Configure une seedbox dans Réglages pour activer le re-seed</span>
+                {/if}
               </div>
             {:else}
               <div class="recap-row"><span class="recap-key">Fiche Hydracker</span><span class="recap-val" style="color:#ff9585">✗ Pas de fiche correspondante</span></div>

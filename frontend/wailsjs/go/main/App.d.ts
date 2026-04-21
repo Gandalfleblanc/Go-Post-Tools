@@ -75,6 +75,8 @@ export function ParseFilename(arg1:string):Promise<parser.FileInfo>;
 
 export function PostDDLWorkflow(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:boolean,arg8:boolean,arg9:number,arg10:number):Promise<main.DDLWorkflowResult>;
 
+export function PostExistingTorrent(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number):Promise<main.TorrentWorkflowResult>;
+
 export function PostLien(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number):Promise<api.UploadLienResult>;
 
 export function PostNzb(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number):Promise<api.UploadNzbResult>;

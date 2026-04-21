@@ -134,6 +134,10 @@ export function PostDDLWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, 
   return window['go']['main']['App']['PostDDLWorkflow'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
+export function PostExistingTorrent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['main']['App']['PostExistingTorrent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+}
+
 export function PostLien(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
   return window['go']['main']['App']['PostLien'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }

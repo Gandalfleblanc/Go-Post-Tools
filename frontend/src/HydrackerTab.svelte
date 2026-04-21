@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime.js'
-  import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, PostTorrentWorkflow, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode } from '../wailsjs/go/main/App.js'
+  import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, PostTorrentWorkflow, PostExistingTorrent, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode } from '../wailsjs/go/main/App.js'
   import { addLog } from './logs.js'
   import { LANGUAGES as HYD_LANGUAGES, SUBS as HYD_SUBS } from './hydrackerData.js'
 
@@ -49,6 +49,9 @@
 
   // Fichiers sélectionnés pour l'upload
   let mkvFilePath = ''
+  // Mode "torrent existant" (depuis Reseed) : on poste le .torrent tel quel à Hydracker
+  // (pas de FTP, pas de seedbox, pas de regénération depuis MKV)
+  let existingTorrentPath = ''
   let mediaInfoOpen = true   // MediaInfo dépliée par défaut
   let nfoOpen = false        // NFO repliée par défaut
   let recapOpen = true       // Récapitulatif déplié par défaut
@@ -144,6 +147,7 @@
       }
     }, true)
     window.addEventListener('watch:newfile', onWatchNewFile)
+    window.addEventListener('hydracker:preload-torrent', onPreloadTorrent)
     window.addEventListener('keydown', onKeydown)
   })
 
@@ -187,6 +191,23 @@
       btn?.click()
       return
     }
+  }
+
+  // Quand Reseed envoie un .torrent existant à poster ici (sans FTP/seedbox)
+  function onPreloadTorrent(ev) {
+    const d = ev?.detail
+    if (!d?.torrentPath) return
+    existingTorrentPath = d.torrentPath
+    file = { name: d.torrentName || d.torrentPath.split(/[\\/]/).pop() }
+    if (d.hydrackerFiche) {
+      selectedHydracker = d.hydrackerFiche
+      if (d.hydrackerFiche.poster) {
+        FetchImageBase64(d.hydrackerFiche.poster).then(u => hydrackerPosterUrl = u).catch(() => {})
+      }
+    }
+    // Force type Torrent uniquement (pas de DDL/NZB puisqu'on n'a pas de MKV)
+    postUploadTypes = { torrent: true, nzb: false, ddl: false }
+    addLog('TOR', `📂 .torrent existant chargé depuis Reseed — ${file.name}`)
   }
 
   function onWatchNewFile(ev) {
@@ -285,6 +306,7 @@
               'torrent:status', 'torrent:ftp', 'torrent:create', 'torrent:seedbox')
     OnFileDropOff()
     window.removeEventListener('watch:newfile', onWatchNewFile)
+    window.removeEventListener('hydracker:preload-torrent', onPreloadTorrent)
     window.removeEventListener('keydown', onKeydown)
   })
 
@@ -857,10 +879,20 @@
       }
     }
 
-    // Étape 1 : Torrent d'abord (séquentiel) — il crée le .torrent final et upload FTP/seedbox.
-    // Étape 2 : DDL + NZB en parallèle après (ils réutilisent le même MKV côté disque).
+    // Étape 1 : Torrent d'abord (séquentiel)
+    // - Mode "existing" (depuis Reseed) : upload direct du .torrent à Hydracker (pas de FTP/seedbox)
+    // - Mode normal : ftpup + create + hydracker + seedbox
     if (postUploadTypes.torrent) {
-      if (!mkvFilePath) errors.push('Torrent : chemin MKV introuvable')
+      if (existingTorrentPath) {
+        try {
+          const r = await withRetry(
+            'Torrent',
+            () => PostExistingTorrent(titleID, postQuality, langIDs, subIDs, existingTorrentPath, nfo, postSeason, postEpisode),
+            r => !!r?.hydracker_id,
+          )
+          successes.push(`Torrent #${r.hydracker_id} ajouté sur Hydracker (mode existant)`)
+        } catch(e) { errors.push(`Torrent : ${e}`) }
+      } else if (!mkvFilePath) errors.push('Torrent : chemin MKV introuvable')
       else {
         try {
           const r = await withRetry(
@@ -1137,8 +1169,11 @@
 
       <!-- Fichier détecté -->
       <div class="file-badge">
-        📄 {file.name}
-        <button class="btn-x" on:click={() => { file = null; fileInfo = null; selectedTMDB = null }}>✕</button>
+        {existingTorrentPath ? '🧲' : '📄'} {file.name}
+        {#if existingTorrentPath}
+          <span style="color:#ffe066;font-size:10px;margin-left:6px">mode .torrent existant (pas de FTP/seedbox)</span>
+        {/if}
+        <button class="btn-x" on:click={() => { file = null; fileInfo = null; selectedTMDB = null; existingTorrentPath = '' }}>✕</button>
       </div>
 
       <!-- Actions principales (Lancer / Stop / Réinitialiser) juste sous le fichier -->
@@ -1159,7 +1194,7 @@
           selectedHydracker = null; mediaInfo = null; posterDataUrl = ''; hydrackerPosterUrl = '';
           postQuality = 0; postLanguages = []; postSubs = [];
           postSeason = 0; postEpisode = 0;
-          mkvFilePath = ''; postResult = null;
+          mkvFilePath = ''; existingTorrentPath = ''; postResult = null;
         }}>↺ Réinitialiser</button>
       </div>
 
