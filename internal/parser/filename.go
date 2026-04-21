@@ -112,6 +112,7 @@ func extractTitle(name string) string {
 	// Find the earliest position of year or technical tag
 	stopPatterns := []*regexp.Regexp{
 		reYear, reQuality, reSource, reVideo, reAudio, reLang,
+		reSeasonEpisode, reCrossEp, reSeasonOnly,
 	}
 	end := len(name)
 	for _, pat := range stopPatterns {
