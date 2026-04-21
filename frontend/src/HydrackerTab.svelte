@@ -784,17 +784,30 @@
     }
   }
 
+  let hydrackerManualError = ''
   async function confirmHydrackerID() {
+    hydrackerManualError = ''
     const id = parseInt(hydrackerManualId)
-    if (!id) return
+    if (!id) {
+      hydrackerManualError = 'ID invalide'
+      return
+    }
     hydrackerManualLoading = true
+    addLog('HYD', `🔍 Lookup ID ${id}…`)
     try {
       const found = await HydrackerGetByID(id)
-      if (found) {
+      if (found && found.id) {
+        addLog('HYD', `✓ Fiche #${found.id} — ${found.name}`)
         hydrackerNotFound = false
         await selectHydracker(found)
+      } else {
+        hydrackerManualError = `Fiche #${id} introuvable sur Hydracker`
+        addLog('HYD', `✗ ${hydrackerManualError}`)
       }
-    } catch(e) { console.error(e) }
+    } catch(e) {
+      hydrackerManualError = String(e?.message || e || 'erreur inconnue')
+      addLog('HYD', `✗ Erreur lookup ID ${id} : ${hydrackerManualError}`)
+    }
     hydrackerManualLoading = false
   }
 
@@ -1153,6 +1166,9 @@
               {hydrackerManualLoading ? '…' : 'Valider'}
             </button>
           </div>
+          {#if hydrackerManualError}
+            <div class="hyd-manual-error">✗ {hydrackerManualError}</div>
+          {/if}
         </div>
       {/if}
 
@@ -1938,6 +1954,7 @@
   }
   .hyd-create-title { font-size: 13px; font-weight: 600; color: var(--yellow); }
   .hyd-create-hint { font-size: 11px; color: var(--text2); }
+  .hyd-manual-error { font-size: 11px; color: #ff6b6b; margin-top: 4px; }
   .hyd-tmdb-url-row {
     display: flex; align-items: center; gap: 6px;
     background: rgba(0,0,0,0.25);
