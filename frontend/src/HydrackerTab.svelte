@@ -245,10 +245,15 @@
     queueTotal = queueDone + (queueProcessing ? 1 : 0)
   }
 
+  let queueTMDBHint = 0  // id TMDB à réutiliser pour les items suivants d'une même queue
+
   async function processQueue() {
     if (queueProcessing || queue.length === 0) return
     queueProcessing = true
     queueResults = []
+    // Snapshot de la fiche TMDB déjà sélectionnée (typiquement le show TV pour
+    // les 10 épisodes droppés) → réutilisée sur tous les items suivants.
+    queueTMDBHint = selectedTMDB?.id || 0
     while (queue.length > 0) {
       const path = queue.shift()
       queue = queue
@@ -256,8 +261,14 @@
       const fname = path.split('/').pop()
       addLog('QUEUE', `▶ ${fname}`)
       try {
-        loadFileFromPath(path, null)
-        await waitForReady(60000)
+        // Si ce fichier est déjà chargé en preview avec fiches sélectionnées,
+        // on réutilise tel quel — évite de reset selectedTMDB/selectedHydracker
+        // et de reproposer le choix TMDB à l'utilisateur.
+        const alreadyReady = mkvFilePath === path && selectedTMDB && selectedHydracker && postQuality && postLanguages.length
+        if (!alreadyReady) {
+          loadFileFromPath(path, null)
+          await waitForReady(60000)
+        }
         await lancerPost()
         queueDone++
         if (postResult) queueResults = [...queueResults, { ok: postResult.ok, filename: fname, message: postResult.message }]
@@ -268,6 +279,7 @@
     }
     queueCurrent = ''
     queueProcessing = false
+    queueTMDBHint = 0
     // Récap final cumulé
     if (queueResults.length > 1) {
       const okCount = queueResults.filter(r => r.ok).length
@@ -688,7 +700,16 @@
       if (tmdbResults.length === 1) {
         await selectTMDB(tmdbResults[0])
       } else if (tmdbResults.length > 1) {
-        tmdbAmbiguous = true
+        // En mode queue, si on a un hint (fiche TMDB sélectionnée pour un épisode
+        // précédent du même show), on l'applique automatiquement sans reposer la
+        // question à l'utilisateur.
+        const hinted = queueTMDBHint ? tmdbResults.find(r => r.id === queueTMDBHint) : null
+        if (hinted) {
+          addLog('TMDB', `↺ fiche réutilisée depuis la queue (id ${queueTMDBHint})`)
+          await selectTMDB(hinted)
+        } else {
+          tmdbAmbiguous = true
+        }
       }
     } catch(e) { console.error(e) }
     tmdbSearchLoading = false
