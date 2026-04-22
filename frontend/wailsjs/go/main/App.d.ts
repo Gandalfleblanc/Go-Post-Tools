@@ -9,6 +9,10 @@ import {parser} from '../models';
 import {tmdb} from '../models';
 import {tester} from '../models';
 
+export function AutoReseedDDLFromHydracker(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<main.AutoReseedDDLResult>;
+
+export function AutoReseedFromHydracker(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<main.AutoReseedResult>;
+
 export function CancelAllWorkflows():Promise<void>;
 
 export function CancelDDLHost(arg1:string):Promise<void>;

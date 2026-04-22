@@ -493,6 +493,52 @@ export namespace history {
 
 export namespace main {
 	
+	export class AutoReseedDDLResult {
+	    lien_id: number;
+	    filename: string;
+	    host: string;
+	    size_bytes: number;
+	    ftp_remote_name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AutoReseedDDLResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lien_id = source["lien_id"];
+	        this.filename = source["filename"];
+	        this.host = source["host"];
+	        this.size_bytes = source["size_bytes"];
+	        this.ftp_remote_name = source["ftp_remote_name"];
+	    }
+	}
+	export class AutoReseedResult {
+	    torrent_id: number;
+	    torrent_name: string;
+	    quality: number;
+	    lang: number;
+	    saison: number;
+	    episode: number;
+	    size_bytes: number;
+	    seedbox_path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AutoReseedResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.torrent_id = source["torrent_id"];
+	        this.torrent_name = source["torrent_name"];
+	        this.quality = source["quality"];
+	        this.lang = source["lang"];
+	        this.saison = source["saison"];
+	        this.episode = source["episode"];
+	        this.size_bytes = source["size_bytes"];
+	        this.seedbox_path = source["seedbox_path"];
+	    }
+	}
 	export class CheckTorrentEntry {
 	    hash: string;
 	    name: string;

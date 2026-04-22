@@ -64,6 +64,42 @@ func (c *Client) GetTorrents(titleID int, f ContentFilter) (*TorrentsResult, err
 
 var LastRawTorrents string
 
+// GetLienByID appelle /content/liens/{id} et retourne le Lien complet avec
+// l'URL de partage réelle (les endpoints de liste ne la renvoient pas).
+func (c *Client) GetLienByID(id int) (*Lien, error) {
+	data, err := c.get(fmt.Sprintf("/content/liens/%d", id), nil)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Data struct {
+			Lien Lien `json:"lien"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &resp.Data.Lien, nil
+}
+
+// GetTorrentByID appelle /content/torrents/{id} et retourne l'item complet
+// avec le download_url réel (les endpoints de liste ne le renvoient pas).
+func (c *Client) GetTorrentByID(id int) (*TorrentItem, error) {
+	data, err := c.get(fmt.Sprintf("/content/torrents/%d", id), nil)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Data struct {
+			Torrent TorrentItem `json:"torrent"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &resp.Data.Torrent, nil
+}
+
 func (c *Client) GetNzbs(titleID int, f ContentFilter) (*NzbsResult, error) {
 	data, err := c.get(fmt.Sprintf("/titles/%d/content/nzbs", titleID), contentParams(f))
 	if err != nil {

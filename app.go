@@ -24,6 +24,7 @@ import (
 
 	"go-post-tools/api"
 	"go-post-tools/internal/config"
+	"go-post-tools/internal/downloader"
 	"go-post-tools/internal/ftpup"
 	"go-post-tools/internal/history"
 	"go-post-tools/internal/lihdl"
@@ -45,7 +46,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "1.2.29"
+const Version = "1.2.30"
 
 type App struct {
 	ctx         context.Context
@@ -1297,6 +1298,393 @@ func (a *App) FindHydrackerSources(titleID, saison, episode int) (*FindHydracker
 		logEv("torrents raw: " + raw)
 	}
 	return res, nil
+}
+
+// AutoReseedResult retourne le résultat du workflow auto-reseed.
+type AutoReseedResult struct {
+	TorrentID    int    `json:"torrent_id"`
+	TorrentName  string `json:"torrent_name"`
+	Quality      int    `json:"quality"`
+	Lang         int    `json:"lang"`
+	Season       int    `json:"saison"`
+	Episode      int    `json:"episode"`
+	SizeBytes    int64  `json:"size_bytes"`
+	SeedboxPath  string `json:"seedbox_path"`
+}
+
+// pickBestTorrent choisit le meilleur torrent parmi la liste.
+// Priorité : match exact qualité demandée > TrueFrench (8) > French (Canada) (7) > autres
+// À qualité/lang égales : le plus récent (ID le plus haut).
+func pickBestTorrent(torrents []api.TorrentItem, preferQuality, preferLang int) *api.TorrentItem {
+	if len(torrents) == 0 {
+		return nil
+	}
+	score := func(t api.TorrentItem) int {
+		s := 0
+		if preferQuality > 0 && t.Quality == preferQuality {
+			s += 1000
+		}
+		if preferLang > 0 && t.Lang == preferLang {
+			s += 500
+		} else {
+			switch t.Lang {
+			case 8:
+				s += 100 // TrueFrench
+			case 7:
+				s += 80 // French (Canada)
+			case 5:
+				s += 40 // English
+			}
+		}
+		// Bonus qualité 1080p par défaut si pas de préférence
+		if preferQuality == 0 {
+			switch t.Quality {
+			case 52, 50, 17: // HD 1080p, HDLight 1080p, Blu-Ray 1080p
+				s += 60
+			case 60: // ULTRA HDLight
+				s += 50
+			case 31: // HD 720p
+				s += 30
+			}
+		}
+		// Priorise les ID récents à score équivalent
+		s += t.ID / 10000
+		return s
+	}
+	best := &torrents[0]
+	bestScore := score(torrents[0])
+	for i := 1; i < len(torrents); i++ {
+		if sc := score(torrents[i]); sc > bestScore {
+			bestScore = sc
+			best = &torrents[i]
+		}
+	}
+	return best
+}
+
+// AutoReseedFromHydracker automatise un reseed : liste les torrents dispo pour
+// une fiche (+ saison/épisode), choisit le meilleur match, récupère son URL de
+// download via /content/torrents/{id}, télécharge le .torrent et le push direct
+// sur la seedbox ruTorrent. Aucun MKV / FTP impliqué — on se branche sur un
+// torrent déjà distribué par le site.
+//
+// preferQuality / preferLang : IDs optionnels pour forcer un choix précis.
+// Passer 0 laisse l'algorithme choisir (FR + 1080p prioritaire).
+func (a *App) AutoReseedFromHydracker(titleID, saison, episode, preferQuality, preferLang int) (*AutoReseedResult, error) {
+	a.resetCancellation()
+	if titleID <= 0 {
+		return nil, fmt.Errorf("title_id manquant")
+	}
+	if a.cfg.SeedboxURL == "" {
+		return nil, fmt.Errorf("seedbox non configurée (Réglages)")
+	}
+	emit := func(stage, msg string) {
+		wailsruntime.EventsEmit(a.ctx, "autoreseed:status", map[string]interface{}{"stage": stage, "msg": msg})
+	}
+
+	// 1. Liste les torrents
+	emit("list", fmt.Sprintf("Recherche torrents pour fiche #%d…", titleID))
+	filter := api.ContentFilter{Season: saison, Episode: episode}
+	if preferQuality > 0 {
+		filter.Quality = preferQuality
+	}
+	if preferLang > 0 {
+		filter.Lang = preferLang
+	}
+	res, err := a.client.GetTorrents(titleID, filter)
+	if err != nil {
+		// Fallback 1 : retry sans saison/épisode si 500 (parfois le serveur plante sur les filtres)
+		emit("list", fmt.Sprintf("torrents err: %v — retry sans saison/épisode", err))
+		fb, err2 := a.client.GetTorrents(titleID, api.ContentFilter{})
+		if err2 != nil {
+			return nil, fmt.Errorf("liste torrents : %w (pas de torrent partagé via API pour cette fiche ?)", err)
+		}
+		res = fb
+	}
+	if len(res.Torrents) == 0 && (preferQuality > 0 || preferLang > 0) {
+		emit("list", "Aucun résultat avec filtres qual/lang — retry sans")
+		fb, err := a.client.GetTorrents(titleID, api.ContentFilter{Season: saison, Episode: episode})
+		if err == nil {
+			res = fb
+		}
+	}
+	if len(res.Torrents) == 0 {
+		return nil, fmt.Errorf("aucun torrent partagé via API pour fiche #%d — essayez l'auto-reseed DDL si un lien DDL est dispo", titleID)
+	}
+	emit("list_done", fmt.Sprintf("%d torrent(s) dispo", len(res.Torrents)))
+
+	// 2. Choix du meilleur
+	best := pickBestTorrent(res.Torrents, preferQuality, preferLang)
+	if best == nil {
+		return nil, fmt.Errorf("aucun torrent sélectionnable")
+	}
+	emit("pick", fmt.Sprintf("Choisi : #%d %s (qual=%d lang=%d %.2f GB)", best.ID, best.Name, best.Quality, best.Lang, float64(best.Size)/1e9))
+
+	// 3. Récupère download_url via /content/torrents/{id}
+	emit("url", "Récupération URL download…")
+	full, err := a.client.GetTorrentByID(best.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get torrent #%d : %w", best.ID, err)
+	}
+	if full == nil || full.DownloadURL == "" {
+		return nil, fmt.Errorf("download_url manquant pour torrent #%d", best.ID)
+	}
+
+	// 4. Télécharge le .torrent dans un fichier temporaire
+	emit("download", "Téléchargement .torrent…")
+	data, err := a.downloadFile(full.DownloadURL)
+	if err != nil {
+		return nil, fmt.Errorf("download .torrent : %w", err)
+	}
+	if len(data) < 50 || data[0] != 'd' {
+		return nil, fmt.Errorf("fichier reçu n'est pas un .torrent bencode valide")
+	}
+	tmpFile, err := os.CreateTemp("", fmt.Sprintf("autoreseed-%d-*.torrent", best.ID))
+	if err != nil {
+		return nil, fmt.Errorf("tmp file : %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return nil, fmt.Errorf("write tmp : %w", err)
+	}
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+	emit("download_done", fmt.Sprintf("Téléchargé (%.2f KB)", float64(len(data))/1024))
+
+	// 5. Push sur seedbox
+	emit("seedbox", "Upload sur seedbox…")
+	seedPath, err := seedbox.Upload(a.workContext(), a.cfg.SeedboxURL, a.cfg.SeedboxUser, a.cfg.SeedboxPassword, a.cfg.SeedboxLabel, tmpPath, func(p seedbox.Progress) {
+		wailsruntime.EventsEmit(a.ctx, "autoreseed:progress", p)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("seedbox : %w", err)
+	}
+	emit("done", fmt.Sprintf("Seedbox OK : %s", seedPath))
+
+	return &AutoReseedResult{
+		TorrentID:   best.ID,
+		TorrentName: best.Name,
+		Quality:     best.Quality,
+		Lang:        best.Lang,
+		Season:      best.Season,
+		Episode:     best.Episode,
+		SizeBytes:   best.Size,
+		SeedboxPath: seedPath,
+	}, nil
+}
+
+// AutoReseedDDLResult retourne le résultat du workflow DDL auto-reseed.
+type AutoReseedDDLResult struct {
+	LienID      int    `json:"lien_id"`
+	Filename    string `json:"filename"`
+	Host        string `json:"host"`
+	SizeBytes   int64  `json:"size_bytes"`
+	FTPRemoteName string `json:"ftp_remote_name"`
+}
+
+// pickBestLien choisit le meilleur DDL parmi la liste. Priorité : 1fichier
+// (on a l'API key), puis autres. À hosts égaux : même logique quali/lang.
+func pickBestLien(liens []api.Lien, preferQuality, preferLang int) *api.Lien {
+	if len(liens) == 0 {
+		return nil
+	}
+	score := func(l api.Lien) int {
+		s := 0
+		h := strings.ToLower(l.Host)
+		if strings.Contains(h, "1fichier") {
+			s += 1000 // on a l'API key premium
+		} else if strings.Contains(h, "send") {
+			s += 500
+		}
+		if preferQuality > 0 && l.Quality == preferQuality {
+			s += 300
+		}
+		if preferLang > 0 && l.Lang == preferLang {
+			s += 150
+		} else {
+			switch l.Lang {
+			case 8:
+				s += 100
+			case 7:
+				s += 80
+			case 5:
+				s += 40
+			}
+		}
+		if preferQuality == 0 {
+			switch l.Quality {
+			case 52, 50, 17:
+				s += 60
+			case 60:
+				s += 50
+			case 31:
+				s += 30
+			}
+		}
+		s += l.ID / 10000
+		return s
+	}
+	best := &liens[0]
+	bestScore := score(liens[0])
+	for i := 1; i < len(liens); i++ {
+		if sc := score(liens[i]); sc > bestScore {
+			bestScore = sc
+			best = &liens[i]
+		}
+	}
+	return best
+}
+
+// AutoReseedDDLFromHydracker télécharge depuis un DDL Hydracker (1fichier
+// prioritaire) et stream direct vers le FTP configuré — pas de passage sur
+// le disque local. Utile quand aucun torrent n'est partagé via API mais qu'un
+// DDL existe.
+//
+// Workflow :
+//  1. Liste les DDL via /content/liens (+saison/épisode)
+//  2. Picke le meilleur (1fichier préféré, puis qualité/langue)
+//  3. Récupère l'URL directe via /content/liens/{id}
+//  4. Si 1fichier : API /download/get_token.cgi → URL directe
+//  5. HTTP GET streaming → FTP UploadFromReader
+//
+// Prérequis : API key 1fichier + FTP configurés dans Réglages.
+func (a *App) AutoReseedDDLFromHydracker(titleID, saison, episode, preferQuality, preferLang int) (*AutoReseedDDLResult, error) {
+	a.resetCancellation()
+	if titleID <= 0 {
+		return nil, fmt.Errorf("title_id manquant")
+	}
+	if a.cfg.FTPHost == "" {
+		return nil, fmt.Errorf("FTP non configuré (Réglages)")
+	}
+	emit := func(stage, msg string) {
+		wailsruntime.EventsEmit(a.ctx, "autoreseed_ddl:status", map[string]interface{}{"stage": stage, "msg": msg})
+	}
+
+	// 1. Liste les liens
+	emit("list", fmt.Sprintf("Recherche DDL pour fiche #%d…", titleID))
+	filter := api.ContentFilter{Season: saison, Episode: episode}
+	if preferQuality > 0 {
+		filter.Quality = preferQuality
+	}
+	if preferLang > 0 {
+		filter.Lang = preferLang
+	}
+	res, err := a.client.GetLiens(titleID, filter)
+	if err != nil {
+		emit("list", fmt.Sprintf("liens err: %v — retry sans filtres", err))
+		fb, err2 := a.client.GetLiens(titleID, api.ContentFilter{})
+		if err2 != nil {
+			return nil, fmt.Errorf("liste liens : %w", err)
+		}
+		res = fb
+	}
+	if len(res.Liens) == 0 && (preferQuality > 0 || preferLang > 0) {
+		emit("list", "Aucun DDL avec filtres — retry sans")
+		if fb, err := a.client.GetLiens(titleID, api.ContentFilter{Season: saison, Episode: episode}); err == nil {
+			res = fb
+		}
+	}
+	if len(res.Liens) == 0 {
+		return nil, fmt.Errorf("aucun DDL trouvé pour fiche #%d saison=%d épisode=%d", titleID, saison, episode)
+	}
+	emit("list_done", fmt.Sprintf("%d DDL(s) dispo", len(res.Liens)))
+
+	// 2. Choix
+	best := pickBestLien(res.Liens, preferQuality, preferLang)
+	if best == nil {
+		return nil, fmt.Errorf("aucun DDL sélectionnable")
+	}
+	emit("pick", fmt.Sprintf("Choisi : #%d host=%s qual=%d lang=%d", best.ID, best.Host, best.Quality, best.Lang))
+
+	// 3. Récupère URL partage (via /content/liens/{id} qui retourne le champ "lien")
+	emit("url", "Récupération URL DDL…")
+	lienData, err := a.client.GetLienByID(best.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get lien #%d : %w", best.ID, err)
+	}
+	if lienData == nil || lienData.URL == "" {
+		return nil, fmt.Errorf("lien manquant pour DDL #%d", best.ID)
+	}
+	shareURL := lienData.URL
+
+	// 4. Pour 1fichier : get direct URL via API
+	directURL := shareURL
+	host := strings.ToLower(lienData.Host)
+	if strings.Contains(host, "1fichier") || strings.Contains(shareURL, "1fichier.com") {
+		if a.cfg.OneFichierApiKey == "" {
+			return nil, fmt.Errorf("DDL 1fichier trouvé mais clé API 1fichier non configurée (Réglages)")
+		}
+		emit("token", "Obtention URL directe 1fichier…")
+		direct, err := downloader.OneFichierGetToken(a.workContext(), a.cfg.OneFichierApiKey, shareURL)
+		if err != nil {
+			return nil, fmt.Errorf("1fichier token : %w", err)
+		}
+		directURL = direct
+	} else {
+		return nil, fmt.Errorf("host %s non supporté en auto (seul 1fichier l'est pour l'instant) — URL: %s", lienData.Host, shareURL)
+	}
+
+	// 5. Stream download → FTP
+	emit("download", "Ouverture du stream…")
+	reader, totalSize, hdrFilename, err := downloader.StreamDownload(a.workContext(), directURL)
+	if err != nil {
+		return nil, fmt.Errorf("download stream : %w", err)
+	}
+	defer reader.Close()
+
+	filename := hdrFilename
+	if filename == "" {
+		// Fallback : utilise le nom du lien ou extrait de l'URL
+		filename = fmt.Sprintf("hydracker-%d.mkv", best.ID)
+	}
+
+	emit("ftp", fmt.Sprintf("Upload FTP : %s (%.2f GB)", filename, float64(totalSize)/1e9))
+	progReader := &downloader.ProgressReader{
+		R:     reader,
+		Total: totalSize,
+		OnProgress: func(p downloader.Progress) {
+			wailsruntime.EventsEmit(a.ctx, "autoreseed_ddl:progress", p)
+		},
+	}
+	if err := ftpup.UploadFromReader(a.workContext(), a.cfg.FTPHost, a.cfg.FTPPort, a.cfg.FTPUser, a.cfg.FTPPassword, a.cfg.FTPPath, filename, progReader, totalSize, nil); err != nil {
+		return nil, fmt.Errorf("ftp : %w", err)
+	}
+	emit("done", fmt.Sprintf("FTP OK : %s", filename))
+
+	return &AutoReseedDDLResult{
+		LienID:        best.ID,
+		Filename:      filename,
+		Host:          lienData.Host,
+		SizeBytes:     totalSize,
+		FTPRemoteName: filename,
+	}, nil
+}
+
+// downloadFile télécharge une URL (avec token Bearer si c'est Hydracker) et
+// retourne le contenu brut. Utilisé pour les .torrent récupérés via l'API
+// /content/torrents/{id}.
+func (a *App) downloadFile(url string) ([]byte, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Ajoute le Bearer token si l'URL pointe sur Hydracker (URLs signées internes)
+	if strings.Contains(url, effectiveHydrackerURL(a.cfg)) && a.cfg.HydrackerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+a.cfg.HydrackerToken)
+	}
+	c := &http.Client{Timeout: 120 * time.Second}
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+	return io.ReadAll(resp.Body)
 }
 
 // PostExistingTorrent poste un .torrent déjà existant à Hydracker (sans FTP ni seedbox).

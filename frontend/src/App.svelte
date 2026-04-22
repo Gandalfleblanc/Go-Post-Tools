@@ -5,7 +5,7 @@
   import HydrackerTab from './HydrackerTab.svelte'
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, DownloadToDownloads, Notify } from '../wailsjs/go/main/App.js'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, Notify } from '../wailsjs/go/main/App.js'
 
   // --- Tabs ---
   const TABS = [
@@ -228,6 +228,74 @@
   // Sources Hydracker : cherche tous les contenus alt (liens/nzbs/torrents) via API gratuite
   let reseedSources = null
   let reseedSourcesLoading = false
+
+  // --- Auto-reseed : workflow standalone (sans .torrent local, juste un ID Hydracker) ---
+  let autoReseedInput = ''            // URL Hydracker ou ID brut
+  let autoReseedSaison = 0
+  let autoReseedEpisode = 0
+  let autoReseedLoading = false
+  let autoReseedStatus = ''           // dernier message du workflow
+  let autoReseedResult = null         // { torrent_id, torrent_name, size_bytes, seedbox_path }
+  let autoReseedError = ''
+
+  function parseHydrackerID(input) {
+    const s = (input || '').trim()
+    if (!s) return 0
+    // URL avec /titles/NNN ou /title/NNN
+    const m = s.match(/\/titles?\/(\d+)/)
+    if (m) return parseInt(m[1])
+    // Juste un nombre
+    if (/^\d+$/.test(s)) return parseInt(s)
+    return 0
+  }
+
+  async function launchAutoReseed() {
+    autoReseedError = ''
+    autoReseedResult = null
+    const id = parseHydrackerID(autoReseedInput)
+    if (!id) { autoReseedError = 'ID Hydracker invalide — colle une URL /titles/XXX ou un nombre'; return }
+    if (!cfg.seedbox_url) { autoReseedError = 'Seedbox non configurée (Réglages)'; return }
+    autoReseedLoading = true
+    autoReseedStatus = 'Démarrage…'
+    addLog('AUTO', `▶ Auto-reseed torrent fiche #${id} saison=${autoReseedSaison} épisode=${autoReseedEpisode}`)
+    try {
+      const r = await AutoReseedFromHydracker(id, autoReseedSaison || 0, autoReseedEpisode || 0, 0, 0)
+      autoReseedResult = r
+      addLog('AUTO', `✓ Torrent #${r.torrent_id} ${r.torrent_name} → seedbox OK`)
+      try { Notify('✓ Auto-reseed terminé', r.torrent_name) } catch(e) {}
+    } catch(e) {
+      autoReseedError = String(e?.message || e)
+      addLog('AUTO', `✗ ${autoReseedError}`)
+    }
+    autoReseedLoading = false
+  }
+
+  // Variante DDL → FTP : quand la fiche n'a pas de torrent partagé via API mais
+  // qu'un DDL 1fichier existe, on télécharge depuis le DDL et on pousse direct
+  // sur le FTP configuré (streaming, pas de passage sur le disque local).
+  let autoReseedDDLProgress = { percent: 0, speed_mb: 0, bytes: 0, total: 0 }
+  async function launchAutoReseedDDL() {
+    autoReseedError = ''
+    autoReseedResult = null
+    autoReseedDDLProgress = { percent: 0, speed_mb: 0, bytes: 0, total: 0 }
+    const id = parseHydrackerID(autoReseedInput)
+    if (!id) { autoReseedError = 'ID Hydracker invalide — colle une URL /titles/XXX ou un nombre'; return }
+    if (!cfg.ftp_host) { autoReseedError = 'FTP non configuré (Réglages)'; return }
+    if (!cfg.one_fichier_api_key) { autoReseedError = 'Clé API 1fichier non configurée (Réglages) — requise pour le DDL'; return }
+    autoReseedLoading = true
+    autoReseedStatus = 'Démarrage DDL…'
+    addLog('AUTO', `▶ Auto-reseed DDL fiche #${id} saison=${autoReseedSaison} épisode=${autoReseedEpisode}`)
+    try {
+      const r = await AutoReseedDDLFromHydracker(id, autoReseedSaison || 0, autoReseedEpisode || 0, 0, 0)
+      autoReseedResult = { torrent_id: r.lien_id, torrent_name: r.filename, size_bytes: r.size_bytes, seedbox_path: 'FTP : ' + r.ftp_remote_name + ' (host: ' + r.host + ')' }
+      addLog('AUTO', `✓ DDL #${r.lien_id} ${r.filename} → FTP OK`)
+      try { Notify('✓ Auto-reseed DDL terminé', r.filename) } catch(e) {}
+    } catch(e) {
+      autoReseedError = String(e?.message || e)
+      addLog('AUTO', `✗ ${autoReseedError}`)
+    }
+    autoReseedLoading = false
+  }
   async function reseedFindSources() {
     if (!reseedPrep?.hydracker_fiche?.id) return
     reseedSourcesLoading = true
@@ -335,6 +403,22 @@
       reseedStage = p.stage || ''
       reseedMsg = p.msg || ''
       addLog('RES', p.msg || p.stage)
+    })
+    EventsOn('autoreseed:status', p => {
+      autoReseedStatus = p.msg || p.stage || ''
+      if (p.msg) addLog('AUTO', p.msg)
+    })
+    EventsOn('autoreseed_ddl:status', p => {
+      autoReseedStatus = p.msg || p.stage || ''
+      if (p.msg) addLog('AUTO', p.msg)
+    })
+    EventsOn('autoreseed_ddl:progress', p => {
+      autoReseedDDLProgress = {
+        percent: p.percent || 0,
+        speed_mb: p.speed_mb || 0,
+        bytes: p.bytes || 0,
+        total: p.total || 0,
+      }
     })
     EventsOn('reseed:progress', p => {
       reseedPct = p.percent ?? 0
@@ -463,6 +547,71 @@
     {:else if activeTab === 'reseed'}
       <div class="tab-content">
         <h2>♻️ Reseed</h2>
+
+        <!-- Auto-reseed : workflow 1 clic depuis un ID / URL Hydracker.
+             L'app liste les torrents dispos, choisit le meilleur (FR + qualité),
+             télécharge le .torrent et l'envoie direct au ruTorrent. Aucun MKV
+             ni FTP nécessaire — idéal pour traiter les demandes de reseed. -->
+        <div class="section">
+          <div class="section-header"><span>⚡ Auto-reseed depuis une fiche Hydracker</span></div>
+          <div class="field">
+            <label>URL ou ID fiche Hydracker</label>
+            <input type="text" bind:value={autoReseedInput}
+              placeholder="https://hydracker.com/titles/12345 ou 12345"
+              on:keydown={e => e.key === 'Enter' && !autoReseedLoading && launchAutoReseed()} />
+          </div>
+          <div class="field" style="display:flex;gap:10px">
+            <div style="flex:1">
+              <label>Saison <span style="color:var(--text3);font-weight:normal;font-size:11px">(0 = film)</span></label>
+              <input type="number" min="0" bind:value={autoReseedSaison} placeholder="0" />
+            </div>
+            <div style="flex:1">
+              <label>Épisode <span style="color:var(--text3);font-weight:normal;font-size:11px">(0 = saison complète / film)</span></label>
+              <input type="number" min="0" bind:value={autoReseedEpisode} placeholder="0" />
+            </div>
+          </div>
+          <div class="post-actions" style="flex-wrap:wrap">
+            <button class="btn-save" on:click={launchAutoReseed} disabled={autoReseedLoading || !autoReseedInput || !cfg.seedbox_url}
+              title="Liste les torrents partagés via API → choisit le meilleur (FR + 1080p) → seedbox">
+              {autoReseedLoading ? '…' : '⚡ Torrent → seedbox'}
+            </button>
+            <button class="btn-save" on:click={launchAutoReseedDDL} disabled={autoReseedLoading || !autoReseedInput || !cfg.ftp_host || !cfg.one_fichier_api_key}
+              title="Aucun torrent partagé ? Télécharge depuis un DDL 1fichier et push direct sur le FTP configuré (streaming, sans passer par le disque)">
+              {autoReseedLoading ? '…' : '📦 DDL → FTP'}
+            </button>
+            {#if !cfg.seedbox_url}
+              <span style="color:var(--text3);font-size:11px;align-self:center">💡 Seedbox requis pour torrent</span>
+            {/if}
+            {#if !cfg.ftp_host || !cfg.one_fichier_api_key}
+              <span style="color:var(--text3);font-size:11px;align-self:center">💡 FTP + clé API 1fichier requis pour DDL</span>
+            {/if}
+          </div>
+          {#if autoReseedLoading && autoReseedDDLProgress.total > 0}
+            <div class="recap-row" style="margin-top:8px">
+              <span class="recap-key">Progression</span>
+              <span class="recap-val">{autoReseedDDLProgress.percent.toFixed(1)}% · {autoReseedDDLProgress.speed_mb.toFixed(1)} MB/s · {(autoReseedDDLProgress.bytes/1e9).toFixed(2)} / {(autoReseedDDLProgress.total/1e9).toFixed(2)} GB</span>
+            </div>
+          {/if}
+          {#if autoReseedLoading && autoReseedStatus}
+            <div class="recap-row" style="margin-top:8px"><span class="recap-key">Statut</span><span class="recap-val">{autoReseedStatus}</span></div>
+          {/if}
+          {#if autoReseedError}
+            <div class="recap-row" style="margin-top:8px"><span class="recap-key">Erreur</span><span class="recap-val" style="color:#ff6b6b">{autoReseedError}</span></div>
+          {/if}
+          {#if autoReseedResult}
+            <div style="margin-top:12px;padding:10px;background:rgba(126,240,192,0.08);border:1px solid rgba(126,240,192,0.25);border-radius:8px">
+              <div style="color:#7ef0c0;font-weight:600;margin-bottom:6px">✓ Torrent ajouté à la seedbox</div>
+              <div class="recap-row"><span class="recap-key">Torrent</span><span class="recap-val">#{autoReseedResult.torrent_id} — {autoReseedResult.torrent_name}</span></div>
+              {#if autoReseedResult.size_bytes}
+                <div class="recap-row"><span class="recap-key">Taille</span><span class="recap-val">{(autoReseedResult.size_bytes/1e9).toFixed(2)} GB</span></div>
+              {/if}
+              {#if autoReseedResult.seedbox_path}
+                <div class="recap-row"><span class="recap-key">Seedbox</span><span class="recap-val recap-file">{autoReseedResult.seedbox_path}</span></div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+
         <div class="section">
           <div class="section-header"><span>Fichiers</span></div>
           <div class="field">
