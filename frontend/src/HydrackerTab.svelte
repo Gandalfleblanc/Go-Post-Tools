@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime.js'
-  import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, PostTorrentWorkflow, PostExistingTorrent, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode } from '../wailsjs/go/main/App.js'
+  import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, PostTorrentWorkflow, PostExistingTorrent, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetMetaLangs, GetMetaSubs, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode } from '../wailsjs/go/main/App.js'
   import { addLog } from './logs.js'
   import { LANGUAGES as HYD_LANGUAGES, SUBS as HYD_SUBS } from './hydrackerData.js'
 
@@ -90,9 +90,17 @@
 
   onMount(async () => {
     try { qualityOptions = await GetMetaQualities() || [] } catch(e) { console.error(e) }
-    // Listes statiques extraites du bootstrap Hydracker (audio et subs sont distinctes)
-    langOptions = HYD_LANGUAGES
-    subOptions = HYD_SUBS
+    // Langues et sous-titres : on tente l'API Hydracker (/meta/langs + /meta/subs),
+    // fallback sur la liste statique (hydrackerData.js) si l'API est indispo ou vide.
+    try {
+      const apiLangs = await GetMetaLangs()
+      langOptions = apiLangs?.length ? apiLangs : HYD_LANGUAGES
+    } catch(e) { console.error('GetMetaLangs:', e); langOptions = HYD_LANGUAGES }
+    try {
+      const apiSubs = await GetMetaSubs()
+      subOptions = apiSubs?.length ? apiSubs : HYD_SUBS
+    } catch(e) { console.error('GetMetaSubs:', e); subOptions = HYD_SUBS }
+    addLog('META', `langues: ${langOptions.length} · sous-titres: ${subOptions.length}`)
     EventsOn('nzb:status',  s  => { nzbStatus = s })
     EventsOn('nzb:parpar',  p  => { if (p.percent !== undefined) nzbParparPct = p.percent })
     EventsOn('nzb:nyuu',    p  => {
@@ -327,8 +335,10 @@
   const LANG_MAP = {
     // Français
     'fre':'TrueFrench','fra':'TrueFrench','fr':'TrueFrench',
+    'fr-fr':'TrueFrench','fr_fr':'TrueFrench','fre-fr':'TrueFrench',
     'french':'TrueFrench','truefrench':'TrueFrench','vf':'TrueFrench','vff':'TrueFrench','vof':'TrueFrench',
     'french (canada)':'French (Canada)',
+    'fr-ca':'French (Canada)','fr_ca':'French (Canada)','fre-ca':'French (Canada)',
     // VO / VO sous-titré
     'vo':'VO','voa':'VO','vost':'VO','vostfr':'VO',
     // Anglais
@@ -415,18 +425,28 @@
 
   function matchLang(raw) {
     const key = (raw || '').toLowerCase().trim()
-    const mapped = LANG_MAP[key] || raw
+    const baseKey = key.split(/[-_]/)[0]
+    const mapped = LANG_MAP[key] || LANG_MAP[baseKey] || raw
     const target = mapped.toLowerCase()
     return langOptions.find(o => o.name.toLowerCase() === target)
       || langOptions.find(o => o.name.toLowerCase().includes(target) || target.includes(o.name.toLowerCase()))
       || { id: 0, name: mapped }
   }
 
-  // Pour les subs : mappe les variantes audio (TrueFrench, VO…) vers la langue pure.
+  // Pour les subs : mappe un code/tag de piste vers une entrée de subOptions.
+  // Stratégie : essai direct d'abord ('fr-ca' → 'French (Canada)' qui existe
+  // dans /meta/langs), puis fallback "dégraissé" (TrueFrench → French, etc.)
+  // si le nom direct n'est pas trouvé dans la liste des subs.
   function matchSub(raw) {
     const key = (raw || '').toLowerCase().trim()
-    let mapped = LANG_MAP[key] || raw
-    // Les valeurs audio-only ne sont pas valides en sub → on "dégraise" vers la langue pure.
+    const baseKey = key.split(/[-_]/)[0]
+    const mapped = LANG_MAP[key] || LANG_MAP[baseKey] || raw
+
+    // Essai #1 : le nom mappé directement
+    const direct = subOptions.find(o => o.name.toLowerCase() === mapped.toLowerCase())
+    if (direct) return direct
+
+    // Essai #2 : version "pure" pour les noms audio-only si absents côté subs
     const audioToPure = {
       'TrueFrench': 'French',
       'French (Canada)': 'French',
@@ -436,11 +456,12 @@
     if (mapped in audioToPure) {
       const pure = audioToPure[mapped]
       if (!pure) return { id: 0, name: mapped }
-      mapped = pure
+      const found = subOptions.find(o => o.name.toLowerCase() === pure.toLowerCase())
+      if (found) return found
+      return { id: 0, name: pure }
     }
-    const target = mapped.toLowerCase()
-    return langOptions.find(o => o.name.toLowerCase() === target)
-      || { id: 0, name: mapped }
+
+    return { id: 0, name: mapped }
   }
   function dedupeById(arr) {
     const seen = new Set()
@@ -517,8 +538,11 @@
     }
   }
 
-  $: if (langOptions.length && !subsAutoFilled && mediaInfo?.subs?.length) {
-    postSubs = dedupeById(mediaInfo.subs.map(matchSub))
+  $: if (langOptions.length && subOptions.length && !subsAutoFilled && mediaInfo?.subs?.length) {
+    const rawCodes = mediaInfo.subs
+    const matched = rawCodes.map(matchSub)
+    addLog('SUB', `codes bruts : [${rawCodes.join(', ')}] → match : [${matched.map(s => `${s.name}${s.id ? '#'+s.id : '⚠'}`).join(', ')}]`)
+    postSubs = dedupeById(matched)
     subsAutoFilled = true
   }
 
