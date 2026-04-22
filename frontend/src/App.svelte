@@ -5,11 +5,13 @@
   import HydrackerTab from './HydrackerTab.svelte'
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, Notify } from '../wailsjs/go/main/App.js'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, HydrackerSearch, HydrackerGetByID, HydrackerGetByTmdbID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, ListReseedRequests, Notify } from '../wailsjs/go/main/App.js'
 
   // --- Tabs ---
   const TABS = [
     { id: 'hydracker', label: '🎬 Hydracker' },
+    { id: 'fiches',    label: '🎞 Fiches' },
+    { id: 'requests',  label: '📋 Demandes' },
     { id: 'history',   label: '📚 Historique' },
     { id: 'check',     label: '🔍 Check Torrent' },
     { id: 'reseed',    label: '♻️ Reseed' },
@@ -328,6 +330,126 @@
     } }))
   }
 
+// --- Fiches : recherche + drill-down sur toutes les fiches du site ---
+  let fichesMode = 'name'        // 'name' | 'hydracker_id' | 'tmdb_id'
+  let fichesQuery = ''
+  let fichesResults = []          // []PartialTitle
+  let fichesLoading = false
+  let fichesError = ''
+  let fichesSelected = null       // fiche actuellement ouverte en détail
+  let fichesContent = null        // {liens, nzbs, torrents} de la fiche sélectionnée
+  let fichesContentLoading = false
+  let fichesContentTab = 'torrents'  // 'torrents' | 'nzbs' | 'liens'
+
+  async function fichesSearch() {
+    fichesError = ''
+    fichesResults = []
+    fichesSelected = null
+    const q = (fichesQuery || '').trim()
+    if (!q) return
+    fichesLoading = true
+    try {
+      if (fichesMode === 'name') {
+        fichesResults = await HydrackerSearch(q) || []
+      } else if (fichesMode === 'hydracker_id') {
+        const id = parseInt(q.match(/\d+/)?.[0] || '0')
+        if (!id) { fichesError = 'ID Hydracker invalide'; fichesLoading = false; return }
+        const t = await HydrackerGetByID(id)
+        fichesResults = t ? [t] : []
+      } else if (fichesMode === 'tmdb_id') {
+        const id = parseInt(q.match(/\d+/)?.[0] || '0')
+        if (!id) { fichesError = 'ID TMDB invalide'; fichesLoading = false; return }
+        const t = await HydrackerGetByTmdbID(id)
+        fichesResults = t ? [t] : []
+      }
+      if (!fichesResults.length) fichesError = 'Aucune fiche trouvée'
+    } catch(e) {
+      fichesError = String(e?.message || e)
+    }
+    fichesLoading = false
+  }
+
+  async function fichesOpen(fiche) {
+    fichesSelected = fiche
+    fichesContent = null
+    fichesContentLoading = true
+    fichesContentTab = 'torrents'
+    try {
+      fichesContent = await FicheGetContent(fiche.id)
+    } catch(e) {
+      addLog('FICHE', '✗ ' + e)
+    }
+    fichesContentLoading = false
+  }
+
+  function fichesBackToResults() {
+    fichesSelected = null
+    fichesContent = null
+  }
+
+  async function downloadLienFromFiche(lien) {
+    try {
+      addLog('FICHE', `⬇ Téléchargement lien #${lien.id}…`)
+      await DownloadToDownloads(lien.download_url || lien.lien || '', (lien.name || 'hydracker-lien-' + lien.id))
+      addLog('FICHE', `✓ Lien #${lien.id} téléchargé dans Downloads`)
+    } catch(e) { addLog('FICHE', '✗ ' + e) }
+  }
+
+// --- Demandes de reseed (admin) ---
+  let reqFilter = 'pending'        // 'pending' | 'done' | 'rejected' | 'all' | 'mine'
+  let reqList = []                  // []ReseedRequest
+  let reqLoading = false
+  let reqError = ''
+  let reqPage = 1
+  let reqTotalPages = 1
+  let reqProcessing = {}            // { [requestId]: true }
+  let myUserID = 550257             // TODO: récupérer via GetMyUsername/user-profile/me
+
+  async function loadReseedRequests() {
+    reqLoading = true
+    reqError = ''
+    try {
+      const status = (reqFilter === 'all' || reqFilter === 'mine') ? '' : reqFilter
+      const uploader = reqFilter === 'mine' ? myUserID : 0
+      const r = await ListReseedRequests(status, uploader, 0, reqPage)
+      reqList = r?.pagination?.data || []
+      reqTotalPages = r?.pagination?.last_page || 1
+    } catch(e) {
+      reqError = String(e?.message || e)
+      addLog('REQ', '✗ ' + reqError)
+    }
+    reqLoading = false
+  }
+
+  $: if (activeTab === 'requests') loadReseedRequests()
+  // Reset page quand filtre change
+  $: if (reqFilter) { reqPage = 1 }
+
+  async function processReseedRequest(req) {
+    if (!req?.torrent?.title_id) { addLog('REQ', '⚠ request #' + req.id + ' : title_id manquant'); return }
+    reqProcessing = { ...reqProcessing, [req.id]: true }
+    addLog('REQ', `▶ Traitement request #${req.id} → fiche #${req.torrent.title_id}`)
+    try {
+      const saison = parseInt(req.torrent.torrent_name?.match(/[sS](\d{1,2})[eE]/)?.[1] || '0') || 0
+      const ep = parseInt(req.torrent.torrent_name?.match(/[sS]\d{1,2}[eE](\d{1,3})/)?.[1] || '0') || 0
+      const r = await AutoReseedFromHydracker(req.torrent.title_id, saison, ep, 0, 0)
+      addLog('REQ', `✓ Request #${req.id} : torrent #${r.torrent_id} → seedbox OK`)
+      try { Notify('✓ Reseed demandé traité', req.torrent.torrent_name) } catch(e) {}
+    } catch(e) {
+      addLog('REQ', `✗ Request #${req.id} : ${e}`)
+    }
+    reqProcessing = { ...reqProcessing, [req.id]: false }
+  }
+
+  async function processAllPending() {
+    const pending = reqList.filter(r => r.status === 'pending')
+    addLog('REQ', `▶ Batch : ${pending.length} demande(s)`)
+    for (const r of pending) {
+      await processReseedRequest(r)
+    }
+    addLog('REQ', '✓ Batch terminé')
+  }
+
 // Check Torrent
   let checkTorrents = []
   let checkLoading = false
@@ -498,8 +620,226 @@
 
     {#if activeTab !== 'hydracker'}
 
+    <!-- ===== FICHES ===== -->
+    {#if activeTab === 'fiches'}
+      <div class="tab-content">
+        <h2>🎞 Fiches Hydracker</h2>
+
+        {#if !fichesSelected}
+          <!-- Mode recherche -->
+          <div class="section">
+            <div class="section-header"><span>Recherche</span></div>
+            <div class="field" style="display:flex;gap:6px;margin-bottom:10px">
+              <button class="btn-test" class:active-chip={fichesMode === 'name'} on:click={() => fichesMode = 'name'}>🔤 Par nom</button>
+              <button class="btn-test" class:active-chip={fichesMode === 'hydracker_id'} on:click={() => fichesMode = 'hydracker_id'}>🆔 ID Hydracker</button>
+              <button class="btn-test" class:active-chip={fichesMode === 'tmdb_id'} on:click={() => fichesMode = 'tmdb_id'}>🎬 ID TMDB</button>
+            </div>
+            <div class="field">
+              <div class="pwd-row">
+                <input type="text" bind:value={fichesQuery}
+                  placeholder={fichesMode === 'name' ? 'Titre du film/série…' : fichesMode === 'hydracker_id' ? 'Ex: 62544' : 'Ex: 550 (Fight Club)'}
+                  on:keydown={e => e.key === 'Enter' && !fichesLoading && fichesSearch()} />
+                <button class="btn-save" on:click={fichesSearch} disabled={fichesLoading || !fichesQuery}>
+                  {fichesLoading ? '…' : '🔍 Chercher'}
+                </button>
+              </div>
+            </div>
+            {#if fichesError}
+              <div style="color:#ff9585;font-size:12px;margin-top:6px">⚠ {fichesError}</div>
+            {/if}
+          </div>
+
+          <!-- Résultats en grille -->
+          {#if fichesResults.length}
+            <div class="section">
+              <div class="section-header"><span>Résultats ({fichesResults.length})</span></div>
+              <div class="fiches-grid">
+                {#each fichesResults as f}
+                  <button class="fiche-card" on:click={() => fichesOpen(f)} title={f.name}>
+                    {#if f.poster}
+                      <img src={f.poster} alt={f.name} loading="lazy" />
+                    {:else}
+                      <div class="fiche-no-poster">📽</div>
+                    {/if}
+                    <div class="fiche-info">
+                      <div class="fiche-name">{f.name}</div>
+                      <div class="fiche-meta">
+                        {f.type === 'series' ? '📺 Série' : '🎬 Film'}
+                        {#if f.release_date}· {f.release_date.slice(0,4)}{/if}
+                        {#if f.score}· ⭐ {f.score.toFixed(1)}{/if}
+                      </div>
+                      <div class="fiche-id">#{f.id}</div>
+                    </div>
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
+        {:else}
+          <!-- Détail d'une fiche -->
+          <div class="section">
+            <div style="display:flex;gap:16px;align-items:flex-start">
+              <button class="btn-test" on:click={fichesBackToResults}>← Retour</button>
+              {#if fichesSelected.poster}
+                <img src={fichesSelected.poster} alt={fichesSelected.name} style="width:120px;border-radius:8px" />
+              {/if}
+              <div style="flex:1">
+                <h3 style="margin:0 0 6px">{fichesSelected.name}</h3>
+                <div style="color:var(--text3);font-size:12px;margin-bottom:8px">
+                  {fichesSelected.type === 'series' ? '📺 Série' : '🎬 Film'}
+                  {#if fichesSelected.release_date}· {fichesSelected.release_date.slice(0,4)}{/if}
+                  · Hydracker #{fichesSelected.id}
+                </div>
+                <button class="btn-test" on:click={() => OpenBrowser(`https://hydracker.com/titles/${fichesSelected.id}`)}>
+                  🌐 Ouvrir sur Hydracker
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header"><span>Contenu</span></div>
+            {#if fichesContentLoading}
+              <div style="color:var(--text3);font-size:12px">Chargement…</div>
+            {:else if fichesContent}
+              <!-- Tabs : Torrents / NZB / Liens DDL -->
+              <div class="field" style="display:flex;gap:6px;margin-bottom:12px">
+                <button class="btn-test" class:active-chip={fichesContentTab === 'torrents'} on:click={() => fichesContentTab = 'torrents'}>
+                  📦 Torrents ({fichesContent.torrents?.torrents?.length || 0})
+                </button>
+                <button class="btn-test" class:active-chip={fichesContentTab === 'nzbs'} on:click={() => fichesContentTab = 'nzbs'}>
+                  📰 NZB ({fichesContent.nzbs?.nzbs?.length || 0})
+                </button>
+                <button class="btn-test" class:active-chip={fichesContentTab === 'liens'} on:click={() => fichesContentTab = 'liens'}>
+                  🔗 Liens DDL ({fichesContent.liens?.liens?.length || 0})
+                </button>
+              </div>
+
+              {#if fichesContentTab === 'torrents'}
+                {#if fichesContent.torrents?.torrents?.length}
+                  {#each fichesContent.torrents.torrents as t}
+                    <div class="recap-row" style="gap:8px;flex-wrap:wrap">
+                      <span class="recap-key" style="width:auto;flex:none">#{t.id}</span>
+                      <span class="recap-val" style="flex:1;min-width:200px">{t.name || '(sans nom)'}{t.size ? ` · ${(t.size/1e9).toFixed(2)} GB` : ''}</span>
+                      {#if t.saison || t.episode}<span style="color:var(--text3);font-size:11px">S{String(t.saison||0).padStart(2,'0')}E{String(t.episode||0).padStart(2,'0')}</span>{/if}
+                      <button class="btn-test" on:click={() => downloadLienFromFiche({id:t.id, download_url:t.download_url, name:t.name + '.torrent'})}>⬇ Télécharger</button>
+                    </div>
+                  {/each}
+                {:else}
+                  <div style="color:var(--text3);font-size:12px">Aucun torrent partagé via API pour cette fiche.</div>
+                {/if}
+              {:else if fichesContentTab === 'nzbs'}
+                {#if fichesContent.nzbs?.nzbs?.length}
+                  {#each fichesContent.nzbs.nzbs as n}
+                    <div class="recap-row" style="gap:8px;flex-wrap:wrap">
+                      <span class="recap-key" style="width:auto;flex:none">#{n.id}</span>
+                      <span class="recap-val" style="flex:1;min-width:200px">{n.name || '(sans nom)'}{n.size ? ` · ${(n.size/1e9).toFixed(2)} GB` : ''}</span>
+                      <button class="btn-test" on:click={() => downloadLienFromFiche({id:n.id, download_url:n.download_url, name:(n.name || ('nzb-' + n.id)) + '.nzb'})}>⬇ Télécharger</button>
+                    </div>
+                  {/each}
+                {:else}
+                  <div style="color:var(--text3);font-size:12px">Aucun NZB partagé via API pour cette fiche.</div>
+                {/if}
+              {:else if fichesContentTab === 'liens'}
+                {#if fichesContent.liens?.liens?.length}
+                  {#each fichesContent.liens.liens as l}
+                    <div class="recap-row" style="gap:8px;flex-wrap:wrap">
+                      <span class="recap-key" style="width:auto;flex:none">#{l.id}</span>
+                      <span class="recap-val" style="flex:1;min-width:200px;font-size:11px;word-break:break-all">{l.lien || '(URL masquée — récupérez via /content/liens/{id})'}</span>
+                      {#if l.host}<span style="color:var(--text3);font-size:11px">{l.host}</span>{/if}
+                      <button class="btn-test" on:click={() => OpenBrowser(l.lien)} disabled={!l.lien}>🌐 Ouvrir</button>
+                    </div>
+                  {/each}
+                {:else}
+                  <div style="color:var(--text3);font-size:12px">Aucun DDL partagé via API pour cette fiche.</div>
+                {/if}
+              {/if}
+
+              {#if fichesContent.charged > 0}
+                <div style="margin-top:10px;color:var(--text3);font-size:11px">💰 Charged: {fichesContent.charged.toFixed(3)}€</div>
+              {/if}
+            {:else}
+              <div style="color:#ff9585;font-size:12px">Erreur lors du chargement du contenu</div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
+    <!-- ===== DEMANDES DE RESEED ===== -->
+    {:else if activeTab === 'requests'}
+      <div class="tab-content">
+        <h2>📋 Demandes de reseed</h2>
+        <div class="section">
+          <div class="section-header"><span>Filtres</span></div>
+          <div class="field" style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn-test" class:active-chip={reqFilter === 'pending'} on:click={() => { reqFilter = 'pending'; loadReseedRequests() }}>⏳ Pending</button>
+            <button class="btn-test" class:active-chip={reqFilter === 'mine'} on:click={() => { reqFilter = 'mine'; loadReseedRequests() }}>👤 Les miennes</button>
+            <button class="btn-test" class:active-chip={reqFilter === 'done'} on:click={() => { reqFilter = 'done'; loadReseedRequests() }}>✓ Done</button>
+            <button class="btn-test" class:active-chip={reqFilter === 'rejected'} on:click={() => { reqFilter = 'rejected'; loadReseedRequests() }}>✗ Rejected</button>
+            <button class="btn-test" class:active-chip={reqFilter === 'all'} on:click={() => { reqFilter = 'all'; loadReseedRequests() }}>📋 Toutes</button>
+            <button class="btn-test" on:click={loadReseedRequests} disabled={reqLoading}>🔄 Rafraîchir</button>
+            {#if reqFilter === 'pending' && reqList.length > 0}
+              <button class="btn-save" on:click={processAllPending} disabled={reqLoading || Object.values(reqProcessing).some(v => v)}>
+                ⚡ Tout traiter ({reqList.length})
+              </button>
+            {/if}
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">
+            <span>Demandes ({reqList.length})</span>
+            {#if reqTotalPages > 1}
+              <span style="color:var(--text3);font-size:11px">
+                Page {reqPage}/{reqTotalPages}
+                <button class="btn-test" style="margin-left:6px" on:click={() => { if (reqPage > 1) { reqPage--; loadReseedRequests() } }} disabled={reqPage <= 1}>‹</button>
+                <button class="btn-test" on:click={() => { if (reqPage < reqTotalPages) { reqPage++; loadReseedRequests() } }} disabled={reqPage >= reqTotalPages}>›</button>
+              </span>
+            {/if}
+          </div>
+
+          {#if reqLoading && reqList.length === 0}
+            <div style="color:var(--text3);font-size:12px">Chargement…</div>
+          {:else if reqError}
+            <div style="color:#ff9585;font-size:12px">⚠ {reqError}</div>
+          {:else if reqList.length === 0}
+            <div style="color:var(--text3);font-size:12px">Aucune demande dans ce filtre.</div>
+          {:else}
+            {#each reqList as req}
+              <div class="req-card">
+                <div style="display:flex;gap:12px;align-items:flex-start">
+                  {#if req.torrent?.title?.poster}
+                    <img src={req.torrent.title.poster} alt="" style="width:56px;height:84px;object-fit:cover;border-radius:6px" loading="lazy" />
+                  {/if}
+                  <div style="flex:1;min-width:0">
+                    <div style="font-weight:600;font-size:13px;color:var(--text);margin-bottom:4px">
+                      {req.torrent?.title?.name || '(titre inconnu)'}
+                      <span style="color:var(--text3);font-size:11px;font-weight:normal">· fiche #{req.torrent?.title_id}</span>
+                    </div>
+                    <div style="font-size:11px;color:var(--text3);word-break:break-all;margin-bottom:4px">{req.torrent?.torrent_name}</div>
+                    <div style="display:flex;gap:12px;font-size:11px;color:var(--text3);flex-wrap:wrap">
+                      <span>🌱 Seeders: <b style={req.torrent?.seeders === 0 ? 'color:#ff9585' : 'color:#7ef0c0'}>{req.torrent?.seeders ?? '?'}</b></span>
+                      <span>👤 Demande: <b>{req.requester?.username || '#' + req.requester_id}</b></span>
+                      <span>📤 Uploader: <b>{req.uploader?.username || '#' + req.uploader_id}</b></span>
+                      <span>📅 {req.created_at?.slice(0,10)}</span>
+                      <span class="req-status req-status-{req.status}">{req.status}</span>
+                    </div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:6px;align-self:center">
+                    <button class="btn-save" on:click={() => processReseedRequest(req)} disabled={reqProcessing[req.id] || req.status !== 'pending'} title="Auto-reseed via torrent Hydracker → seedbox">
+                      {reqProcessing[req.id] ? '…' : '⚡ Traiter'}
+                    </button>
+                    <button class="btn-test" on:click={() => OpenBrowser(`https://hydracker.com/titles/${req.torrent?.title_id}`)}>🌐 Fiche</button>
+                  </div>
+                </div>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+
     <!-- ===== HISTORIQUE ===== -->
-    {#if activeTab === 'history'}
+    {:else if activeTab === 'history'}
       <div class="tab-content">
         <h2>📚 Historique</h2>
         <div class="hist-stats">
@@ -1497,6 +1837,66 @@
     background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1);
     border-radius: 10px; color: var(--text3); font-size: 12px;
   }
+
+  .active-chip {
+    background: rgba(0, 180, 216, 0.18) !important;
+    border-color: rgba(0, 180, 216, 0.55) !important;
+    color: var(--text) !important;
+  }
+  .fiches-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 14px;
+    margin-top: 8px;
+  }
+  .fiche-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0;
+    overflow: hidden;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.15s;
+  }
+  .fiche-card:hover {
+    border-color: rgba(0, 180, 216, 0.55);
+    background: rgba(0, 180, 216, 0.04);
+    transform: translateY(-2px);
+  }
+  .fiche-card img {
+    width: 100%;
+    aspect-ratio: 2/3;
+    object-fit: cover;
+    display: block;
+  }
+  .fiche-no-poster {
+    width: 100%; aspect-ratio: 2/3;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 48px; color: var(--text3);
+    background: rgba(255,255,255,0.02);
+  }
+  .fiche-info { padding: 8px 10px; }
+  .fiche-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 3px; line-height: 1.2; }
+  .fiche-meta { font-size: 11px; color: var(--text3); }
+  .fiche-id { font-size: 10px; color: var(--text3); margin-top: 2px; opacity: 0.7; }
+
+  .req-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .req-status {
+    padding: 2px 8px; border-radius: 10px; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+  }
+  .req-status-pending { background: rgba(255, 214, 10, 0.15); color: var(--yellow); border: 1px solid rgba(255, 214, 10, 0.35); }
+  .req-status-done    { background: rgba(126, 240, 192, 0.12); color: #7ef0c0; border: 1px solid rgba(126, 240, 192, 0.35); }
+  .req-status-rejected{ background: rgba(255, 107, 107, 0.12); color: #ff6b6b; border: 1px solid rgba(255, 107, 107, 0.35); }
 
   .test-result {
     font-size: 12px; padding: 7px 11px; border-radius: 8px; margin-bottom: 12px;

@@ -178,6 +178,167 @@ export namespace api {
 	        this.name = source["name"];
 	    }
 	}
+	export class ReseedRequestUser {
+	    id: number;
+	    username: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReseedRequestUser(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.username = source["username"];
+	        this.name = source["name"];
+	    }
+	}
+	export class ReseedRequestTitle {
+	    id: number;
+	    name: string;
+	    poster: string;
+	    year?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReseedRequestTitle(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.poster = source["poster"];
+	        this.year = source["year"];
+	    }
+	}
+	export class ReseedRequestTorrent {
+	    id: number;
+	    title_id: number;
+	    torrent_name: string;
+	    name: string;
+	    info_hash: string;
+	    seeders: number;
+	    author: string;
+	    size?: number;
+	    title: ReseedRequestTitle;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReseedRequestTorrent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title_id = source["title_id"];
+	        this.torrent_name = source["torrent_name"];
+	        this.name = source["name"];
+	        this.info_hash = source["info_hash"];
+	        this.seeders = source["seeders"];
+	        this.author = source["author"];
+	        this.size = source["size"];
+	        this.title = this.convertValues(source["title"], ReseedRequestTitle);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ReseedRequest {
+	    id: number;
+	    torrent_id: number;
+	    requester_id: number;
+	    uploader_id: number;
+	    status: string;
+	    created_at: string;
+	    updated_at: string;
+	    torrent: ReseedRequestTorrent;
+	    requester: ReseedRequestUser;
+	    uploader: ReseedRequestUser;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReseedRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.torrent_id = source["torrent_id"];
+	        this.requester_id = source["requester_id"];
+	        this.uploader_id = source["uploader_id"];
+	        this.status = source["status"];
+	        this.created_at = source["created_at"];
+	        this.updated_at = source["updated_at"];
+	        this.torrent = this.convertValues(source["torrent"], ReseedRequestTorrent);
+	        this.requester = this.convertValues(source["requester"], ReseedRequestUser);
+	        this.uploader = this.convertValues(source["uploader"], ReseedRequestUser);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	export class ReseedRequestsResponse {
+	    pagination: struct { CurrentPage int "json:\"current_page\""; LastPage int "json:\"last_page,omitempty\""; Total int "json:\"total,omitempty\""; Data []api.;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReseedRequestsResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pagination = this.convertValues(source["pagination"], Object);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class TorrentItem {
 	    id: number;
 	    name: string;

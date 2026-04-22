@@ -75,6 +75,8 @@ export function IsWatching():Promise<boolean>;
 
 export function ListCheckTorrents(arg1:boolean):Promise<Array<main.CheckTorrentEntry>>;
 
+export function ListReseedRequests(arg1:string,arg2:number,arg3:number,arg4:number):Promise<api.ReseedRequestsResponse>;
+
 export function MediaSearch(arg1:string):Promise<Array<mediasearch.SearchResult>>;
 
 export function Notify(arg1:string,arg2:string):Promise<void>;

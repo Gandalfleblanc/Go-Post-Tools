@@ -134,6 +134,10 @@ export function ListCheckTorrents(arg1) {
   return window['go']['main']['App']['ListCheckTorrents'](arg1);
 }
 
+export function ListReseedRequests(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ListReseedRequests'](arg1, arg2, arg3, arg4);
+}
+
 export function MediaSearch(arg1) {
   return window['go']['main']['App']['MediaSearch'](arg1);
 }

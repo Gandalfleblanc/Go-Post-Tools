@@ -46,7 +46,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "1.2.30"
+const Version = "2.0.0"
 
 type App struct {
 	ctx         context.Context
@@ -1298,6 +1298,14 @@ func (a *App) FindHydrackerSources(titleID, saison, episode int) (*FindHydracker
 		logEv("torrents raw: " + raw)
 	}
 	return res, nil
+}
+
+// ListReseedRequests expose l'endpoint admin /reseed-requests au frontend.
+// Filtres optionnels : status ("pending"|"done"|"rejected"|""),
+// uploaderID/requesterID (0 pour ignorer), page (1+).
+func (a *App) ListReseedRequests(status string, uploaderID, requesterID, page int) (*api.ReseedRequestsResponse, error) {
+	a.resetCancellation()
+	return a.client.ListReseedRequests(status, uploaderID, requesterID, page)
 }
 
 // AutoReseedResult retourne le résultat du workflow auto-reseed.
