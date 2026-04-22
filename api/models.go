@@ -287,7 +287,7 @@ type TorrentItem struct {
 	Leechers    int         `json:"leechers,omitempty"`
 	Completed   int         `json:"completed,omitempty"`
 	Author      string      `json:"author,omitempty"`            // API: "author" (pas "id_user")
-	Active      int         `json:"active,omitempty"`
+	Active      bool        `json:"active,omitempty"`            // /content/torrents/{id} renvoie bool (pas int)
 	CreatedAt   string      `json:"created_at,omitempty"`
 	UpdatedAt   string      `json:"updated_at,omitempty"`
 	Qual        *QualDetails `json:"qual,omitempty"`
