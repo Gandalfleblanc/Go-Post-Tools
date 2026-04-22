@@ -5,7 +5,7 @@
   import HydrackerTab from './HydrackerTab.svelte'
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, HydrackerSearch, HydrackerGetByID, HydrackerGetByTmdbID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, Notify } from '../wailsjs/go/main/App.js'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, HydrackerSearch, HydrackerGetByID, HydrackerGetByTmdbID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
 
   // --- Tabs ---
   const TABS = [
@@ -377,6 +377,94 @@
       addLog('FICHE', `✓ Lien #${lien.id} téléchargé dans Downloads`)
     } catch(e) { addLog('FICHE', '✗ ' + e) }
   }
+
+// --- Check Torrent : nouvelle vue "Mes seeds Hydracker" ---
+  let mySeedsTorrents = []          // []TorrentItem depuis /admin/torrents?author=Gandalf
+  let mySeedsLoading = false
+  let mySeedsError = ''
+  let mySeedsPage = 1
+  let mySeedsTotalPages = 1
+  let mySeedsFilter = 'all'         // 'all' | '0seed' | 'low' | 'ok'
+  let mySeedsActioning = {}         // { [torrentId]: true } pendant auto-reseed
+
+  // Bouton "Parcourir local" : check si un MKV local correspond à une fiche Hydracker
+  let localMkvCheck = null          // { filename, parsed, hydrackerFiche, content, error }
+  let localMkvChecking = false
+
+  async function loadMySeeds() {
+    mySeedsLoading = true
+    mySeedsError = ''
+    try {
+      const r = await ListMyTorrents(myUsername, mySeedsPage)
+      mySeedsTorrents = r?.pagination?.data || []
+      mySeedsTotalPages = r?.pagination?.last_page || 1
+      // Tri local par seeders ASC pour mettre les "à risque" en haut
+      mySeedsTorrents.sort((a, b) => (a.seeders || 0) - (b.seeders || 0))
+    } catch(e) {
+      mySeedsError = String(e?.message || e)
+      addLog('SEED', '✗ ' + mySeedsError)
+    }
+    mySeedsLoading = false
+  }
+
+  $: filteredMySeeds = mySeedsTorrents.filter(t => {
+    const s = t.seeders || 0
+    if (mySeedsFilter === '0seed') return s === 0
+    if (mySeedsFilter === 'low') return s > 0 && s <= 2
+    if (mySeedsFilter === 'ok') return s >= 3
+    return true
+  })
+
+  $: if (activeTab === 'check') loadMySeeds()
+
+  async function autoReseedFromCheck(t) {
+    if (!t?.title_id) return
+    mySeedsActioning = { ...mySeedsActioning, [t.id]: true }
+    addLog('SEED', `▶ Auto-reseed torrent #${t.id} (fiche #${t.title_id})`)
+    try {
+      const r = await AutoReseedFromHydracker(t.title_id, t.saison || 0, t.episode || 0, 0, 0)
+      addLog('SEED', `✓ Reseed OK → ${r.torrent_name}`)
+      try { Notify('✓ Reseed OK', t.torrent_name || t.name) } catch(e) {}
+      // Refresh pour voir le nouveau seeders count
+      setTimeout(loadMySeeds, 1500)
+    } catch(e) {
+      addLog('SEED', `✗ Reseed #${t.id} : ${e}`)
+    }
+    mySeedsActioning = { ...mySeedsActioning, [t.id]: false }
+  }
+
+  async function checkLocalMkv() {
+    try {
+      const path = await SelectMkvFile()
+      if (!path) return
+      const filename = path.split(/[\\/]/).pop()
+      localMkvChecking = true
+      localMkvCheck = { filename, parsed: null, hydrackerFiche: null, content: null, error: '' }
+
+      // 1. Parser le nom
+      const parsed = await ParseFilename(filename)
+      localMkvCheck.parsed = parsed
+
+      // 2. Cherche la fiche Hydracker par titre
+      if (parsed?.title) {
+        const results = await HydrackerSearch(parsed.title)
+        if (results?.length > 0) {
+          localMkvCheck.hydrackerFiche = results[0]
+          // 3. Récupère le contenu de la fiche (torrents + nzbs + liens)
+          localMkvCheck.content = await FicheGetContent(results[0].id)
+        } else {
+          localMkvCheck.error = 'Aucune fiche Hydracker trouvée pour "' + parsed.title + '"'
+        }
+      } else {
+        localMkvCheck.error = 'Pas de titre extrait du nom de fichier'
+      }
+    } catch(e) {
+      if (localMkvCheck) localMkvCheck.error = String(e?.message || e)
+    }
+    localMkvChecking = false
+  }
+
+  function closeLocalMkvCheck() { localMkvCheck = null }
 
 // --- Demandes de reseed (admin) ---
   let reqFilter = 'pending'        // 'pending' | 'done' | 'rejected' | 'all' | 'mine'
@@ -1584,12 +1672,118 @@
       <div class="tab-content check-tab">
         <div class="check-header">
           <h2>🔍 Check Torrent</h2>
-          <div class="check-actions">
-            <button class="btn-test" on:click={() => loadCheckTorrents(false)} disabled={checkLoading}>
-              {checkLoading ? '…' : 'Charger'}
+        </div>
+
+        <!-- Section 1 : Mes torrents Hydracker (par seeders) -->
+        <div class="section">
+          <div class="section-header">
+            <span>🌱 Mes torrents Hydracker — par seeders ASC ({filteredMySeeds.length}/{mySeedsTorrents.length})</span>
+            <div style="display:flex;gap:6px;align-items:center">
+              {#if mySeedsTotalPages > 1}
+                <span style="color:var(--text3);font-size:11px">Page {mySeedsPage}/{mySeedsTotalPages}</span>
+                <button class="btn-test" on:click={() => { if (mySeedsPage > 1) { mySeedsPage--; loadMySeeds() } }} disabled={mySeedsPage <= 1}>‹</button>
+                <button class="btn-test" on:click={() => { if (mySeedsPage < mySeedsTotalPages) { mySeedsPage++; loadMySeeds() } }} disabled={mySeedsPage >= mySeedsTotalPages}>›</button>
+              {/if}
+              <button class="btn-test" on:click={loadMySeeds} disabled={mySeedsLoading}>🔄 Rafraîchir</button>
+            </div>
+          </div>
+          <div class="field" style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn-test" class:active-chip={mySeedsFilter === 'all'} on:click={() => mySeedsFilter = 'all'}>Tous ({mySeedsTorrents.length})</button>
+            <button class="btn-test" class:active-chip={mySeedsFilter === '0seed'} on:click={() => mySeedsFilter = '0seed'} style="color:#ff6b6b">🔴 0 seed ({mySeedsTorrents.filter(t => (t.seeders||0) === 0).length})</button>
+            <button class="btn-test" class:active-chip={mySeedsFilter === 'low'} on:click={() => mySeedsFilter = 'low'} style="color:#ffd60a">🟠 1-2 seeds ({mySeedsTorrents.filter(t => (t.seeders||0) > 0 && (t.seeders||0) <= 2).length})</button>
+            <button class="btn-test" class:active-chip={mySeedsFilter === 'ok'} on:click={() => mySeedsFilter = 'ok'} style="color:#7ef0c0">🟢 3+ seeds ({mySeedsTorrents.filter(t => (t.seeders||0) >= 3).length})</button>
+            <button class="btn-test" on:click={checkLocalMkv} disabled={localMkvChecking} title="Vérifier qu'un MKV local correspond à une fiche Hydracker (et voir les sources DDL/torrents dispos)">
+              {localMkvChecking ? '…' : '🔍 Parcourir un MKV local'}
             </button>
           </div>
+
+          {#if mySeedsLoading && !mySeedsTorrents.length}
+            <div style="color:var(--text3);font-size:12px;margin-top:10px">Chargement…</div>
+          {:else if mySeedsError}
+            <div style="color:#ff6b6b;font-size:12px;margin-top:10px">⚠ {mySeedsError}</div>
+          {:else if filteredMySeeds.length === 0}
+            <div style="color:var(--text3);font-size:12px;margin-top:10px">Aucun torrent dans ce filtre.</div>
+          {:else}
+            {#each filteredMySeeds as t}
+              {@const seeders = t.seeders || 0}
+              {@const seedColor = seeders === 0 ? '#ff6b6b' : (seeders <= 2 ? '#ffd60a' : '#7ef0c0')}
+              <div class="my-item" style="border-left: 3px solid {seedColor}">
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:3px">
+                    #{t.id} · {t.torrent_name || t.name || '(sans nom)'}
+                  </div>
+                  <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text3)">
+                    <span style="color:{seedColor};font-weight:600">🌱 {seeders} seed{seeders > 1 ? 's' : ''}</span>
+                    {#if t.leechers}<span>⬇ {t.leechers} leech</span>{/if}
+                    <span>fiche #{t.title_id}</span>
+                    {#if t.qualite || t.quality}<span>qual #{t.qualite || t.quality}</span>{/if}
+                    {#if t.saison || t.episode}<span>S{String(t.saison||0).padStart(2,'0')}E{String(t.episode||0).padStart(2,'0')}</span>{/if}
+                    {#if t.taille || t.size}<span>{((t.taille||t.size)/1e9).toFixed(2)} GB</span>{/if}
+                    <span>📅 {(t.created_at || '').slice(0,10)}</span>
+                  </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;align-self:center">
+                  <button class="btn-save" on:click={() => autoReseedFromCheck(t)} disabled={mySeedsActioning[t.id]} title="Auto-reseed via API → seedbox">
+                    {mySeedsActioning[t.id] ? '…' : '⚡ Auto-reseed'}
+                  </button>
+                  <button class="btn-test" on:click={() => OpenBrowser(`https://hydracker.com/titles/${t.title_id}`)}>🌐 Fiche</button>
+                </div>
+              </div>
+            {/each}
+          {/if}
         </div>
+
+        <!-- Modal résultat du check MKV local -->
+        {#if localMkvCheck}
+          <div class="modal-backdrop" on:click|self={closeLocalMkvCheck}>
+            <div class="modal-card" style="max-width:600px">
+              <div class="modal-title">🔍 Vérification MKV local</div>
+              <div class="modal-hint">{localMkvCheck.filename}</div>
+              {#if localMkvCheck.error}
+                <div style="color:#ff6b6b;font-size:12px;margin:10px 0">⚠ {localMkvCheck.error}</div>
+              {:else if localMkvCheck.parsed}
+                <div style="display:grid;grid-template-columns:max-content 1fr;gap:6px 12px;margin:10px 0;font-size:12px">
+                  <span style="color:var(--text3)">Titre détecté</span><span>{localMkvCheck.parsed.title || '—'}</span>
+                  {#if localMkvCheck.parsed.year}<span style="color:var(--text3)">Année</span><span>{localMkvCheck.parsed.year}</span>{/if}
+                  {#if localMkvCheck.parsed.season || localMkvCheck.parsed.episode}<span style="color:var(--text3)">S/E</span><span>S{String(localMkvCheck.parsed.season||0).padStart(2,'0')}E{String(localMkvCheck.parsed.episode||0).padStart(2,'0')}</span>{/if}
+                </div>
+                {#if localMkvCheck.hydrackerFiche}
+                  <div style="background:rgba(0,180,216,0.05);border:1px solid rgba(0,180,216,0.25);border-radius:8px;padding:10px;margin:8px 0">
+                    <div style="font-weight:600;font-size:13px">✓ Fiche : {localMkvCheck.hydrackerFiche.name} (#{localMkvCheck.hydrackerFiche.id})</div>
+                    {#if localMkvCheck.content}
+                      <div style="display:flex;gap:14px;margin-top:8px;font-size:12px">
+                        <span>📦 Torrents : <b>{localMkvCheck.content.torrents?.torrents?.length || 0}</b></span>
+                        <span>📰 NZB : <b>{localMkvCheck.content.nzbs?.nzbs?.length || 0}</b></span>
+                        <span>🔗 DDL : <b>{localMkvCheck.content.liens?.liens?.length || 0}</b></span>
+                      </div>
+                      {#if localMkvCheck.content.liens?.liens?.length}
+                        <div style="color:#7ef0c0;font-size:12px;margin-top:8px">✓ DDL dispo — auto-reseed DDL→FTP possible</div>
+                      {/if}
+                    {/if}
+                  </div>
+                  <div class="post-actions">
+                    <button class="btn-save" on:click={() => { activeTab = 'fiches'; fichesMode = 'hydracker_id'; fichesQuery = String(localMkvCheck.hydrackerFiche.id); fichesSearch(); closeLocalMkvCheck() }}>
+                      🎞 Ouvrir dans Fiches
+                    </button>
+                    <button class="btn-test" on:click={closeLocalMkvCheck}>Fermer</button>
+                  </div>
+                {/if}
+              {/if}
+              {#if localMkvChecking}
+                <div style="color:var(--text3);font-size:12px;margin-top:10px">Recherche…</div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+
+        <!-- Section 2 : Cross-check seedbox local + LiHDL (legacy, optionnelle) -->
+        <div class="section">
+          <div class="section-header">
+            <span>📂 Seedbox locale (cross-check LiHDL)</span>
+            <button class="btn-test" on:click={() => loadCheckTorrents(false)} disabled={checkLoading}>
+              {checkLoading ? '…' : 'Charger seedbox'}
+            </button>
+          </div>
         {#if checkTorrents.length > 0}
           <div class="check-filters">
             <button class="filter-btn" class:active={checkFilter === 'all'} on:click={() => checkFilter = 'all'}>
@@ -1650,6 +1844,7 @@
             </div>
           {/each}
         {/if}
+        </div>
       </div>
 
     <!-- ===== API ===== -->

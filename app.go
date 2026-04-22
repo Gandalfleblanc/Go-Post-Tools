@@ -46,7 +46,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "3.1.2"
+const Version = "3.2.0"
 
 type App struct {
 	ctx         context.Context
@@ -1561,7 +1561,11 @@ func (a *App) AutoReseedFromHydracker(titleID, saison, episode, preferQuality, p
 		return nil, fmt.Errorf("download .torrent : %w", err)
 	}
 	if len(data) < 50 || data[0] != 'd' {
-		return nil, fmt.Errorf("fichier reçu n'est pas un .torrent bencode valide")
+		preview := string(data)
+		if len(preview) > 200 {
+			preview = preview[:200] + "…"
+		}
+		return nil, fmt.Errorf("fichier reçu n'est pas un .torrent bencode valide (URL=%s, %d bytes, début=%q)", full.DownloadURL, len(data), preview)
 	}
 	tmpFile, err := os.CreateTemp("", fmt.Sprintf("autoreseed-%d-*.torrent", best.ID))
 	if err != nil {
@@ -1795,8 +1799,17 @@ func (a *App) downloadFile(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Ajoute le Bearer token si l'URL pointe sur Hydracker (URLs signées internes)
-	if strings.Contains(url, effectiveHydrackerURL(a.cfg)) && a.cfg.HydrackerToken != "" {
+	// Set Bearer pour TOUT le domaine Hydracker (storage/torrents/, api/v1/, etc.),
+	// pas juste pour /api/v1. Détection : extraction du host depuis effectiveHydrackerURL.
+	hydHost := ""
+	if hURL := effectiveHydrackerURL(a.cfg); hURL != "" {
+		// hURL = "https://hydracker.com/api/v1" → host = "hydracker.com"
+		hydHost = strings.TrimPrefix(strings.TrimPrefix(hURL, "https://"), "http://")
+		if i := strings.Index(hydHost, "/"); i != -1 {
+			hydHost = hydHost[:i]
+		}
+	}
+	if hydHost != "" && strings.Contains(url, hydHost) && a.cfg.HydrackerToken != "" {
 		req.Header.Set("Authorization", "Bearer "+a.cfg.HydrackerToken)
 	}
 	// UA descriptif requis par le WAF Hydracker (et safe pour autres hosts)
@@ -1809,7 +1822,11 @@ func (a *App) downloadFile(url string) ([]byte, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+		preview := string(body)
+		if len(preview) > 300 {
+			preview = preview[:300] + "…"
+		}
+		return nil, fmt.Errorf("HTTP %d sur %s: %s", resp.StatusCode, url, preview)
 	}
 	return io.ReadAll(resp.Body)
 }
