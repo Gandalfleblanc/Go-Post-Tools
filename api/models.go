@@ -183,40 +183,116 @@ type UpdateReviewPayload struct {
 	Review string `json:"review,omitempty"`
 }
 
-// --- Content (paid) ---
+// --- Content (free via API selon doc) ---
+// Note : les noms de champs correspondent à la vraie réponse API
+// (observée en prod : qualite, taille, id_host, torrent_name, langues_compact…)
+// au lieu des noms qu'on pourrait attendre (qual_id, size, host, name, lang_id).
+
+// LangPivot est une entrée dans langues_compact / subs_compact
+// (lang/sub rattachée à un lien ou torrent).
+type LangPivot struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// firstLangID extrait le premier lang ID d'un slice langues_compact (0 si vide).
+func firstLangID(langs []LangPivot) int {
+	if len(langs) == 0 {
+		return 0
+	}
+	return langs[0].ID
+}
+
+// PrimaryLangID méthode helper pour récupérer la langue principale
+// (premier élément de langues_compact) — remplace l'ancien champ Lang direct.
+func (l *Lien) PrimaryLangID() int      { return firstLangID(l.Langues) }
+func (t *TorrentItem) PrimaryLangID() int { return firstLangID(t.Langues) }
+func (n *Nzb) PrimaryLangID() int       { return firstLangID(n.Langues) }
+
+// HostName retourne le nom du host d'un Lien (via Host.Name ou fallback).
+func (l *Lien) HostName() string {
+	if l.Host != nil {
+		return l.Host.Name
+	}
+	return ""
+}
+
+// QualDetails est l'objet qual imbriqué dans un Lien (/admin/liens).
+type QualDetails struct {
+	IDQual int    `json:"id_qual"`
+	Qual   string `json:"qual"`
+	Label  string `json:"label"`
+}
+
+// HostDetails est l'objet host imbriqué dans un Lien admin.
+type HostDetails struct {
+	IDHost int      `json:"id_host"`
+	Name   string   `json:"name"`
+	URL    string   `json:"url,omitempty"`
+	Icon   string   `json:"icon,omitempty"`
+}
 
 type Lien struct {
-	ID       int    `json:"id"`
-	URL      string `json:"lien"`
-	Lang     int    `json:"lang_id,omitempty"`
-	Quality  int    `json:"qual_id,omitempty"`
-	Episode  int    `json:"episode,omitempty"`
-	Season   int    `json:"saison,omitempty"`
-	Host     string `json:"host,omitempty"`
-	Uploader string `json:"id_user,omitempty"`
+	ID          int          `json:"id"`
+	TitleID     int          `json:"title_id,omitempty"`
+	URL         string       `json:"lien,omitempty"`              // présent dans /content/liens/{id}, absent dans les listes
+	IDHost      int          `json:"id_host,omitempty"`
+	Quality     int          `json:"qualite,omitempty"`           // API: "qualite" (pas "qual_id")
+	Season      int          `json:"saison,omitempty"`
+	Episode     int          `json:"episode,omitempty"`
+	FullSaison  int          `json:"full_saison,omitempty"`
+	Size        int64        `json:"taille,omitempty"`            // API: "taille" (pas "size")
+	IDUser      string       `json:"id_user,omitempty"`           // pseudo, pas ID numérique
+	Active      int          `json:"active,omitempty"`
+	View        int          `json:"view,omitempty"`
+	CreatedAt   string       `json:"created_at,omitempty"`
+	UpdatedAt   string       `json:"updated_at,omitempty"`
+	Qual        *QualDetails `json:"qual,omitempty"`              // objet qual imbriqué
+	Host        *HostDetails `json:"host,omitempty"`              // objet host (présent dans /admin/liens)
+	Langues     []LangPivot  `json:"langues_compact,omitempty"`   // au lieu d'un simple lang_id
+	Subs        []LangPivot  `json:"subs_compact,omitempty"`
 }
 
 type Nzb struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	DownloadURL string `json:"download_url"`
-	Lang        int    `json:"lang_id,omitempty"`
-	Quality     int    `json:"qual_id,omitempty"`
-	Episode     int    `json:"episode,omitempty"`
-	Season      int    `json:"saison,omitempty"`
-	Uploader    string `json:"id_user,omitempty"`
+	ID          int         `json:"id"`
+	TitleID     int         `json:"title_id,omitempty"`
+	Name        string      `json:"name,omitempty"`
+	DownloadURL string      `json:"download_url,omitempty"`
+	Quality     int         `json:"qualite,omitempty"`
+	Season      int         `json:"saison,omitempty"`
+	Episode     int         `json:"episode,omitempty"`
+	Size        int64       `json:"taille,omitempty"`
+	IDUser      string      `json:"id_user,omitempty"`
+	Active      int         `json:"active,omitempty"`
+	CreatedAt   string      `json:"created_at,omitempty"`
+	UpdatedAt   string      `json:"updated_at,omitempty"`
+	Qual        *QualDetails `json:"qual,omitempty"`
+	Langues     []LangPivot `json:"langues_compact,omitempty"`
+	Subs        []LangPivot `json:"subs_compact,omitempty"`
 }
 
 type TorrentItem struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	DownloadURL string `json:"download_url"`
-	Lang        int    `json:"lang_id,omitempty"`
-	Quality     int    `json:"qual_id,omitempty"`
-	Episode     int    `json:"episode,omitempty"`
-	Season      int    `json:"saison,omitempty"`
-	Size        int64  `json:"size,omitempty"`
-	Uploader    string `json:"id_user,omitempty"`
+	ID          int         `json:"id"`
+	TitleID     int         `json:"title_id,omitempty"`
+	Name        string      `json:"torrent_name,omitempty"`      // API: "torrent_name" (pas "name")
+	DownloadURL string      `json:"download_url,omitempty"`
+	InfoHash    string      `json:"info_hash,omitempty"`
+	Hash        string      `json:"hash,omitempty"`
+	Quality     int         `json:"qualite,omitempty"`
+	Season      int         `json:"saison,omitempty"`
+	Episode     int         `json:"episode,omitempty"`
+	FullSaison  bool        `json:"full_saison,omitempty"`
+	Size        int64       `json:"taille,omitempty"`
+	Seeders     int         `json:"seeders,omitempty"`
+	Leechers    int         `json:"leechers,omitempty"`
+	Completed   int         `json:"completed,omitempty"`
+	Author      string      `json:"author,omitempty"`            // API: "author" (pas "id_user")
+	Active      int         `json:"active,omitempty"`
+	CreatedAt   string      `json:"created_at,omitempty"`
+	UpdatedAt   string      `json:"updated_at,omitempty"`
+	Qual        *QualDetails `json:"qual,omitempty"`
+	Langues     []LangPivot `json:"langues_compact,omitempty"`
+	Subs        []LangPivot `json:"subs_compact,omitempty"`
 }
 
 type ContentResult[T any] struct {

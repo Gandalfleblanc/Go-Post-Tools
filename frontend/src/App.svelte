@@ -966,7 +966,7 @@
                     <div class="recap-row" style="gap:8px;flex-wrap:wrap">
                       <span class="recap-key" style="width:auto;flex:none">#{l.id}</span>
                       <span class="recap-val" style="flex:1;min-width:200px;font-size:11px;word-break:break-all">{l.lien || '(URL masquée — récupérez via /content/liens/{id})'}</span>
-                      {#if l.host}<span style="color:var(--text3);font-size:11px">{l.host}</span>{/if}
+                      {#if l.host?.name || l.id_host}<span style="color:var(--text3);font-size:11px">{l.host?.name || ('host#' + l.id_host)}</span>{/if}
                       <button class="btn-test" on:click={() => OpenBrowser(l.lien)} disabled={!l.lien}>🌐 Ouvrir</button>
                     </div>
                   {/each}

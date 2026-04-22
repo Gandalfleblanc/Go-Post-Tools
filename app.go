@@ -46,7 +46,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "3.1.0"
+const Version = "3.1.1"
 
 type App struct {
 	ctx         context.Context
@@ -1447,10 +1447,11 @@ func pickBestTorrent(torrents []api.TorrentItem, preferQuality, preferLang int) 
 		if preferQuality > 0 && t.Quality == preferQuality {
 			s += 1000
 		}
-		if preferLang > 0 && t.Lang == preferLang {
+		tLang := t.PrimaryLangID()
+		if preferLang > 0 && tLang == preferLang {
 			s += 500
 		} else {
-			switch t.Lang {
+			switch tLang {
 			case 8:
 				s += 100 // TrueFrench
 			case 7:
@@ -1541,7 +1542,7 @@ func (a *App) AutoReseedFromHydracker(titleID, saison, episode, preferQuality, p
 	if best == nil {
 		return nil, fmt.Errorf("aucun torrent sélectionnable")
 	}
-	emit("pick", fmt.Sprintf("Choisi : #%d %s (qual=%d lang=%d %.2f GB)", best.ID, best.Name, best.Quality, best.Lang, float64(best.Size)/1e9))
+	emit("pick", fmt.Sprintf("Choisi : #%d %s (qual=%d lang=%d %.2f GB)", best.ID, best.Name, best.Quality, best.PrimaryLangID(), float64(best.Size)/1e9))
 
 	// 3. Récupère download_url via /content/torrents/{id}
 	emit("url", "Récupération URL download…")
@@ -1590,7 +1591,7 @@ func (a *App) AutoReseedFromHydracker(titleID, saison, episode, preferQuality, p
 		TorrentID:   best.ID,
 		TorrentName: best.Name,
 		Quality:     best.Quality,
-		Lang:        best.Lang,
+		Lang:        best.PrimaryLangID(),
 		Season:      best.Season,
 		Episode:     best.Episode,
 		SizeBytes:   best.Size,
@@ -1615,7 +1616,7 @@ func pickBestLien(liens []api.Lien, preferQuality, preferLang int) *api.Lien {
 	}
 	score := func(l api.Lien) int {
 		s := 0
-		h := strings.ToLower(l.Host)
+		h := strings.ToLower(l.HostName())
 		if strings.Contains(h, "1fichier") {
 			s += 1000 // on a l'API key premium
 		} else if strings.Contains(h, "send") {
@@ -1624,10 +1625,11 @@ func pickBestLien(liens []api.Lien, preferQuality, preferLang int) *api.Lien {
 		if preferQuality > 0 && l.Quality == preferQuality {
 			s += 300
 		}
-		if preferLang > 0 && l.Lang == preferLang {
+		lLang := l.PrimaryLangID()
+		if preferLang > 0 && lLang == preferLang {
 			s += 150
 		} else {
-			switch l.Lang {
+			switch lLang {
 			case 8:
 				s += 100
 			case 7:
@@ -1719,7 +1721,7 @@ func (a *App) AutoReseedDDLFromHydracker(titleID, saison, episode, preferQuality
 	if best == nil {
 		return nil, fmt.Errorf("aucun DDL sélectionnable")
 	}
-	emit("pick", fmt.Sprintf("Choisi : #%d host=%s qual=%d lang=%d", best.ID, best.Host, best.Quality, best.Lang))
+	emit("pick", fmt.Sprintf("Choisi : #%d host=%s qual=%d lang=%d", best.ID, best.HostName(), best.Quality, best.PrimaryLangID()))
 
 	// 3. Récupère URL partage (via /content/liens/{id} qui retourne le champ "lien")
 	emit("url", "Récupération URL DDL…")
@@ -1734,7 +1736,7 @@ func (a *App) AutoReseedDDLFromHydracker(titleID, saison, episode, preferQuality
 
 	// 4. Pour 1fichier : get direct URL via API
 	directURL := shareURL
-	host := strings.ToLower(lienData.Host)
+	host := strings.ToLower(lienData.HostName())
 	if strings.Contains(host, "1fichier") || strings.Contains(shareURL, "1fichier.com") {
 		if a.cfg.OneFichierApiKey == "" {
 			return nil, fmt.Errorf("DDL 1fichier trouvé mais clé API 1fichier non configurée (Réglages)")
@@ -1746,7 +1748,7 @@ func (a *App) AutoReseedDDLFromHydracker(titleID, saison, episode, preferQuality
 		}
 		directURL = direct
 	} else {
-		return nil, fmt.Errorf("host %s non supporté en auto (seul 1fichier l'est pour l'instant) — URL: %s", lienData.Host, shareURL)
+		return nil, fmt.Errorf("host %s non supporté en auto (seul 1fichier l'est pour l'instant) — URL: %s", lienData.HostName(), shareURL)
 	}
 
 	// 5. Stream download → FTP
@@ -1779,7 +1781,7 @@ func (a *App) AutoReseedDDLFromHydracker(titleID, saison, episode, preferQuality
 	return &AutoReseedDDLResult{
 		LienID:        best.ID,
 		Filename:      filename,
-		Host:          lienData.Host,
+		Host:          lienData.HostName(),
 		SizeBytes:     totalSize,
 		FTPRemoteName: filename,
 	}, nil

@@ -47,19 +47,20 @@ func contentParams(f ContentFilter) url.Values {
 	return params
 }
 
+// Note : l'API renvoie les réponses à plat (PAS de wrapper "data").
+// Exemple : {"torrents":[...],"count":N,"charged":0,"already_paid":0,"status":"success"}
+
 func (c *Client) GetTorrents(titleID int, f ContentFilter) (*TorrentsResult, error) {
 	data, err := c.get(fmt.Sprintf("/titles/%d/content/torrents", titleID), contentParams(f))
 	if err != nil {
 		return nil, err
 	}
 	LastRawTorrents = string(data)
-	var resp struct {
-		Data TorrentsResult `json:"data"`
-	}
+	var resp TorrentsResult
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
-	return &resp.Data, nil
+	return &resp, nil
 }
 
 var LastRawTorrents string
@@ -71,15 +72,14 @@ func (c *Client) GetLienByID(id int) (*Lien, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Shape probable : {"lien": {...}, "charged": 0, ...}
 	var resp struct {
-		Data struct {
-			Lien Lien `json:"lien"`
-		} `json:"data"`
+		Lien Lien `json:"lien"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
-	return &resp.Data.Lien, nil
+	return &resp.Lien, nil
 }
 
 // GetTorrentByID appelle /content/torrents/{id} et retourne l'item complet
@@ -89,15 +89,14 @@ func (c *Client) GetTorrentByID(id int) (*TorrentItem, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Shape probable : {"torrent": {...}, "charged": 0, ...}
 	var resp struct {
-		Data struct {
-			Torrent TorrentItem `json:"torrent"`
-		} `json:"data"`
+		Torrent TorrentItem `json:"torrent"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
-	return &resp.Data.Torrent, nil
+	return &resp.Torrent, nil
 }
 
 func (c *Client) GetNzbs(titleID int, f ContentFilter) (*NzbsResult, error) {
@@ -105,13 +104,11 @@ func (c *Client) GetNzbs(titleID int, f ContentFilter) (*NzbsResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	var resp struct {
-		Data NzbsResult `json:"data"`
-	}
+	var resp NzbsResult
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
-	return &resp.Data, nil
+	return &resp, nil
 }
 
 func (c *Client) GetLiens(titleID int, f ContentFilter) (*LiensResult, error) {
@@ -119,11 +116,9 @@ func (c *Client) GetLiens(titleID int, f ContentFilter) (*LiensResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	var resp struct {
-		Data LiensResult `json:"data"`
-	}
+	var resp LiensResult
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
-	return &resp.Data, nil
+	return &resp, nil
 }
