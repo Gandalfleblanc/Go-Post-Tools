@@ -46,7 +46,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "3.0.0"
+const Version = "3.0.1"
 
 type App struct {
 	ctx         context.Context
@@ -1777,6 +1777,8 @@ func (a *App) downloadFile(url string) ([]byte, error) {
 	if strings.Contains(url, effectiveHydrackerURL(a.cfg)) && a.cfg.HydrackerToken != "" {
 		req.Header.Set("Authorization", "Bearer "+a.cfg.HydrackerToken)
 	}
+	// UA descriptif requis par le WAF Hydracker (et safe pour autres hosts)
+	req.Header.Set("User-Agent", "GoPostTools/3.0 (https://github.com/Gandalfleblanc/Go-Post-Tools)")
 	c := &http.Client{Timeout: 120 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {
@@ -1939,6 +1941,7 @@ func (a *App) downloadHydrackerTorrent(torrentID int) ([]byte, error) {
 		req.Header.Set("Authorization", "Bearer "+a.cfg.HydrackerToken)
 	}
 	req.Header.Set("Accept", "application/x-bittorrent")
+	req.Header.Set("User-Agent", "GoPostTools/3.0 (https://github.com/Gandalfleblanc/Go-Post-Tools)")
 	c := &http.Client{Timeout: 60 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {

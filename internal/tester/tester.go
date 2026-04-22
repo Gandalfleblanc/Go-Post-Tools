@@ -60,6 +60,7 @@ func TestHydracker(baseURL, token string) Result {
 	req, _ := http.NewRequest("GET", baseURL+"/user-profile/me", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "GoPostTools/3.0 (https://github.com/Gandalfleblanc/Go-Post-Tools)")
 	c := &http.Client{Timeout: 10 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {
