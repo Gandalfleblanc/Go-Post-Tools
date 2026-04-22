@@ -46,7 +46,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "3.0.1"
+const Version = "3.1.0"
 
 type App struct {
 	ctx         context.Context
@@ -686,6 +686,25 @@ func (a *App) startup(ctx context.Context) {
 	a.client.OnRequestLog = func(entry api.APILogEntry) {
 		wailsruntime.EventsEmit(a.ctx, "api:log", entry)
 	}
+	// Applique le proxy HTTP/HTTPS configuré. http.DefaultTransport utilise
+	// http.ProxyFromEnvironment qui lit ces env vars à chaque requête, donc
+	// les mises à jour via SaveConfig sont prises en compte dynamiquement.
+	applyProxy(a.cfg.ProxyURL)
+}
+
+// applyProxy set les env vars HTTP_PROXY + HTTPS_PROXY. Passer "" efface.
+func applyProxy(proxyURL string) {
+	if proxyURL == "" {
+		os.Unsetenv("HTTP_PROXY")
+		os.Unsetenv("HTTPS_PROXY")
+		os.Unsetenv("http_proxy")
+		os.Unsetenv("https_proxy")
+		return
+	}
+	os.Setenv("HTTP_PROXY", proxyURL)
+	os.Setenv("HTTPS_PROXY", proxyURL)
+	os.Setenv("http_proxy", proxyURL)
+	os.Setenv("https_proxy", proxyURL)
 }
 
 // --- Config ---
@@ -698,6 +717,7 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	a.cfg = &cfg
 	a.client.SetToken(cfg.HydrackerToken)
 	a.client.SetBaseURL(effectiveHydrackerURL(&cfg))
+	applyProxy(cfg.ProxyURL)
 	return config.Save(&cfg)
 }
 

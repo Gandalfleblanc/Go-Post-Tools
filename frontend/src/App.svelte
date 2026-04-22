@@ -39,6 +39,7 @@
     tracker_url: '', torrent_piece_size: 8388608,
     lihdl_user: '', lihdl_password: '',
     watch_folder: '', watch_auto_start: false,
+    proxy_url: '',
   }
   let appVersion = ''
   let watchRunning = false
@@ -1740,6 +1741,18 @@
       <div class="tab-content">
         <h2>Réglages</h2>
         <div class="sections">
+
+          <!-- Proxy HTTP -->
+          <div class="section">
+            <div class="section-header"><span>🌐 Proxy HTTP (optionnel)</span></div>
+            <div class="field">
+              <label>URL du proxy</label>
+              <input type="text" bind:value={cfg.proxy_url} placeholder="http://user:pass@host:port ou socks5://host:1080 (vide = pas de proxy)" />
+              <div style="color:var(--text3);font-size:11px;margin-top:4px">
+                Applique un proxy HTTP/HTTPS à <b>toutes</b> les requêtes (Hydracker, TMDB, 1fichier, GitHub update…). Formats supportés : <code>http://host:port</code>, <code>http://user:pass@host:port</code>, <code>socks5://host:port</code>. Effectif après avoir cliqué "Enregistrer".
+              </div>
+            </div>
+          </div>
 
           <!-- Usenet -->
           <div class="section">

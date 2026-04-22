@@ -64,6 +64,14 @@ type Config struct {
 	// Watch folder
 	WatchFolder    string `json:"watch_folder"`
 	WatchAutoStart bool   `json:"watch_auto_start"`
+
+	// Proxy HTTP/HTTPS appliqué à tous les clients HTTP (api.Client, TMDB,
+	// 1fichier, GitHub update, etc.). Format supporté : http://host:port,
+	// http://user:pass@host:port, socks5://host:port. Laissé vide = pas de proxy.
+	// Pris en compte via HTTP_PROXY/HTTPS_PROXY env vars (setés au startup et
+	// à chaque SaveConfig) — Go's http.DefaultTransport lit ces vars à chaque
+	// requête via http.ProxyFromEnvironment.
+	ProxyURL string `json:"proxy_url"`
 }
 
 func configPath() string {
