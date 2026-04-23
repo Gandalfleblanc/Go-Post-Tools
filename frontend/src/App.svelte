@@ -2326,20 +2326,6 @@
             {/if}
           </div>
 
-          <!-- Torrent -->
-          <div class="section">
-            <div class="section-header"><span>Torrent</span></div>
-            <div class="field">
-              <label for="tracker-url">URL tracker Hydracker (announce)</label>
-              <input id="tracker-url" type="text" bind:value={cfg.tracker_url} placeholder="https://hydracker.com/announce/TOKEN" />
-            </div>
-            <div class="field">
-              <label for="torrent-piece">Piece size (octets)</label>
-              <input id="torrent-piece" type="number" bind:value={cfg.torrent_piece_size} step="1048576" />
-              <div class="field-hint">8 MiB = 8388608 · 4 MiB = 4194304 · 16 MiB = 16777216</div>
-            </div>
-          </div>
-
           <!-- ParPar -->
           <div class="section">
             <div class="section-header"><span>ParPar (PAR2)</span></div>
@@ -2362,7 +2348,7 @@
           <!-- ===== Sections seedbox/FTP — protégées par mot de passe partagé entre admins ===== -->
           {#if seedboxHasPassword && !seedboxUnlocked}
             <div class="section" style="text-align:center;padding:24px;border:1px dashed rgba(255,214,10,0.35);background:rgba(255,214,10,0.04)">
-              <div style="font-size:14px;color:var(--yellow);margin-bottom:14px">🔒 Sections seedbox / FTP verrouillées</div>
+              <div style="font-size:14px;color:var(--yellow);margin-bottom:14px">🔒 Sections seedbox / FTP / Tracker Torrent verrouillées</div>
               <button class="btn-save" on:click={openSeedboxLockModal}>🔓 Déverrouiller</button>
             </div>
           {:else}
@@ -2381,6 +2367,20 @@
               <button class="btn-test" on:click={openSeedboxLockModal}>🔒 Définir un mot de passe</button>
             </div>
           {/if}
+
+          <!-- Torrent (tracker URL + piece size) -->
+          <div class="section">
+            <div class="section-header"><span>Torrent</span></div>
+            <div class="field">
+              <label for="tracker-url">URL tracker Hydracker (announce)</label>
+              <input id="tracker-url" type="text" bind:value={cfg.tracker_url} placeholder="https://hydracker.com/announce/TOKEN" />
+            </div>
+            <div class="field">
+              <label for="torrent-piece">Piece size (octets)</label>
+              <input id="torrent-piece" type="number" bind:value={cfg.torrent_piece_size} step="1048576" />
+              <div class="field-hint">8 MiB = 8388608 · 4 MiB = 4194304 · 16 MiB = 16777216</div>
+            </div>
+          </div>
 
           <!-- FTP RUTORRENT -->
           <div class="section">
