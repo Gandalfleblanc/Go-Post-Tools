@@ -2340,15 +2340,14 @@
               <div class="test-result" class:ok={testResults.hydracker.ok}>{testResults.hydracker.message}</div>
             {/if}
             <div class="field">
-              <label>URL de base {#if hydrackerURLManaged}<span style="color:#ffe066;font-size:10px;font-weight:600">🔒 verrouillée</span>{/if}</label>
-              <input type="text" bind:value={cfg.hydracker_base_url} placeholder="https://exemple.tld  (sans /api/v1, ajouté auto)" disabled={hydrackerURLManaged} style:opacity={hydrackerURLManaged ? 0.6 : 1} />
-              {#if hydrackerURLManaged}
-                <div class="field-hint">URL définie au build — non modifiable par l'utilisateur.</div>
-              {/if}
+              <label>URL de base</label>
+              <input type="password" value={cfg.hydracker_base_url} disabled readonly />
+              <div class="field-hint">URL définie au build — non modifiable.</div>
             </div>
             <div class="field">
               <label>Token d'accès</label>
-              <input type="password" bind:value={cfg.hydracker_token} placeholder="Bearer token" />
+              <input type="password" value={cfg.hydracker_token} disabled readonly placeholder="— verrouillé —" />
+              <div class="field-hint">Verrouillé — mdp de déverrouillage à venir.</div>
             </div>
           </div>
 
@@ -2607,23 +2606,23 @@
             <div class="fields-grid">
               <div class="field">
                 <label>Hôte</label>
-                <input type="text" bind:value={cfg.ftp_mod_host} placeholder="ftp.cluster1c.seedbox.fr" />
+                <input type="password" value={cfg.ftp_mod_host} disabled readonly />
               </div>
               <div class="field">
                 <label>Port</label>
-                <input type="number" bind:value={cfg.ftp_mod_port} />
+                <input type="password" value={cfg.ftp_mod_port} disabled readonly />
               </div>
               <div class="field">
                 <label>Utilisateur</label>
-                <input type="text" bind:value={cfg.ftp_mod_user} />
+                <input type="password" value={cfg.ftp_mod_user} disabled readonly />
               </div>
               <div class="field">
                 <label>Mot de passe</label>
-                <input type="password" bind:value={cfg.ftp_mod_password} />
+                <input type="password" value={cfg.ftp_mod_password} disabled readonly />
               </div>
               <div class="field">
                 <label>Dossier distant</label>
-                <input type="text" bind:value={cfg.ftp_mod_path} placeholder="/Seedbox" />
+                <input type="password" value={cfg.ftp_mod_path} disabled readonly />
               </div>
             </div>
           </div>
@@ -2641,16 +2640,16 @@
             {/if}
             <div class="field">
               <label for="qbit-url">URL qBittorrent Web UI</label>
-              <input id="qbit-url" type="text" bind:value={cfg.qbit_url} placeholder="https://my-seedbox.example/qbittorrent/" />
+              <input id="qbit-url" type="password" value={cfg.qbit_url} disabled readonly />
             </div>
             <div class="fields-grid">
               <div class="field">
                 <label>Utilisateur</label>
-                <input type="text" bind:value={cfg.qbit_user} />
+                <input type="password" value={cfg.qbit_user} disabled readonly />
               </div>
               <div class="field">
                 <label>Mot de passe</label>
-                <input type="password" bind:value={cfg.qbit_password} />
+                <input type="password" value={cfg.qbit_password} disabled readonly />
               </div>
             </div>
           </div>
@@ -3190,6 +3189,14 @@
   }
   .section-locked > .section-header span {
     color: #ff4444;
+  }
+  .section-locked input,
+  .section-locked select,
+  .section-locked textarea {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(255, 68, 68, 0.04) !important;
+    border-color: rgba(255, 68, 68, 0.2) !important;
   }
 
   .btn-test {
