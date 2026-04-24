@@ -49,7 +49,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "5.0.0"
+const Version = "5.0.1"
 
 type App struct {
 	ctx         context.Context
@@ -1201,9 +1201,12 @@ func (a *App) GetMyRole() (*AuthResult, error) {
 		result.Avatar = me.Avatar
 	}
 
-	// 2. Fetch la team list depuis GitHub raw
-	req, _ := http.NewRequest("GET", teamListURL, nil)
+	// 2. Fetch la team list depuis GitHub raw (cache-buster pour bypass CDN)
+	url := fmt.Sprintf("%s?_=%d", teamListURL, time.Now().Unix())
+	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", "GoPostTools/4.x")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 	c := &http.Client{Timeout: 10 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {

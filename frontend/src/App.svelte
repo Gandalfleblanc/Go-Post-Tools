@@ -3161,7 +3161,13 @@
     padding: 18px 12px;
     position: relative;
     transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+    height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* Scroll à la molette mais scrollbar invisible */
+    scrollbar-width: none;
   }
+  .sidebar::-webkit-scrollbar { display: none; }
   .sidebar.collapsed { width: 56px; min-width: 56px; padding: 18px 6px; }
   .sidebar.collapsed .brand { margin-bottom: 14px; }
   .sidebar.collapsed .brand-logo { width: 36px; }
