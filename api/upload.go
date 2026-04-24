@@ -18,11 +18,13 @@ type UploadTorrentResult struct {
 	DownloadURL string `json:"download_url"`
 	ExpiresAt   string `json:"expires_at"`
 	Torrent     struct {
-		ID       int    `json:"id"`
-		Hash     string `json:"hash"`
-		Active   bool   `json:"active"`
-		TitleID  int    `json:"title_id,string"`
-		Qualite  int    `json:"qualite,string"`
+		ID     int    `json:"id"`
+		Hash   string `json:"hash"`
+		Active bool   `json:"active"`
+		// TitleID/Qualite retirés : l'API peut les renvoyer en int OU string
+		// selon les versions — l'ancien tag ,string faisait planter le parsing
+		// quand l'API renvoyait un int, causant un retry (double post).
+		// On les connaît déjà côté caller, pas besoin de les lire ici.
 	} `json:"torrent"`
 }
 

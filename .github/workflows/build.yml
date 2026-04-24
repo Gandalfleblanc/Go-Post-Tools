@@ -57,10 +57,44 @@ jobs:
         env:
           LIHDL_UNLOCK_HASH: ${{ secrets.LIHDL_UNLOCK_HASH }}
           HYDRACKER_URL: ${{ secrets.HYDRACKER_URL }}
+          MODO_UNLOCK_HASH: ${{ secrets.MODO_UNLOCK_HASH }}
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_PATH: ${{ secrets.FTP_PATH }}
+          SEEDBOX_URL: ${{ secrets.SEEDBOX_URL }}
+          SEEDBOX_USER: ${{ secrets.SEEDBOX_USER }}
+          SEEDBOX_PASSWORD: ${{ secrets.SEEDBOX_PASSWORD }}
+          SEEDBOX_LABEL: ${{ secrets.SEEDBOX_LABEL }}
+          QBIT_URL: ${{ secrets.QBIT_URL }}
+          QBIT_USER: ${{ secrets.QBIT_USER }}
+          QBIT_PASSWORD: ${{ secrets.QBIT_PASSWORD }}
+          FTP_MOD_HOST: ${{ secrets.FTP_MOD_HOST }}
+          FTP_MOD_USER: ${{ secrets.FTP_MOD_USER }}
+          FTP_MOD_PASSWORD: ${{ secrets.FTP_MOD_PASSWORD }}
+          FTP_MOD_PATH: ${{ secrets.FTP_MOD_PATH }}
+          TRACKER_URL: ${{ secrets.TRACKER_URL }}
         run: |
           wails build -platform darwin/${{ matrix.arch }} -ldflags "-s -w \
             -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}' \
-            -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}'"
+            -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxUnlockHash=${MODO_UNLOCK_HASH}' \
+            -X 'go-post-tools/internal/config.DefaultFTPHost=${FTP_HOST}' \
+            -X 'go-post-tools/internal/config.DefaultFTPUser=${FTP_USER}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPassword=${FTP_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPath=${FTP_PATH}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxURL=${SEEDBOX_URL}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxUser=${SEEDBOX_USER}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxPassword=${SEEDBOX_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxLabel=${SEEDBOX_LABEL}' \
+            -X 'go-post-tools/internal/config.DefaultQBitURL=${QBIT_URL}' \
+            -X 'go-post-tools/internal/config.DefaultQBitUser=${QBIT_USER}' \
+            -X 'go-post-tools/internal/config.DefaultQBitPassword=${QBIT_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModHost=${FTP_MOD_HOST}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModUser=${FTP_MOD_USER}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModPassword=${FTP_MOD_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModPath=${FTP_MOD_PATH}' \
+            -X 'go-post-tools/internal/config.DefaultTrackerURL=${TRACKER_URL}'"
       - name: Ad-hoc codesign
         run: codesign --force --deep --sign - "build/bin/Go Post Tools.app"
       - name: Zip .app (preserve exec bits)
@@ -107,10 +141,44 @@ jobs:
         env:
           LIHDL_UNLOCK_HASH: ${{ secrets.LIHDL_UNLOCK_HASH }}
           HYDRACKER_URL: ${{ secrets.HYDRACKER_URL }}
+          MODO_UNLOCK_HASH: ${{ secrets.MODO_UNLOCK_HASH }}
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_PATH: ${{ secrets.FTP_PATH }}
+          SEEDBOX_URL: ${{ secrets.SEEDBOX_URL }}
+          SEEDBOX_USER: ${{ secrets.SEEDBOX_USER }}
+          SEEDBOX_PASSWORD: ${{ secrets.SEEDBOX_PASSWORD }}
+          SEEDBOX_LABEL: ${{ secrets.SEEDBOX_LABEL }}
+          QBIT_URL: ${{ secrets.QBIT_URL }}
+          QBIT_USER: ${{ secrets.QBIT_USER }}
+          QBIT_PASSWORD: ${{ secrets.QBIT_PASSWORD }}
+          FTP_MOD_HOST: ${{ secrets.FTP_MOD_HOST }}
+          FTP_MOD_USER: ${{ secrets.FTP_MOD_USER }}
+          FTP_MOD_PASSWORD: ${{ secrets.FTP_MOD_PASSWORD }}
+          FTP_MOD_PATH: ${{ secrets.FTP_MOD_PATH }}
+          TRACKER_URL: ${{ secrets.TRACKER_URL }}
         run: |
           wails build -platform linux/amd64 -tags webkit2_41 -ldflags "-s -w \
             -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}' \
-            -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}'"
+            -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxUnlockHash=${MODO_UNLOCK_HASH}' \
+            -X 'go-post-tools/internal/config.DefaultFTPHost=${FTP_HOST}' \
+            -X 'go-post-tools/internal/config.DefaultFTPUser=${FTP_USER}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPassword=${FTP_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPath=${FTP_PATH}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxURL=${SEEDBOX_URL}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxUser=${SEEDBOX_USER}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxPassword=${SEEDBOX_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxLabel=${SEEDBOX_LABEL}' \
+            -X 'go-post-tools/internal/config.DefaultQBitURL=${QBIT_URL}' \
+            -X 'go-post-tools/internal/config.DefaultQBitUser=${QBIT_USER}' \
+            -X 'go-post-tools/internal/config.DefaultQBitPassword=${QBIT_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModHost=${FTP_MOD_HOST}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModUser=${FTP_MOD_USER}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModPassword=${FTP_MOD_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModPath=${FTP_MOD_PATH}' \
+            -X 'go-post-tools/internal/config.DefaultTrackerURL=${TRACKER_URL}'"
       - uses: actions/upload-artifact@v4
         with:
           name: Go-Post-Tools-linux-amd64
@@ -145,10 +213,44 @@ jobs:
         env:
           LIHDL_UNLOCK_HASH: ${{ secrets.LIHDL_UNLOCK_HASH }}
           HYDRACKER_URL: ${{ secrets.HYDRACKER_URL }}
+          MODO_UNLOCK_HASH: ${{ secrets.MODO_UNLOCK_HASH }}
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_PATH: ${{ secrets.FTP_PATH }}
+          SEEDBOX_URL: ${{ secrets.SEEDBOX_URL }}
+          SEEDBOX_USER: ${{ secrets.SEEDBOX_USER }}
+          SEEDBOX_PASSWORD: ${{ secrets.SEEDBOX_PASSWORD }}
+          SEEDBOX_LABEL: ${{ secrets.SEEDBOX_LABEL }}
+          QBIT_URL: ${{ secrets.QBIT_URL }}
+          QBIT_USER: ${{ secrets.QBIT_USER }}
+          QBIT_PASSWORD: ${{ secrets.QBIT_PASSWORD }}
+          FTP_MOD_HOST: ${{ secrets.FTP_MOD_HOST }}
+          FTP_MOD_USER: ${{ secrets.FTP_MOD_USER }}
+          FTP_MOD_PASSWORD: ${{ secrets.FTP_MOD_PASSWORD }}
+          FTP_MOD_PATH: ${{ secrets.FTP_MOD_PATH }}
+          TRACKER_URL: ${{ secrets.TRACKER_URL }}
         run: |
           wails build -platform windows/amd64 -nsis -ldflags "-s -w \
             -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}' \
-            -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}'"
+            -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxUnlockHash=${MODO_UNLOCK_HASH}' \
+            -X 'go-post-tools/internal/config.DefaultFTPHost=${FTP_HOST}' \
+            -X 'go-post-tools/internal/config.DefaultFTPUser=${FTP_USER}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPassword=${FTP_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPath=${FTP_PATH}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxURL=${SEEDBOX_URL}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxUser=${SEEDBOX_USER}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxPassword=${SEEDBOX_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxLabel=${SEEDBOX_LABEL}' \
+            -X 'go-post-tools/internal/config.DefaultQBitURL=${QBIT_URL}' \
+            -X 'go-post-tools/internal/config.DefaultQBitUser=${QBIT_USER}' \
+            -X 'go-post-tools/internal/config.DefaultQBitPassword=${QBIT_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModHost=${FTP_MOD_HOST}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModUser=${FTP_MOD_USER}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModPassword=${FTP_MOD_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPModPath=${FTP_MOD_PATH}' \
+            -X 'go-post-tools/internal/config.DefaultTrackerURL=${TRACKER_URL}'"
       - name: List output
         shell: bash
         run: ls -la build/bin/

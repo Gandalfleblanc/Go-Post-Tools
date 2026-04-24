@@ -47,7 +47,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "4.1.2"
+const Version = "4.2.0"
 
 type App struct {
 	ctx         context.Context
@@ -651,12 +651,28 @@ func (a *App) ClearLihdlSettingsPassword(currentPassword string) error {
 }
 
 // --- Protection des sections SEEDBOX/FTP (mdp partagé entre admins) ---
+// Priorité : build-time (DefaultSeedboxUnlockHash, secret GitHub) > config user.
+// Si build-time non-vide, le mdp est imposé et non modifiable par l'user.
+
+func (a *App) activeSeedboxHash() string {
+	if config.DefaultSeedboxUnlockHash != "" {
+		return config.DefaultSeedboxUnlockHash
+	}
+	return a.cfg.SeedboxSettingsPasswordHash
+}
 
 func (a *App) HasSeedboxSettingsPassword() bool {
-	return a.cfg.SeedboxSettingsPasswordHash != ""
+	return a.activeSeedboxHash() != ""
+}
+
+func (a *App) IsSeedboxPasswordManaged() bool {
+	return config.DefaultSeedboxUnlockHash != ""
 }
 
 func (a *App) SetSeedboxSettingsPassword(currentPassword, newPassword string) error {
+	if config.DefaultSeedboxUnlockHash != "" {
+		return fmt.Errorf("mot de passe géré par le build, modification impossible")
+	}
 	if newPassword == "" {
 		return fmt.Errorf("mot de passe vide")
 	}
@@ -670,13 +686,17 @@ func (a *App) SetSeedboxSettingsPassword(currentPassword, newPassword string) er
 }
 
 func (a *App) VerifySeedboxSettingsPassword(password string) bool {
-	if a.cfg.SeedboxSettingsPasswordHash == "" {
+	h := a.activeSeedboxHash()
+	if h == "" {
 		return true
 	}
-	return hashPassword(password) == a.cfg.SeedboxSettingsPasswordHash
+	return hashPassword(password) == h
 }
 
 func (a *App) ClearSeedboxSettingsPassword(currentPassword string) error {
+	if config.DefaultSeedboxUnlockHash != "" {
+		return fmt.Errorf("mot de passe géré par le build, suppression impossible")
+	}
 	if !a.VerifySeedboxSettingsPassword(currentPassword) {
 		return fmt.Errorf("mot de passe incorrect")
 	}

@@ -115,6 +115,33 @@ var (
 	// Injectée au build depuis le secret GitHub HYDRACKER_URL. Si non-vide, verrouille
 	// l'URL côté utilisateur (pas modifiable dans Réglages).
 	DefaultHydrackerBaseURL = ""
+	// DefaultSeedboxUnlockHash : hash SHA-256 du mot de passe de déverrouillage
+	// des sections Seedbox / FTP / Tracker Torrent. Injecté depuis MODO_UNLOCK_HASH.
+	// Si non-vide, les admins update auto avec la protection activée, mdp partagé.
+	DefaultSeedboxUnlockHash = ""
+
+	// Credentials baked au build via secrets GitHub — pre-remplis au 1er démarrage
+	// si config.json n'a rien pour ce champ.
+	DefaultFTPHost     = ""
+	DefaultFTPUser     = ""
+	DefaultFTPPassword = ""
+	DefaultFTPPath     = ""
+
+	DefaultSeedboxURL      = ""
+	DefaultSeedboxUser     = ""
+	DefaultSeedboxPassword = ""
+	DefaultSeedboxLabel    = ""
+
+	DefaultQBitURL      = ""
+	DefaultQBitUser     = ""
+	DefaultQBitPassword = ""
+
+	DefaultFTPModHost     = ""
+	DefaultFTPModUser     = ""
+	DefaultFTPModPassword = ""
+	DefaultFTPModPath     = ""
+
+	DefaultTrackerURL = ""
 )
 
 func Load() *Config {
@@ -132,6 +159,57 @@ func Load() *Config {
 	data, err := os.ReadFile(configPath())
 	if err == nil {
 		_ = json.Unmarshal(data, cfg)
+	}
+	// Pre-fill avec les defaults bakés au build si le champ user est vide.
+	// Permet à une équipe d'admins de partager un binaire officiel déjà
+	// pré-configuré sans avoir à saisir manuellement les creds.
+	if cfg.FTPHost == "" {
+		cfg.FTPHost = DefaultFTPHost
+	}
+	if cfg.FTPUser == "" {
+		cfg.FTPUser = DefaultFTPUser
+	}
+	if cfg.FTPPassword == "" {
+		cfg.FTPPassword = DefaultFTPPassword
+	}
+	if cfg.FTPPath == "" {
+		cfg.FTPPath = DefaultFTPPath
+	}
+	if cfg.SeedboxURL == "" {
+		cfg.SeedboxURL = DefaultSeedboxURL
+	}
+	if cfg.SeedboxUser == "" {
+		cfg.SeedboxUser = DefaultSeedboxUser
+	}
+	if cfg.SeedboxPassword == "" {
+		cfg.SeedboxPassword = DefaultSeedboxPassword
+	}
+	if cfg.SeedboxLabel == "" {
+		cfg.SeedboxLabel = DefaultSeedboxLabel
+	}
+	if cfg.QBitURL == "" {
+		cfg.QBitURL = DefaultQBitURL
+	}
+	if cfg.QBitUser == "" {
+		cfg.QBitUser = DefaultQBitUser
+	}
+	if cfg.QBitPassword == "" {
+		cfg.QBitPassword = DefaultQBitPassword
+	}
+	if cfg.FTPModHost == "" {
+		cfg.FTPModHost = DefaultFTPModHost
+	}
+	if cfg.FTPModUser == "" {
+		cfg.FTPModUser = DefaultFTPModUser
+	}
+	if cfg.FTPModPassword == "" {
+		cfg.FTPModPassword = DefaultFTPModPassword
+	}
+	if cfg.FTPModPath == "" {
+		cfg.FTPModPath = DefaultFTPModPath
+	}
+	if cfg.TrackerURL == "" {
+		cfg.TrackerURL = DefaultTrackerURL
 	}
 	return cfg
 }
