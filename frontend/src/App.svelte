@@ -5,7 +5,8 @@
   import HydrackerTab from './HydrackerTab.svelte'
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, LoginUser, Logout, GetCurrentUser, HashPassword, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, TestNexum, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
+  import loginLogo from './assets/login-logo.png'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, LoginUser, Logout, GetCurrentUser, HashPassword, GetTeamConfig, BuildTeamJSON, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, TestNexum, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
 
   // --- Tabs ---
   const TABS = [
@@ -18,12 +19,17 @@
     { id: 'nexum',     label: '🟪 Nexum' },
     { id: 'history',   label: '📚 Historique' },
     { id: 'apilog',    label: '🔬 Log API' },
+    { id: 'manager',   label: '👥 Manager' },
     { id: 'settings',  label: '⚙️ Réglages' },
     { id: 'log',       label: '📋 Journal' },
   ]
   // Onglets visibles UNIQUEMENT pour certains pseudos (indépendant du rôle)
   const TABS_OWNER_ONLY = {
     'nexum': ['Gandalf'],
+  }
+  // Onglets réservés à certains rôles (override de la conf team.json)
+  const TABS_ROLE_ONLY = {
+    'manager': ['admin'],
   }
   let activeTab = 'hydracker'
 
@@ -38,16 +44,16 @@
   let myUsername = ''
   let myAvatar = ''
   let myTitle = ''
+  let myBadge = ''
+  let myColor = ''
+  let myTabs = []
 
   async function doLogin() {
     loginError = ''
     loginLoading = true
     try {
       const auth = await LoginUser(loginPseudo, loginPassword)
-      myUsername = auth?.username || ''
-      myRole     = auth?.role     || ''
-      myAvatar   = auth?.avatar   || ''
-      myTitle    = auth?.title    || ''
+      applyAuth(auth)
       loginPassword = ''
       authState = 'ok'
     } catch (e) {
@@ -57,68 +63,205 @@
     }
   }
 
+  function applyAuth(auth) {
+    myUsername = auth?.username || ''
+    myRole     = auth?.role     || ''
+    myAvatar   = auth?.avatar   || ''
+    myTitle    = auth?.title    || ''
+    myBadge    = auth?.badge    || ''
+    myColor    = auth?.color    || ''
+    myTabs     = Array.isArray(auth?.tabs) ? auth.tabs : []
+  }
+
   async function doLogout() {
     try { await Logout() } catch {}
     myUsername = ''; myRole = ''; myAvatar = ''; myTitle = ''
+    myBadge = ''; myColor = ''; myTabs = []
     loginPseudo = ''; loginPassword = ''; loginError = ''
     authState = 'login'
   }
 
-  // --- Admin : gestion utilisateurs ---
-  let newUserPseudo = ''
-  let newUserPassword = ''
-  let newUserRole = 'user'
-  let newUserTitle = ''
-  let newUserOutput = ''
-  let newUserCopied = false
-  let newUserError = ''
-  let newUserGenerating = false
+  // --- Manager tab state ---
+  let managerView = 'users'              // 'users' | 'roles'
+  let managerLoading = false
+  let managerError = ''
+  let teamUsers = []                     // [{ pseudo, role, title }]
+  let teamRoles = {}                     // { [key]: { badge, color, title, tabs: [] } }
+  let teamOriginalJSON = ''              // pour détecter les changements
+  let managerNewPasswords = {}           // { pseudo: newPass } — hash côté Go au Générer
 
-  async function generateTeamEntry() {
-    newUserError = ''
-    newUserCopied = false
-    newUserOutput = ''
-    newUserGenerating = true
+  let selectedRole = ''
+  let addUserOpen = false
+  let addRoleOpen = false
+  let editUserOpen = false
+  let editUserTarget = null              // { pseudo, role, title }
+  let outputOpen = false
+  let outputJSON = ''
+
+  let newUserForm = { pseudo: '', password: '', role: 'user', title: '' }
+  let newRoleForm = { slug: '', badge: '🟣', color: '#a78bfa', title: '' }
+
+  const ROLE_COLORS = [
+    { name: 'Doré',    hex: '#fbbf24' },
+    { name: 'Argent',  hex: '#cbd5e1' },
+    { name: 'Bronze',  hex: '#cd7f32' },
+    { name: 'Bleu',    hex: '#60a5fa' },
+    { name: 'Violet',  hex: '#a78bfa' },
+    { name: 'Vert',    hex: '#7ef0c0' },
+    { name: 'Rouge',   hex: '#ff6b6b' },
+    { name: 'Orange',  hex: '#fb923c' },
+    { name: 'Rose',    hex: '#f472b6' },
+    { name: 'Cyan',    hex: '#22d3ee' },
+  ]
+  const ROLE_EMOJIS = ['🥇','🥈','🥉','🔵','🟣','🎬','💎','🤝','🏠','⭐','🔥','⚡','👑','🛡','🎭','🎨','🚀']
+
+  $: managerDirty = managerOpen && JSON.stringify(currentManagerSnapshot()) !== teamOriginalJSON
+  $: managerOpen = activeTab === 'manager' && myRole === 'admin'
+
+  function currentManagerSnapshot() {
+    return { roles: teamRoles, users: teamUsers }
+  }
+
+  async function loadManager() {
+    managerError = ''
+    managerLoading = true
     try {
-      const hash = await HashPassword(newUserPassword)
-      const entry = {
-        pseudo: newUserPseudo.trim(),
-        role: newUserRole,
-        title: newUserTitle.trim() || undefined,
-        password_hash: hash,
-      }
-      // Retirer les clés undefined et indenter pour un copier-coller propre
-      const clean = Object.fromEntries(Object.entries(entry).filter(([,v]) => v !== undefined))
-      newUserOutput = JSON.stringify(clean, null, 2) + ','
-      try {
-        await navigator.clipboard.writeText(newUserOutput)
-        newUserCopied = true
-      } catch {}
+      const cfg = await GetTeamConfig()
+      teamRoles = cfg?.roles || {}
+      teamUsers = Array.isArray(cfg?.users) ? cfg.users.map(u => ({...u})) : []
+      managerNewPasswords = {}
+      teamOriginalJSON = JSON.stringify(currentManagerSnapshot())
+      // Sélectionne le premier rôle par défaut
+      const keys = Object.keys(teamRoles)
+      if (keys.length && !teamRoles[selectedRole]) selectedRole = keys[0]
     } catch (e) {
-      newUserError = String(e?.message || e).replace(/^Error:\s*/, '')
+      managerError = String(e?.message || e).replace(/^Error:\s*/, '')
     } finally {
-      newUserGenerating = false
+      managerLoading = false
     }
   }
 
-  // Permissions par rôle — éditable par Gandalf.
-  // Admin voit tout. Modo/Team voient (presque) comme admin. User voit un subset.
-  // Pour changer qui voit quoi : édite ces arrays.
-  const TABS_ADMIN = ['hydracker','fiches','check','requests','reseed','myuploads','history','apilog','settings','log']
-  const TABS_MODO  = ['hydracker','fiches','check','requests','reseed','myuploads','history','settings','log']
-  const TABS_TEAM  = ['hydracker','fiches','check','requests','myuploads','history','settings','log']
-  const TABS_USER  = ['hydracker','fiches','myuploads','history','settings','log']
+  function manageToggleTab(roleKey, tabId) {
+    const r = teamRoles[roleKey]
+    if (!r) return
+    const has = (r.tabs || []).includes(tabId)
+    const nextTabs = has ? r.tabs.filter(x => x !== tabId) : [...(r.tabs || []), tabId]
+    teamRoles = { ...teamRoles, [roleKey]: { ...r, tabs: nextTabs } }
+  }
 
+  function manageAddUser() {
+    if (!newUserForm.pseudo || !newUserForm.password || !newUserForm.role) return
+    const pseudo = newUserForm.pseudo.trim()
+    // Anti-doublon (case-insensitive)
+    if (teamUsers.some(u => u.pseudo.toLowerCase() === pseudo.toLowerCase())) {
+      managerError = 'Ce pseudo existe déjà'
+      return
+    }
+    teamUsers = [...teamUsers, { pseudo, role: newUserForm.role, title: newUserForm.title.trim() }]
+    managerNewPasswords = { ...managerNewPasswords, [pseudo]: newUserForm.password }
+    newUserForm = { pseudo: '', password: '', role: 'user', title: '' }
+    addUserOpen = false
+  }
+
+  function manageEditUser() {
+    if (!editUserTarget) return
+    // Applique les modifs sur teamUsers
+    teamUsers = teamUsers.map(u =>
+      u.pseudo === editUserTarget.pseudo ? { ...u, role: editUserTarget.role, title: editUserTarget.title } : u
+    )
+    if (editUserTarget.newPassword) {
+      managerNewPasswords = { ...managerNewPasswords, [editUserTarget.pseudo]: editUserTarget.newPassword }
+    }
+    editUserOpen = false
+    editUserTarget = null
+  }
+
+  function manageDeleteUser(pseudo) {
+    // Option C : pas te virer toi-même
+    if (pseudo === myUsername) {
+      managerError = 'Tu ne peux pas te supprimer toi-même'
+      return
+    }
+    if (!confirm(`Supprimer l'utilisateur "${pseudo}" ?`)) return
+    teamUsers = teamUsers.filter(u => u.pseudo !== pseudo)
+    const { [pseudo]: _, ...rest } = managerNewPasswords
+    managerNewPasswords = rest
+  }
+
+  function manageAddRole() {
+    const slug = newRoleForm.slug.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+    if (!slug) { managerError = 'Slug invalide'; return }
+    if (teamRoles[slug]) { managerError = 'Ce rôle existe déjà'; return }
+    teamRoles = {
+      ...teamRoles,
+      [slug]: {
+        badge: newRoleForm.badge,
+        color: newRoleForm.color,
+        title: newRoleForm.title || slug,
+        tabs: ['hydracker', 'settings'], // minimum par défaut
+      },
+    }
+    selectedRole = slug
+    newRoleForm = { slug: '', badge: '🟣', color: '#a78bfa', title: '' }
+    addRoleOpen = false
+  }
+
+  function manageDeleteRole(roleKey) {
+    // Option C : pas supprimer admin
+    if (roleKey === 'admin') { managerError = 'Le rôle admin est protégé'; return }
+    // Interdit si des users l'utilisent encore
+    const stillUsed = teamUsers.filter(u => u.role === roleKey)
+    if (stillUsed.length > 0) {
+      managerError = `Impossible : ${stillUsed.length} utilisateur(s) ont ce rôle (${stillUsed.map(u=>u.pseudo).join(', ')})`
+      return
+    }
+    if (!confirm(`Supprimer le rôle "${roleKey}" ?`)) return
+    const { [roleKey]: _, ...rest } = teamRoles
+    teamRoles = rest
+    if (selectedRole === roleKey) selectedRole = Object.keys(teamRoles)[0] || ''
+  }
+
+  function manageUpdateRoleMeta(roleKey, field, value) {
+    const r = teamRoles[roleKey]
+    if (!r) return
+    teamRoles = { ...teamRoles, [roleKey]: { ...r, [field]: value } }
+  }
+
+  async function manageGenerateAndCopy() {
+    managerError = ''
+    try {
+      const json = await BuildTeamJSON(teamRoles, teamUsers, managerNewPasswords)
+      outputJSON = json
+      outputOpen = true
+      try { await navigator.clipboard.writeText(json) } catch {}
+    } catch (e) {
+      managerError = String(e?.message || e).replace(/^Error:\s*/, '')
+    }
+  }
+
+  function manageCancel() {
+    if (!confirm('Annuler toutes les modifs non sauvegardées ?')) return
+    loadManager()
+  }
+
+  // Auto-load quand on ouvre l'onglet Manager
+  $: if (activeTab === 'manager' && myRole === 'admin' && !managerLoading && teamOriginalJSON === '') {
+    loadManager()
+  }
+
+  // (ancien bloc "Gestion utilisateurs" dans Réglages remplacé par l'onglet Manager)
+
+  // Les permissions par rôle sont maintenant définies dans team.json
+  // (section "roles") et l'app reçoit la liste `tabs` via LoginUser.
+  // → Éditable via l'onglet 👥 Manager (admin).
   $: visibleTabs = TABS.filter(t => {
-    // Onglets restreints à des pseudos spécifiques (override du rôle)
     if (TABS_OWNER_ONLY[t.id]) {
       return TABS_OWNER_ONLY[t.id].includes(myUsername)
     }
-    if (myRole === 'admin') return TABS_ADMIN.includes(t.id)
-    if (myRole === 'modo')  return TABS_MODO.includes(t.id)
-    if (myRole === 'team')  return TABS_TEAM.includes(t.id)
-    if (myRole === 'user')  return TABS_USER.includes(t.id)
-    return false
+    if (TABS_ROLE_ONLY[t.id]) {
+      return TABS_ROLE_ONLY[t.id].includes(myRole)
+    }
+    return myTabs.includes(t.id)
   })
 
   // --- Config ---
@@ -1199,10 +1342,7 @@
     try {
       const me = await GetCurrentUser()
       if (me && me.role) {
-        myUsername = me.username || ''
-        myRole     = me.role     || ''
-        myAvatar   = me.avatar   || ''
-        myTitle    = me.title    || ''
+        applyAuth(me)
         authState = 'ok'
       }
     } catch {}
@@ -1374,9 +1514,9 @@
 {#if authState === 'login'}
   <div class="auth-screen">
     <div class="auth-card">
-      <img src={logo} alt="" style="width:72px;height:72px;margin-bottom:12px" />
-      <div style="font-size:18px;font-weight:700;margin-bottom:4px">GO Post Tools</div>
-      <div style="color:var(--text3);font-size:12px;margin-bottom:22px">Connexion</div>
+      <img src={loginLogo} alt="" class="auth-logo" />
+      <div style="font-size:20px;font-weight:700;letter-spacing:0.5px;margin-bottom:4px">GO Post Tools</div>
+      <div style="color:var(--text3);font-size:12px;margin-bottom:24px;letter-spacing:2px;text-transform:uppercase">Connexion</div>
       <form on:submit|preventDefault={doLogin} style="display:flex;flex-direction:column;gap:10px;text-align:left">
         <div class="field">
           <label for="login-pseudo">Pseudo</label>
@@ -1432,12 +1572,9 @@
         {#if !sidebarCollapsed}
           <div class="user-info">
             <div class="user-name">{myUsername}</div>
-            <div class="user-role user-role-{myRole}">
-              {#if myRole === 'admin'}🥇
-              {:else if myRole === 'modo'}🥈
-              {:else if myRole === 'team'}🥉
-              {:else}🔵{/if}
-              {myTitle || (myRole === 'admin' ? 'Admin' : myRole === 'modo' ? 'Modo' : myRole === 'team' ? 'Team' : 'User')}
+            <div class="user-role" style="color:{myColor || '#60a5fa'}">
+              <span style="font-size:14px">{myBadge || '🔵'}</span>
+              {myTitle || myRole || 'User'}
             </div>
           </div>
         {/if}
@@ -2507,6 +2644,295 @@
         </div>
       </div>
 
+    <!-- ===== MANAGER (admin only — users + rôles & accès) ===== -->
+    {:else if activeTab === 'manager' && myRole === 'admin'}
+      <div class="tab-content">
+        <h2 style="display:flex;align-items:center;gap:12px">
+          👥 Manager
+          <span style="font-size:12px;color:var(--text3);font-weight:500">·  gestion des utilisateurs et permissions</span>
+        </h2>
+
+        <div class="manager-tabs">
+          <button class:active={managerView === 'users'} on:click={() => managerView = 'users'}>
+            👤 Utilisateurs <span class="count">{teamUsers.length}</span>
+          </button>
+          <button class:active={managerView === 'roles'} on:click={() => managerView = 'roles'}>
+            🎭 Rôles & accès <span class="count">{Object.keys(teamRoles).length}</span>
+          </button>
+        </div>
+
+        {#if managerLoading}
+          <div style="text-align:center;padding:40px;color:var(--text3)">⏳ Chargement de team.json…</div>
+        {:else if managerError}
+          <div class="mgr-alert">⚠ {managerError} <button class="mgr-alert-close" on:click={() => managerError = ''}>✕</button></div>
+        {/if}
+
+        {#if !managerLoading && managerView === 'users'}
+          <div class="mgr-users-grid">
+            {#each teamUsers as u (u.pseudo)}
+              {@const r = teamRoles[u.role] || {}}
+              <div class="mgr-user-card">
+                <div class="mgr-user-avatar" style="background:linear-gradient(135deg, {r.color || '#60a5fa'}55, {r.color || '#60a5fa'}22);color:{r.color || '#60a5fa'}">
+                  {u.pseudo.charAt(0).toUpperCase()}
+                </div>
+                <div class="mgr-user-info">
+                  <div class="mgr-user-name">{u.pseudo} {#if u.pseudo === myUsername}<span class="mgr-you">toi</span>{/if}</div>
+                  <div class="mgr-user-sub">
+                    <span style="color:{r.color || '#60a5fa'}">{r.badge || '🔵'} {u.title || r.title || u.role}</span>
+                  </div>
+                </div>
+                <div class="mgr-user-actions">
+                  <button class="mgr-icon-btn" title="Modifier" on:click={() => { editUserTarget = { ...u, newPassword: '' }; editUserOpen = true }}>✏️</button>
+                  <button class="mgr-icon-btn mgr-icon-danger" title="Supprimer" on:click={() => manageDeleteUser(u.pseudo)} disabled={u.pseudo === myUsername}>🗑</button>
+                </div>
+                {#if managerNewPasswords[u.pseudo]}
+                  <div class="mgr-user-badge">🔄 nouveau mdp</div>
+                {/if}
+              </div>
+            {/each}
+            <button class="mgr-add-card" on:click={() => { newUserForm = { pseudo: '', password: '', role: Object.keys(teamRoles)[0] || 'user', title: '' }; addUserOpen = true }}>
+              <div style="font-size:28px;line-height:1">➕</div>
+              <div>Ajouter un utilisateur</div>
+            </button>
+          </div>
+        {/if}
+
+        {#if !managerLoading && managerView === 'roles'}
+          <div class="mgr-role-chips">
+            {#each Object.entries(teamRoles) as [key, r] (key)}
+              <button class="mgr-role-chip" class:active={selectedRole === key}
+                style="border-color:{selectedRole === key ? r.color : 'transparent'};
+                       background: {selectedRole === key ? r.color + '20' : 'rgba(255,255,255,0.04)'};
+                       color: {r.color}"
+                on:click={() => selectedRole = key}>
+                <span style="font-size:16px">{r.badge}</span>
+                <span style="font-weight:600">{key}</span>
+                <span style="color:var(--text3);font-size:11px">· {(r.tabs||[]).length}/{TABS.length}</span>
+                {#if key !== 'admin'}
+                  <span class="mgr-chip-del" on:click|stopPropagation={() => manageDeleteRole(key)} title="Supprimer ce rôle">×</span>
+                {/if}
+              </button>
+            {/each}
+            <button class="mgr-role-chip mgr-add-chip" on:click={() => { newRoleForm = { slug: '', badge: '🟣', color: '#a78bfa', title: '' }; addRoleOpen = true }}>
+              ➕ Créer un rôle
+            </button>
+          </div>
+
+          {#if selectedRole && teamRoles[selectedRole]}
+            {@const r = teamRoles[selectedRole]}
+            <div class="mgr-role-detail">
+              <div class="mgr-role-header">
+                <div style="display:flex;gap:14px;align-items:center">
+                  <div class="mgr-role-emoji" style="background:{r.color}15;color:{r.color}">{r.badge}</div>
+                  <div>
+                    <div style="font-size:18px;font-weight:700;color:{r.color}">{selectedRole}</div>
+                    <div style="font-size:12px;color:var(--text3)">
+                      {(r.tabs||[]).length} onglet(s) visible(s) sur {TABS.length}
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <input type="text" value={r.title || ''} on:input={(e) => manageUpdateRoleMeta(selectedRole, 'title', e.target.value)}
+                    placeholder="Titre par défaut" style="font-size:12px;padding:6px 10px" />
+                  <input type="color" value={r.color} on:input={(e) => manageUpdateRoleMeta(selectedRole, 'color', e.target.value)}
+                    style="width:36px;height:36px;padding:0;border-radius:8px;cursor:pointer;border:1px solid var(--border)" title="Couleur" />
+                </div>
+              </div>
+
+              <div class="mgr-role-tabs">
+                {#each TABS as t}
+                  {@const enabled = (r.tabs || []).includes(t.id)}
+                  <label class="mgr-toggle-row">
+                    <span class="mgr-toggle-label">{t.label}</span>
+                    <input type="checkbox" checked={enabled}
+                      on:change={() => manageToggleTab(selectedRole, t.id)} />
+                    <span class="mgr-slider" style="--active-color: {r.color}"></span>
+                  </label>
+                {/each}
+              </div>
+            </div>
+          {:else}
+            <div style="text-align:center;padding:40px;color:var(--text3)">
+              Sélectionne un rôle ci-dessus pour éditer ses accès.
+            </div>
+          {/if}
+        {/if}
+
+        <!-- Sticky footer si modifs -->
+        {#if !managerLoading && managerDirty}
+          <div class="mgr-footer">
+            <div>
+              <span style="font-size:16px">⚠</span>
+              <span style="color:var(--text2);font-weight:600">Modifications non sauvegardées</span>
+              <span style="color:var(--text3);font-size:12px;margin-left:8px">— le JSON doit être collé sur GitHub pour prendre effet</span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn-test" on:click={manageCancel}>🔄 Annuler</button>
+              <button class="btn-save" on:click={manageGenerateAndCopy}>📋 Générer team.json</button>
+            </div>
+          </div>
+        {/if}
+
+        <!-- Modal : ajouter user -->
+        {#if addUserOpen}
+          <div class="mgr-modal-backdrop" on:click|self={() => addUserOpen = false}>
+            <div class="mgr-modal">
+              <div class="mgr-modal-header">
+                <h3>➕ Ajouter un utilisateur</h3>
+                <button class="mgr-icon-btn" on:click={() => addUserOpen = false}>✕</button>
+              </div>
+              <div class="mgr-modal-body">
+                <div class="field">
+                  <label for="newu-pseudo">Pseudo</label>
+                  <input id="newu-pseudo" type="text" bind:value={newUserForm.pseudo}
+                    autocapitalize="off" spellcheck="false" placeholder="Ex: Karo" autofocus />
+                </div>
+                <div class="field">
+                  <label for="newu-password">Mot de passe</label>
+                  <input id="newu-password" type="text" bind:value={newUserForm.password}
+                    placeholder="En clair — sera hashé automatiquement" />
+                </div>
+                <div class="field">
+                  <label for="newu-role">Rôle</label>
+                  <select id="newu-role" bind:value={newUserForm.role}>
+                    {#each Object.entries(teamRoles) as [k, r]}
+                      <option value={k}>{r.badge} {k} — {r.title || k}</option>
+                    {/each}
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="newu-title">Titre (optionnel)</label>
+                  <input id="newu-title" type="text" bind:value={newUserForm.title}
+                    placeholder="Laisser vide = titre par défaut du rôle" />
+                </div>
+              </div>
+              <div class="mgr-modal-footer">
+                <button class="btn-test" on:click={() => addUserOpen = false}>Annuler</button>
+                <button class="btn-save" on:click={manageAddUser} disabled={!newUserForm.pseudo || !newUserForm.password}>Ajouter</button>
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        <!-- Modal : éditer user -->
+        {#if editUserOpen && editUserTarget}
+          <div class="mgr-modal-backdrop" on:click|self={() => { editUserOpen = false; editUserTarget = null }}>
+            <div class="mgr-modal">
+              <div class="mgr-modal-header">
+                <h3>✏️ Modifier {editUserTarget.pseudo}</h3>
+                <button class="mgr-icon-btn" on:click={() => { editUserOpen = false; editUserTarget = null }}>✕</button>
+              </div>
+              <div class="mgr-modal-body">
+                <div class="field">
+                  <label for="edu-role">Rôle</label>
+                  <select id="edu-role" bind:value={editUserTarget.role}
+                    disabled={editUserTarget.pseudo === myUsername && editUserTarget.role === 'admin'}>
+                    {#each Object.entries(teamRoles) as [k, r]}
+                      <option value={k}>{r.badge} {k} — {r.title || k}</option>
+                    {/each}
+                  </select>
+                  {#if editUserTarget.pseudo === myUsername && editUserTarget.role === 'admin'}
+                    <div class="field-hint">Tu ne peux pas te retirer le rôle admin à toi-même.</div>
+                  {/if}
+                </div>
+                <div class="field">
+                  <label for="edu-title">Titre</label>
+                  <input id="edu-title" type="text" bind:value={editUserTarget.title} />
+                </div>
+                <div class="field">
+                  <label for="edu-newpass">Nouveau mot de passe (optionnel)</label>
+                  <input id="edu-newpass" type="text" bind:value={editUserTarget.newPassword}
+                    placeholder="Laisser vide = ne pas changer" />
+                </div>
+              </div>
+              <div class="mgr-modal-footer">
+                <button class="btn-test" on:click={() => { editUserOpen = false; editUserTarget = null }}>Annuler</button>
+                <button class="btn-save" on:click={manageEditUser}>Enregistrer</button>
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        <!-- Modal : ajouter rôle -->
+        {#if addRoleOpen}
+          <div class="mgr-modal-backdrop" on:click|self={() => addRoleOpen = false}>
+            <div class="mgr-modal">
+              <div class="mgr-modal-header">
+                <h3>➕ Créer un rôle</h3>
+                <button class="mgr-icon-btn" on:click={() => addRoleOpen = false}>✕</button>
+              </div>
+              <div class="mgr-modal-body">
+                <div class="field">
+                  <label for="newr-slug">Slug (identifiant interne)</label>
+                  <input id="newr-slug" type="text" bind:value={newRoleForm.slug}
+                    autocapitalize="off" spellcheck="false" placeholder="Ex: uploader, vip, friend" autofocus />
+                  <div class="field-hint">Lettres/chiffres/tirets uniquement — sert de clé dans team.json.</div>
+                </div>
+                <div class="field">
+                  <label for="newr-title">Titre affiché</label>
+                  <input id="newr-title" type="text" bind:value={newRoleForm.title}
+                    placeholder="Ex: Uploader, Membre VIP" />
+                </div>
+                <div class="field">
+                  <label>Emoji / badge</label>
+                  <div class="mgr-emoji-grid">
+                    {#each ROLE_EMOJIS as e}
+                      <button class="mgr-emoji-btn" class:active={newRoleForm.badge === e} on:click={() => newRoleForm.badge = e}>{e}</button>
+                    {/each}
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Couleur</label>
+                  <div class="mgr-color-grid">
+                    {#each ROLE_COLORS as c}
+                      <button class="mgr-color-btn" class:active={newRoleForm.color === c.hex}
+                        style="background:{c.hex}" title={c.name}
+                        on:click={() => newRoleForm.color = c.hex}></button>
+                    {/each}
+                  </div>
+                </div>
+                <div style="background:rgba(255,255,255,0.03);padding:12px;border-radius:10px;margin-top:6px">
+                  <div style="font-size:11px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Aperçu</div>
+                  <div style="display:flex;gap:10px;align-items:center">
+                    <span style="font-size:22px">{newRoleForm.badge}</span>
+                    <span style="font-weight:700;color:{newRoleForm.color}">{newRoleForm.slug || 'slug'}</span>
+                    <span style="color:var(--text3)">— {newRoleForm.title || 'titre'}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="mgr-modal-footer">
+                <button class="btn-test" on:click={() => addRoleOpen = false}>Annuler</button>
+                <button class="btn-save" on:click={manageAddRole} disabled={!newRoleForm.slug}>Créer</button>
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        <!-- Modal : output JSON -->
+        {#if outputOpen}
+          <div class="mgr-modal-backdrop" on:click|self={() => outputOpen = false}>
+            <div class="mgr-modal" style="max-width:700px">
+              <div class="mgr-modal-header">
+                <h3>📋 team.json généré</h3>
+                <button class="mgr-icon-btn" on:click={() => outputOpen = false}>✕</button>
+              </div>
+              <div class="mgr-modal-body">
+                <div style="color:var(--text3);font-size:12px;margin-bottom:8px">
+                  ✅ Le JSON complet a été copié dans ton presse-papier. Ouvre team.json sur GitHub, remplace <b>tout le contenu</b>, et commit.
+                </div>
+                <textarea readonly rows="18" class="mgr-output">{outputJSON}</textarea>
+              </div>
+              <div class="mgr-modal-footer">
+                <button class="btn-test" on:click={() => { navigator.clipboard.writeText(outputJSON); }}>📋 Recopier</button>
+                <button class="btn-save" on:click={() => { OpenBrowser('https://github.com/Gandalfleblanc/Go-Post-Tools/edit/main/team.json'); outputOpen = false }}>
+                  Ouvrir sur GitHub →
+                </button>
+              </div>
+            </div>
+          </div>
+        {/if}
+      </div>
+
     <!-- ===== RÉGLAGES (fusion API + config) ===== -->
     {:else if activeTab === 'settings'}
       <div class="tab-content">
@@ -2514,62 +2940,11 @@
         <div class="sections">
 
           {#if myRole === 'admin'}
-            <!-- ===== Gestion utilisateurs (admin uniquement) ===== -->
-            <div style="font-size:11px;color:var(--text3);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">👥 Gestion utilisateurs</div>
-            <div class="section" style="border-color:rgba(126,240,192,0.35)">
-              <div class="section-header">
-                <span style="color:#7ef0c0">🔐 Créer une entrée team.json</span>
+            <div style="background:rgba(126,240,192,0.04);border:1px solid rgba(126,240,192,0.2);border-radius:10px;padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+              <div style="color:var(--text2);font-size:13px">
+                👥 Gestion des utilisateurs et permissions → onglet
+                <button class="mgr-inline-link" on:click={() => activeTab = 'manager'}>👥 Manager</button>
               </div>
-              <div style="color:var(--text3);font-size:12px;line-height:1.5;margin-bottom:10px">
-                Génère un bloc JSON prêt à coller dans <code>team.json</code> sur GitHub.
-                Le mot de passe est hashé en bcrypt — il n'est jamais envoyé nulle part.
-              </div>
-              <div class="field">
-                <label for="newuser-pseudo">Pseudo</label>
-                <input id="newuser-pseudo" type="text" bind:value={newUserPseudo}
-                  autocapitalize="off" spellcheck="false" placeholder="Ex: Karo" />
-              </div>
-              <div class="field">
-                <label for="newuser-password">Mot de passe</label>
-                <input id="newuser-password" type="text" bind:value={newUserPassword}
-                  placeholder="Mot de passe en clair (ne sera pas stocké)" />
-              </div>
-              <div class="field">
-                <label for="newuser-role">Rôle</label>
-                <select id="newuser-role" bind:value={newUserRole}>
-                  <option value="admin">admin (🥇 accès complet)</option>
-                  <option value="modo">modo (🥈 pas de Log API)</option>
-                  <option value="team">team (🥉 subset)</option>
-                  <option value="user">user (🔵 minimal)</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="newuser-title">Titre affiché</label>
-                <input id="newuser-title" type="text" bind:value={newUserTitle}
-                  placeholder="Ex: Admin, Co-Admin, Modérateur…" />
-              </div>
-              <div style="display:flex;gap:8px;margin-top:8px">
-                <button class="btn-save" on:click={generateTeamEntry}
-                  disabled={!newUserPseudo || !newUserPassword || newUserGenerating}>
-                  {newUserGenerating ? '…' : '🔒 Générer + copier'}
-                </button>
-                {#if newUserCopied}
-                  <span style="color:#7ef0c0;font-size:12px;align-self:center">✅ Copié dans le presse-papier</span>
-                {/if}
-                {#if newUserError}
-                  <span style="color:#ff9585;font-size:12px;align-self:center">⚠ {newUserError}</span>
-                {/if}
-              </div>
-              {#if newUserOutput}
-                <div style="margin-top:10px">
-                  <label style="font-size:11px;color:var(--text3)">Entrée JSON (à coller dans team.json → users[])</label>
-                  <textarea readonly rows="6" style="width:100%;font-family:monospace;font-size:11px;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text1)">{newUserOutput}</textarea>
-                  <div style="font-size:11px;color:var(--text3);margin-top:4px">
-                    → Ouvre <a href="#" on:click|preventDefault={() => OpenBrowser('https://github.com/Gandalfleblanc/Go-Post-Tools/edit/main/team.json')}>team.json sur GitHub</a>,
-                    colle dans <code>"users": [...]</code>, commit.
-                  </div>
-                </div>
-              {/if}
             </div>
           {/if}
 
@@ -3506,12 +3881,23 @@
     padding: 20px;
   }
   .auth-card {
-    background: var(--bg2, #1a1420);
+    background: linear-gradient(180deg, rgba(230,57,70,0.04), rgba(0,0,0,0)) , var(--bg2, #1a1420);
     border: 1px solid var(--border-strong, rgba(255,255,255,0.14));
-    border-radius: 14px;
-    padding: 40px 34px;
-    max-width: 460px; width: 100%;
+    border-radius: 18px;
+    padding: 42px 36px 34px;
+    max-width: 440px; width: 100%;
     text-align: center;
+    box-shadow: 0 40px 80px -30px rgba(0,0,0,0.6), 0 0 0 1px rgba(230,57,70,0.06);
+  }
+  .auth-logo {
+    width: 140px; height: auto; margin: 0 auto 18px;
+    display: block;
+    filter: drop-shadow(0 8px 32px rgba(230,57,70,0.35));
+    animation: logo-in 0.6s ease-out;
+  }
+  @keyframes logo-in {
+    from { opacity: 0; transform: scale(0.8) rotate(-6deg); }
+    to   { opacity: 1; transform: scale(1) rotate(0deg); }
   }
 
   /* Section verrouillée team-shared (creds bakés au build) */
@@ -4028,6 +4414,371 @@
   }
   .btn-logout:hover { background: rgba(255, 107, 107, 0.14); color: #ffb8b8; }
   .sidebar.collapsed .btn-logout { padding: 7px 4px; }
+
+  /* ===== Manager tab ===== */
+  .manager-tabs {
+    display: flex; gap: 4px;
+    margin-bottom: 18px;
+    padding: 4px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 12px;
+    width: fit-content;
+  }
+  .manager-tabs button {
+    background: transparent; border: 0;
+    color: var(--text3);
+    padding: 9px 18px; font-size: 13px; font-weight: 600;
+    border-radius: 9px; cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    transition: all 0.2s ease;
+  }
+  .manager-tabs button:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+  .manager-tabs button.active {
+    background: var(--bg2);
+    color: var(--text);
+    box-shadow: 0 2px 10px -2px rgba(0,0,0,0.4), 0 0 0 1px var(--border);
+  }
+  .manager-tabs .count {
+    background: rgba(255,255,255,0.08);
+    color: var(--text2);
+    padding: 1px 8px; border-radius: 12px;
+    font-size: 11px; font-weight: 700;
+    min-width: 20px; text-align: center;
+  }
+
+  .mgr-alert {
+    background: rgba(255,107,107,0.08);
+    border: 1px solid rgba(255,107,107,0.3);
+    color: #ff9585;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .mgr-alert-close {
+    background: none; border: none; color: #ff9585; cursor: pointer;
+    font-size: 14px; padding: 0 4px;
+  }
+
+  /* Users grid */
+  .mgr-users-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .mgr-user-card {
+    position: relative;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    display: flex; align-items: center; gap: 14px;
+    transition: all 0.2s ease;
+  }
+  .mgr-user-card:hover {
+    border-color: var(--border-strong);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px -12px rgba(0,0,0,0.5);
+  }
+  .mgr-user-avatar {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .mgr-user-info { flex: 1; min-width: 0; }
+  .mgr-user-name {
+    font-size: 15px; font-weight: 700; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .mgr-user-sub { font-size: 12px; margin-top: 2px; }
+  .mgr-you {
+    background: rgba(126,240,192,0.15);
+    color: #7ef0c0;
+    font-size: 9px; font-weight: 700;
+    padding: 2px 6px; border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .mgr-user-actions {
+    display: flex; gap: 4px;
+    opacity: 0; transition: opacity 0.2s ease;
+  }
+  .mgr-user-card:hover .mgr-user-actions { opacity: 1; }
+  .mgr-icon-btn {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s ease;
+  }
+  .mgr-icon-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: var(--text); }
+  .mgr-icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .mgr-icon-danger:hover:not(:disabled) {
+    background: rgba(255,107,107,0.12) !important;
+    color: #ff6b6b !important;
+    border-color: rgba(255,107,107,0.3) !important;
+  }
+  .mgr-user-badge {
+    position: absolute; top: -6px; right: 10px;
+    background: var(--bg);
+    color: #7ef0c0;
+    border: 1px solid rgba(126,240,192,0.4);
+    font-size: 9px; font-weight: 700;
+    padding: 2px 8px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
+  .mgr-add-card {
+    background: rgba(255,255,255,0.02);
+    border: 2px dashed var(--border);
+    color: var(--text3);
+    border-radius: 14px;
+    padding: 16px;
+    min-height: 76px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+  }
+  .mgr-add-card:hover {
+    background: rgba(126,240,192,0.04);
+    border-color: rgba(126,240,192,0.4);
+    color: #7ef0c0;
+  }
+
+  /* Role chips */
+  .mgr-role-chips {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 18px;
+  }
+  .mgr-role-chip {
+    position: relative;
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid transparent;
+    color: var(--text2);
+    padding: 8px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s ease;
+  }
+  .mgr-role-chip:hover { transform: translateY(-1px); }
+  .mgr-role-chip.active { font-weight: 700; }
+  .mgr-chip-del {
+    margin-left: 4px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: rgba(255,107,107,0.2);
+    color: #ff6b6b;
+    display: none; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+    cursor: pointer;
+  }
+  .mgr-role-chip:hover .mgr-chip-del { display: flex; }
+  .mgr-chip-del:hover { background: rgba(255,107,107,0.35); }
+  .mgr-add-chip {
+    background: rgba(126,240,192,0.06);
+    color: #7ef0c0;
+    border: 1.5px dashed rgba(126,240,192,0.3);
+  }
+  .mgr-add-chip:hover {
+    background: rgba(126,240,192,0.12);
+    border-color: rgba(126,240,192,0.6);
+  }
+
+  /* Role detail */
+  .mgr-role-detail {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+  }
+  .mgr-role-header {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; flex-wrap: wrap;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .mgr-role-emoji {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+    flex-shrink: 0;
+  }
+  .mgr-role-tabs {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 8px;
+  }
+
+  /* Toggle switch */
+  .mgr-toggle-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+  }
+  .mgr-toggle-row:hover { background: rgba(255,255,255,0.04); border-color: var(--border-strong); }
+  .mgr-toggle-label { flex: 1; font-size: 13px; color: var(--text2); }
+  .mgr-toggle-row input[type="checkbox"] { display: none; }
+  .mgr-slider {
+    position: relative;
+    width: 36px; height: 20px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 999px;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+  }
+  .mgr-slider::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 16px; height: 16px;
+    background: var(--text2);
+    border-radius: 50%;
+    transition: all 0.2s ease;
+  }
+  .mgr-toggle-row input[type="checkbox"]:checked ~ .mgr-slider {
+    background: var(--active-color, #7ef0c0);
+  }
+  .mgr-toggle-row input[type="checkbox"]:checked ~ .mgr-slider::after {
+    left: 18px;
+    background: #fff;
+  }
+  .mgr-toggle-row input[type="checkbox"]:checked + .mgr-toggle-label,
+  .mgr-toggle-row:has(input:checked) .mgr-toggle-label { color: var(--text); font-weight: 500; }
+
+  /* Sticky footer */
+  .mgr-footer {
+    position: sticky; bottom: 16px;
+    margin-top: 24px;
+    background: var(--bg2);
+    border: 1px solid rgba(251,191,36,0.3);
+    border-radius: 14px;
+    padding: 14px 18px;
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 12px;
+    box-shadow: 0 -10px 30px -10px rgba(0,0,0,0.5);
+    backdrop-filter: blur(10px);
+  }
+
+  /* Modals */
+  .mgr-modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    animation: modal-fade 0.2s ease-out;
+  }
+  @keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+  .mgr-modal {
+    background: var(--bg2);
+    border: 1px solid var(--border-strong);
+    border-radius: 16px;
+    max-width: 520px; width: 90%;
+    max-height: 85vh; overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 30px 80px -20px rgba(0,0,0,0.8);
+    animation: modal-slide 0.25s ease-out;
+  }
+  @keyframes modal-slide {
+    from { transform: translateY(12px) scale(0.98); opacity: 0; }
+    to   { transform: translateY(0) scale(1); opacity: 1; }
+  }
+  .mgr-modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+  }
+  .mgr-modal-header h3 { margin: 0; font-size: 16px; font-weight: 700; }
+  .mgr-modal-body {
+    padding: 22px;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .mgr-modal-footer {
+    padding: 14px 22px;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+
+  .mgr-emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    gap: 6px;
+  }
+  .mgr-emoji-btn {
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid transparent;
+    color: var(--text);
+    padding: 8px; font-size: 18px;
+    border-radius: 8px; cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .mgr-emoji-btn:hover { background: rgba(255,255,255,0.1); }
+  .mgr-emoji-btn.active {
+    background: rgba(126,240,192,0.1);
+    border-color: #7ef0c0;
+  }
+  .mgr-color-grid {
+    display: flex; flex-wrap: wrap; gap: 8px;
+  }
+  .mgr-color-btn {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .mgr-color-btn:hover { transform: scale(1.1); }
+  .mgr-color-btn.active {
+    border-color: #fff;
+    box-shadow: 0 0 0 2px var(--bg);
+  }
+
+  .mgr-output {
+    width: 100%;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 11px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    color: var(--text);
+    resize: vertical;
+  }
+
+  .mgr-inline-link {
+    background: rgba(126,240,192,0.12);
+    border: 1px solid rgba(126,240,192,0.3);
+    color: #7ef0c0;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .mgr-inline-link:hover {
+    background: rgba(126,240,192,0.22);
+    transform: translateY(-1px);
+  }
   @keyframes pulse-update {
     0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 6px 18px -6px var(--accent-glow); }
     50%      { box-shadow: inset 0 1px 0 rgba(255,255,255,0.3),  0 10px 28px -4px var(--accent-glow); }

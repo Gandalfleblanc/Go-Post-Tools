@@ -17,6 +17,8 @@ export function AutoReseedFromHydracker(arg1:number,arg2:number,arg3:number,arg4
 
 export function AutoReseedFullFromTorrent(arg1:number,arg2:number,arg3:number,arg4:number):Promise<main.AutoReseedFullResult>;
 
+export function BuildTeamJSON(arg1:Record<string, main.RoleDef>,arg2:Array<main.TeamUser>,arg3:Record<string, string>):Promise<string>;
+
 export function CancelAllWorkflows():Promise<void>;
 
 export function CancelDDLHost(arg1:string):Promise<void>;
@@ -72,6 +74,8 @@ export function GetMetaSubs():Promise<Array<api.Lang>>;
 export function GetMyUsername():Promise<string>;
 
 export function GetNexumIndex():Promise<main.NexumIndex>;
+
+export function GetTeamConfig():Promise<main.TeamConfig>;
 
 export function GetUploaderStats(arg1:number):Promise<main.UploaderScanResult>;
 

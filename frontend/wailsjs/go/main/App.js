@@ -18,6 +18,10 @@ export function AutoReseedFullFromTorrent(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['AutoReseedFullFromTorrent'](arg1, arg2, arg3, arg4);
 }
 
+export function BuildTeamJSON(arg1, arg2, arg3) {
+  return window['go']['main']['App']['BuildTeamJSON'](arg1, arg2, arg3);
+}
+
 export function CancelAllWorkflows() {
   return window['go']['main']['App']['CancelAllWorkflows']();
 }
@@ -128,6 +132,10 @@ export function GetMyUsername() {
 
 export function GetNexumIndex() {
   return window['go']['main']['App']['GetNexumIndex']();
+}
+
+export function GetTeamConfig() {
+  return window['go']['main']['App']['GetTeamConfig']();
 }
 
 export function GetUploaderStats(arg1) {

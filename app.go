@@ -50,7 +50,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const Version = "5.1.0"
+const Version = "5.2.0"
 
 type App struct {
 	ctx         context.Context
@@ -1173,21 +1173,54 @@ const teamListURL = "https://raw.githubusercontent.com/Gandalfleblanc/Go-Post-To
 
 type TeamUser struct {
 	Pseudo       string `json:"pseudo"`
-	Role         string `json:"role"`            // "admin" | "modo" | "team" | "user"
-	Title        string `json:"title,omitempty"` // libellé libre affiché (ex: "Admin")
-	PasswordHash string `json:"password_hash"`   // bcrypt
+	Role         string `json:"role"`
+	Title        string `json:"title,omitempty"`
+	PasswordHash string `json:"password_hash"`
+}
+
+// RoleDef : définition d'un rôle (badge, couleur, tabs visibles).
+type RoleDef struct {
+	Badge string   `json:"badge"`           // emoji affiché (🥇, 🥈, …)
+	Color string   `json:"color"`           // couleur CSS (#fbbf24, …)
+	Title string   `json:"title,omitempty"` // libellé défaut si pas de title user
+	Tabs  []string `json:"tabs"`            // liste des IDs de tabs visibles
 }
 
 type teamList struct {
-	Users []TeamUser `json:"users"`
+	Roles map[string]RoleDef `json:"roles,omitempty"`
+	Users []TeamUser         `json:"users"`
+}
+
+// defaultRoles : valeurs par défaut si team.json n'a pas de section "roles".
+// Permet la rétrocompat avec l'ancien team.json (v5.0.x/v5.1.0).
+func defaultRoles() map[string]RoleDef {
+	return map[string]RoleDef{
+		"admin": {Badge: "🥇", Color: "#fbbf24", Title: "Admin",
+			Tabs: []string{"hydracker", "fiches", "check", "requests", "reseed", "myuploads", "history", "apilog", "manager", "settings", "log"}},
+		"modo": {Badge: "🥈", Color: "#cbd5e1", Title: "Modo",
+			Tabs: []string{"hydracker", "fiches", "check", "requests", "reseed", "myuploads", "history", "settings", "log"}},
+		"team": {Badge: "🥉", Color: "#cd7f32", Title: "Team",
+			Tabs: []string{"hydracker", "fiches", "check", "requests", "myuploads", "history", "settings", "log"}},
+		"user": {Badge: "🔵", Color: "#60a5fa", Title: "User",
+			Tabs: []string{"hydracker", "fiches", "myuploads", "history", "settings", "log"}},
+	}
 }
 
 // AuthResult : résultat de LoginUser / GetCurrentUser.
 type AuthResult struct {
-	Username string `json:"username"`
-	Role     string `json:"role"`  // "admin" | "modo" | "team" | "user"
-	Title    string `json:"title"` // libellé libre pour la sidebar
-	Avatar   string `json:"avatar,omitempty"`
+	Username string   `json:"username"`
+	Role     string   `json:"role"`
+	Title    string   `json:"title"`
+	Avatar   string   `json:"avatar,omitempty"`
+	Badge    string   `json:"badge,omitempty"` // emoji du rôle (résolu depuis roles)
+	Color    string   `json:"color,omitempty"` // couleur CSS du rôle
+	Tabs     []string `json:"tabs,omitempty"`  // tabs visibles pour ce rôle
+}
+
+// TeamConfig : renvoyé à l'UI Manager (admin only).
+type TeamConfig struct {
+	Roles map[string]RoleDef `json:"roles"`
+	Users []TeamUser         `json:"users"` // sans password_hash
 }
 
 // fetchTeam récupère team.json depuis GitHub raw (avec cache-buster).
@@ -1214,6 +1247,14 @@ func fetchTeam() (*teamList, error) {
 	return &tl, nil
 }
 
+// resolveRoles : renvoie le map de rôles (depuis team.json, sinon defaults).
+func resolveRoles(tl *teamList) map[string]RoleDef {
+	if tl.Roles != nil && len(tl.Roles) > 0 {
+		return tl.Roles
+	}
+	return defaultRoles()
+}
+
 // LoginUser : pseudo + mot de passe → vérifie contre team.json (bcrypt).
 // En cas de succès, stocke l'user en session mémoire et le retourne.
 func (a *App) LoginUser(pseudo, password string) (*AuthResult, error) {
@@ -1225,6 +1266,7 @@ func (a *App) LoginUser(pseudo, password string) (*AuthResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	roles := resolveRoles(tl)
 	for _, u := range tl.Users {
 		if !strings.EqualFold(u.Pseudo, pseudo) {
 			continue
@@ -1236,16 +1278,27 @@ func (a *App) LoginUser(pseudo, password string) (*AuthResult, error) {
 			return nil, fmt.Errorf("mot de passe incorrect")
 		}
 		role := u.Role
-		switch role {
-		case "admin", "modo", "team", "user":
-			// ok
-		default:
-			role = "user"
+		def, ok := roles[role]
+		if !ok {
+			// rôle non défini → fallback sur "user" si existant, sinon minimum
+			if userDef, uok := roles["user"]; uok {
+				def = userDef
+				role = "user"
+			} else {
+				def = RoleDef{Badge: "🔵", Color: "#60a5fa", Tabs: []string{"hydracker", "settings"}}
+			}
+		}
+		title := u.Title
+		if title == "" {
+			title = def.Title
 		}
 		res := &AuthResult{
 			Username: u.Pseudo,
 			Role:     role,
-			Title:    u.Title,
+			Title:    title,
+			Badge:    def.Badge,
+			Color:    def.Color,
+			Tabs:     def.Tabs,
 		}
 		a.sessionMu.Lock()
 		a.currentUser = res
@@ -1253,6 +1306,88 @@ func (a *App) LoginUser(pseudo, password string) (*AuthResult, error) {
 		return res, nil
 	}
 	return nil, fmt.Errorf("pseudo inconnu")
+}
+
+// GetTeamConfig : renvoie la config complète team.json (roles + users sans hash).
+// Accessible uniquement à un admin connecté — pour l'onglet Manager.
+func (a *App) GetTeamConfig() (*TeamConfig, error) {
+	a.sessionMu.Lock()
+	cur := a.currentUser
+	a.sessionMu.Unlock()
+	if cur == nil || cur.Role != "admin" {
+		return nil, fmt.Errorf("accès réservé aux admins")
+	}
+	tl, err := fetchTeam()
+	if err != nil {
+		return nil, err
+	}
+	out := &TeamConfig{
+		Roles: resolveRoles(tl),
+		Users: make([]TeamUser, 0, len(tl.Users)),
+	}
+	for _, u := range tl.Users {
+		// on ne renvoie pas le hash pour éviter de l'exposer inutilement
+		out.Users = append(out.Users, TeamUser{
+			Pseudo: u.Pseudo,
+			Role:   u.Role,
+			Title:  u.Title,
+		})
+	}
+	return out, nil
+}
+
+// BuildTeamJSON : génère le JSON complet team.json à partir d'une config éditée dans le Manager.
+// Les entries users peuvent contenir password_hash vide → on réutilise l'ancien hash si on
+// reconnaît le pseudo (pas de reset accidentel de mdp quand on bouge juste un rôle).
+// Si un nouveau password est fourni pour un user existant, il remplace l'ancien.
+func (a *App) BuildTeamJSON(roles map[string]RoleDef, users []TeamUser, newPasswords map[string]string) (string, error) {
+	a.sessionMu.Lock()
+	cur := a.currentUser
+	a.sessionMu.Unlock()
+	if cur == nil || cur.Role != "admin" {
+		return "", fmt.Errorf("accès réservé aux admins")
+	}
+	// Récupère l'ancien team.json pour réutiliser les hashs existants
+	prev, err := fetchTeam()
+	if err != nil {
+		return "", fmt.Errorf("fetch team.json actuel : %w", err)
+	}
+	prevHashes := map[string]string{}
+	for _, u := range prev.Users {
+		prevHashes[strings.ToLower(u.Pseudo)] = u.PasswordHash
+	}
+
+	out := teamList{Roles: roles, Users: make([]TeamUser, 0, len(users))}
+	for _, u := range users {
+		key := strings.ToLower(u.Pseudo)
+		hash := u.PasswordHash
+		if hash == "" {
+			// pas de hash fourni → on tente de réutiliser l'ancien
+			hash = prevHashes[key]
+		}
+		if np, ok := newPasswords[u.Pseudo]; ok && np != "" {
+			// nouveau mdp fourni → regénère
+			b, err := bcrypt.GenerateFromPassword([]byte(np), 12)
+			if err != nil {
+				return "", fmt.Errorf("hash %s : %w", u.Pseudo, err)
+			}
+			hash = string(b)
+		}
+		if hash == "" {
+			return "", fmt.Errorf("utilisateur %q sans mot de passe (ni nouveau ni ancien)", u.Pseudo)
+		}
+		out.Users = append(out.Users, TeamUser{
+			Pseudo:       u.Pseudo,
+			Role:         u.Role,
+			Title:        u.Title,
+			PasswordHash: hash,
+		})
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // Logout : clear la session mémoire.
