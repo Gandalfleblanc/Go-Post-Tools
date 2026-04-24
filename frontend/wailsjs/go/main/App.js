@@ -94,6 +94,10 @@ export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
+export function GetCurrentUser() {
+  return window['go']['main']['App']['GetCurrentUser']();
+}
+
 export function GetDDLFilename(arg1) {
   return window['go']['main']['App']['GetDDLFilename'](arg1);
 }
@@ -116,10 +120,6 @@ export function GetMetaQualities() {
 
 export function GetMetaSubs() {
   return window['go']['main']['App']['GetMetaSubs']();
-}
-
-export function GetMyRole() {
-  return window['go']['main']['App']['GetMyRole']();
 }
 
 export function GetMyUsername() {
@@ -148,6 +148,10 @@ export function HasLihdlSettingsPassword() {
 
 export function HasSeedboxSettingsPassword() {
   return window['go']['main']['App']['HasSeedboxSettingsPassword']();
+}
+
+export function HashPassword(arg1) {
+  return window['go']['main']['App']['HashPassword'](arg1);
 }
 
 export function HistoryDelete(arg1) {
@@ -216,6 +220,14 @@ export function ListSeedboxHashes() {
 
 export function ListTitlesSorted(arg1, arg2, arg3) {
   return window['go']['main']['App']['ListTitlesSorted'](arg1, arg2, arg3);
+}
+
+export function LoginUser(arg1, arg2) {
+  return window['go']['main']['App']['LoginUser'](arg1, arg2);
+}
+
+export function Logout() {
+  return window['go']['main']['App']['Logout']();
 }
 
 export function MediaSearch(arg1) {

@@ -47,9 +47,10 @@ import (
 
 	"github.com/gen2brain/beeep"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"golang.org/x/crypto/bcrypt"
 )
 
-const Version = "5.0.2"
+const Version = "5.1.0"
 
 type App struct {
 	ctx         context.Context
@@ -64,6 +65,8 @@ type App struct {
 	hist        *history.Store
 	hostCancels map[string]context.CancelFunc // DDL : annulation par host
 	hostMu      sync.Mutex
+	currentUser *AuthResult // session en mémoire (login bcrypt) — nil = non connecté
+	sessionMu   sync.Mutex
 }
 
 // GetVersion retourne la version de l'application.
@@ -1157,85 +1160,126 @@ func (a *App) FicheGetContent(titleID int) (*FicheContent, error) {
 	return out, nil
 }
 
-// --- Team gating : whitelist de pseudos autorisés + rôles ---
+// --- Team gating : login pseudo + bcrypt ---
 //
-// Au démarrage, l'app fetch team.json sur GitHub raw (facile à éditer sans
-// rebuild) et match l'username Hydracker de l'user courant. Retourne le
-// rôle ("admin" | "user") ou "" si pas autorisé.
+// team.json (sur GitHub raw, facile à éditer sans rebuild) contient pour
+// chaque user : pseudo, role, title, password_hash (bcrypt).
+// L'app affiche un écran de login au démarrage, vérifie le hash en local,
+// et stocke la session UNIQUEMENT en mémoire (rien dans config.json).
+// Pas de dépendance à Hydracker pour l'identité — impossible d'usurper un
+// autre user même en bidouillant le token.
 
 const teamListURL = "https://raw.githubusercontent.com/Gandalfleblanc/Go-Post-Tools/main/team.json"
 
 type TeamUser struct {
-	Pseudo string `json:"pseudo"`
-	Role   string `json:"role"`            // "admin" | "modo" | "team" | "user"
-	Title  string `json:"title,omitempty"` // libellé libre affiché (ex: "Gand Chef")
+	Pseudo       string `json:"pseudo"`
+	Role         string `json:"role"`            // "admin" | "modo" | "team" | "user"
+	Title        string `json:"title,omitempty"` // libellé libre affiché (ex: "Admin")
+	PasswordHash string `json:"password_hash"`   // bcrypt
 }
 
 type teamList struct {
 	Users []TeamUser `json:"users"`
 }
 
-// AuthResult : résultat de GetMyRole. Role vide = pas autorisé.
+// AuthResult : résultat de LoginUser / GetCurrentUser.
 type AuthResult struct {
 	Username string `json:"username"`
-	Role     string `json:"role"`  // "admin" | "modo" | "team" | "user" | "" (pas autorisé)
+	Role     string `json:"role"`  // "admin" | "modo" | "team" | "user"
 	Title    string `json:"title"` // libellé libre pour la sidebar
 	Avatar   string `json:"avatar,omitempty"`
 }
 
-// GetMyRole : identifie l'user courant via Hydracker + check la whitelist.
-func (a *App) GetMyRole() (*AuthResult, error) {
-	// 1. Qui suis-je sur Hydracker ?
-	me, err := a.client.GetUser("me")
-	if err != nil {
-		return nil, fmt.Errorf("impossible de récupérer ton username Hydracker : %w", err)
-	}
-	if me == nil || me.Username == "" {
-		return nil, fmt.Errorf("username Hydracker vide — token invalide ?")
-	}
-
-	result := &AuthResult{Username: me.Username}
-	if me.Image != "" {
-		result.Avatar = me.Image
-	} else if me.Avatar != "" {
-		result.Avatar = me.Avatar
-	}
-
-	// 2. Fetch la team list depuis GitHub raw (cache-buster pour bypass CDN)
+// fetchTeam récupère team.json depuis GitHub raw (avec cache-buster).
+func fetchTeam() (*teamList, error) {
 	url := fmt.Sprintf("%s?_=%d", teamListURL, time.Now().Unix())
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("User-Agent", "GoPostTools/4.x")
+	req.Header.Set("User-Agent", "GoPostTools/5.x")
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
 	c := &http.Client{Timeout: 10 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {
-		return result, fmt.Errorf("fetch team.json : %w", err)
+		return nil, fmt.Errorf("fetch team.json : %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return result, fmt.Errorf("fetch team.json HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("fetch team.json HTTP %d", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	var tl teamList
 	if err := json.Unmarshal(body, &tl); err != nil {
-		return result, fmt.Errorf("parse team.json : %w", err)
+		return nil, fmt.Errorf("parse team.json : %w", err)
 	}
+	return &tl, nil
+}
 
-	// 3. Match (case-insensitive)
-	for _, u := range tl.Users {
-		if strings.EqualFold(u.Pseudo, me.Username) {
-			switch u.Role {
-			case "admin", "modo", "team", "user":
-				result.Role = u.Role
-			default:
-				result.Role = "user" // défaut si rôle inconnu
-			}
-			result.Title = u.Title
-			return result, nil
-		}
+// LoginUser : pseudo + mot de passe → vérifie contre team.json (bcrypt).
+// En cas de succès, stocke l'user en session mémoire et le retourne.
+func (a *App) LoginUser(pseudo, password string) (*AuthResult, error) {
+	pseudo = strings.TrimSpace(pseudo)
+	if pseudo == "" || password == "" {
+		return nil, fmt.Errorf("pseudo et mot de passe requis")
 	}
-	return result, nil // role vide = pas autorisé
+	tl, err := fetchTeam()
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range tl.Users {
+		if !strings.EqualFold(u.Pseudo, pseudo) {
+			continue
+		}
+		if u.PasswordHash == "" {
+			return nil, fmt.Errorf("utilisateur %q sans password_hash — contacte l'admin", u.Pseudo)
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
+			return nil, fmt.Errorf("mot de passe incorrect")
+		}
+		role := u.Role
+		switch role {
+		case "admin", "modo", "team", "user":
+			// ok
+		default:
+			role = "user"
+		}
+		res := &AuthResult{
+			Username: u.Pseudo,
+			Role:     role,
+			Title:    u.Title,
+		}
+		a.sessionMu.Lock()
+		a.currentUser = res
+		a.sessionMu.Unlock()
+		return res, nil
+	}
+	return nil, fmt.Errorf("pseudo inconnu")
+}
+
+// Logout : clear la session mémoire.
+func (a *App) Logout() {
+	a.sessionMu.Lock()
+	a.currentUser = nil
+	a.sessionMu.Unlock()
+}
+
+// GetCurrentUser : renvoie l'user courant (ou nil si pas connecté).
+func (a *App) GetCurrentUser() *AuthResult {
+	a.sessionMu.Lock()
+	defer a.sessionMu.Unlock()
+	return a.currentUser
+}
+
+// HashPassword : génère un hash bcrypt pour un mot de passe.
+// Utilisé par l'UI admin pour créer des entrées team.json.
+func (a *App) HashPassword(password string) (string, error) {
+	if password == "" {
+		return "", fmt.Errorf("mot de passe vide")
+	}
+	b, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // FicheGetNfo récupère le NFO HTML d'un torrent/lien/nzb.

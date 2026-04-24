@@ -55,6 +55,8 @@ export function FindHydrackerSources(arg1:number,arg2:number,arg3:number):Promis
 
 export function GetConfig():Promise<config.Config>;
 
+export function GetCurrentUser():Promise<main.AuthResult>;
+
 export function GetDDLFilename(arg1:string):Promise<string>;
 
 export function GetEffectiveHydrackerURL():Promise<string>;
@@ -66,8 +68,6 @@ export function GetMetaLangs():Promise<Array<api.Lang>>;
 export function GetMetaQualities():Promise<Array<api.Quality>>;
 
 export function GetMetaSubs():Promise<Array<api.Lang>>;
-
-export function GetMyRole():Promise<main.AuthResult>;
 
 export function GetMyUsername():Promise<string>;
 
@@ -82,6 +82,8 @@ export function GetVersion():Promise<string>;
 export function HasLihdlSettingsPassword():Promise<boolean>;
 
 export function HasSeedboxSettingsPassword():Promise<boolean>;
+
+export function HashPassword(arg1:string):Promise<string>;
 
 export function HistoryDelete(arg1:number):Promise<void>;
 
@@ -116,6 +118,10 @@ export function ListReseedRequests(arg1:string,arg2:number,arg3:number,arg4:numb
 export function ListSeedboxHashes():Promise<Array<string>>;
 
 export function ListTitlesSorted(arg1:string,arg2:number,arg3:number):Promise<api.TitlesResponse>;
+
+export function LoginUser(arg1:string,arg2:string):Promise<main.AuthResult>;
+
+export function Logout():Promise<void>;
 
 export function MediaSearch(arg1:string):Promise<Array<mediasearch.SearchResult>>;
 

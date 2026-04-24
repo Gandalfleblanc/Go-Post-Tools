@@ -5,7 +5,7 @@
   import HydrackerTab from './HydrackerTab.svelte'
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, GetMyRole, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, TestNexum, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, LoginUser, Logout, GetCurrentUser, HashPassword, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, TestNexum, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
 
   // --- Tabs ---
   const TABS = [
@@ -27,15 +27,79 @@
   }
   let activeTab = 'hydracker'
 
-  // --- Auth team ---
-  // authState : 'loading' | 'ok' | 'forbidden' | 'error'
-  // myRole    : 'admin' | 'user' | ''
-  let authState = 'loading'
-  let authError = ''
+  // --- Auth team (login pseudo + bcrypt) ---
+  // authState : 'login' | 'ok'
+  let authState = 'login'
+  let loginPseudo = ''
+  let loginPassword = ''
+  let loginError = ''
+  let loginLoading = false
   let myRole = ''
   let myUsername = ''
   let myAvatar = ''
   let myTitle = ''
+
+  async function doLogin() {
+    loginError = ''
+    loginLoading = true
+    try {
+      const auth = await LoginUser(loginPseudo, loginPassword)
+      myUsername = auth?.username || ''
+      myRole     = auth?.role     || ''
+      myAvatar   = auth?.avatar   || ''
+      myTitle    = auth?.title    || ''
+      loginPassword = ''
+      authState = 'ok'
+    } catch (e) {
+      loginError = String(e?.message || e).replace(/^Error:\s*/, '')
+    } finally {
+      loginLoading = false
+    }
+  }
+
+  async function doLogout() {
+    try { await Logout() } catch {}
+    myUsername = ''; myRole = ''; myAvatar = ''; myTitle = ''
+    loginPseudo = ''; loginPassword = ''; loginError = ''
+    authState = 'login'
+  }
+
+  // --- Admin : gestion utilisateurs ---
+  let newUserPseudo = ''
+  let newUserPassword = ''
+  let newUserRole = 'user'
+  let newUserTitle = ''
+  let newUserOutput = ''
+  let newUserCopied = false
+  let newUserError = ''
+  let newUserGenerating = false
+
+  async function generateTeamEntry() {
+    newUserError = ''
+    newUserCopied = false
+    newUserOutput = ''
+    newUserGenerating = true
+    try {
+      const hash = await HashPassword(newUserPassword)
+      const entry = {
+        pseudo: newUserPseudo.trim(),
+        role: newUserRole,
+        title: newUserTitle.trim() || undefined,
+        password_hash: hash,
+      }
+      // Retirer les clés undefined et indenter pour un copier-coller propre
+      const clean = Object.fromEntries(Object.entries(entry).filter(([,v]) => v !== undefined))
+      newUserOutput = JSON.stringify(clean, null, 2) + ','
+      try {
+        await navigator.clipboard.writeText(newUserOutput)
+        newUserCopied = true
+      } catch {}
+    } catch (e) {
+      newUserError = String(e?.message || e).replace(/^Error:\s*/, '')
+    } finally {
+      newUserGenerating = false
+    }
+  }
 
   // Permissions par rôle — éditable par Gandalf.
   // Admin voit tout. Modo/Team voient (presque) comme admin. User voit un subset.
@@ -1131,19 +1195,17 @@
     } catch {}
     try { appVersion = await GetVersion() } catch {}
     try { updateInfo = await CheckForUpdate() } catch {}
-    // Check auth team
+    // Restore session si elle existe encore (après hot reload par ex.)
     try {
-      const auth = await GetMyRole()
-      myUsername = auth?.username || ''
-      myRole     = auth?.role     || ''
-      myAvatar   = auth?.avatar   || ''
-      myTitle    = auth?.title    || ''
-      if (!myRole) authState = 'forbidden'
-      else authState = 'ok'
-    } catch(e) {
-      authError = String(e?.message || e)
-      authState = 'error'
-    }
+      const me = await GetCurrentUser()
+      if (me && me.role) {
+        myUsername = me.username || ''
+        myRole     = me.role     || ''
+        myAvatar   = me.avatar   || ''
+        myTitle    = me.title    || ''
+        authState = 'ok'
+      }
+    } catch {}
     checkLihdlPasswordStatus()
     checkSeedboxPasswordStatus()
     try { hydrackerURLManaged = await IsHydrackerURLManaged() } catch {}
@@ -1309,57 +1371,37 @@
   }
 </script>
 
-{#if authState === 'loading'}
+{#if authState === 'login'}
   <div class="auth-screen">
     <div class="auth-card">
-      <div style="font-size:40px;margin-bottom:12px">⏳</div>
-      <div style="font-size:16px;font-weight:600">Vérification de l'accès…</div>
-      <div style="color:var(--text3);font-size:12px;margin-top:8px">Check Hydracker + team.json</div>
-    </div>
-  </div>
-{:else if authState === 'forbidden'}
-  <div class="auth-screen">
-    <div class="auth-card" style="border-color:#ff4444">
-      <div style="font-size:40px;margin-bottom:12px">🚫</div>
-      <div style="font-size:16px;font-weight:600;color:#ff6b6b">Accès non autorisé</div>
-      <div style="color:var(--text2);font-size:13px;margin-top:10px;line-height:1.5">
-        Ton pseudo Hydracker n'est pas dans la liste des users autorisés.<br>
-        Contacte <b>Gandalf</b> pour demander l'accès.
-      </div>
-    </div>
-  </div>
-{:else if authState === 'error'}
-  <div class="auth-screen">
-    <div class="auth-card" style="border-color:#ffd60a">
-      <div style="font-size:40px;margin-bottom:12px">⚠</div>
-      <div style="font-size:16px;font-weight:600;color:#ffd60a">Erreur d'authentification</div>
-      <div style="color:var(--text2);font-size:13px;margin-top:10px;line-height:1.5">
-        {authError || 'Erreur inconnue'}
-      </div>
-      <div style="color:var(--text3);font-size:11px;margin-top:10px">
-        {#if authError.includes('team.json')}
-          Le fichier de whitelist team n'est pas accessible sur GitHub. Contacte <b>Gandalf</b>.
-        {:else if authError.includes('Hydracker')}
-          Vérifie que ton <b>Token Hydracker</b> est correct dans Réglages (ou édite manuellement <code>~/.config/go-post-tools/config.json</code>).
-        {:else}
-          Erreur inattendue — contacte Gandalf avec ce message.
+      <img src={logo} alt="" style="width:72px;height:72px;margin-bottom:12px" />
+      <div style="font-size:18px;font-weight:700;margin-bottom:4px">GO Post Tools</div>
+      <div style="color:var(--text3);font-size:12px;margin-bottom:22px">Connexion</div>
+      <form on:submit|preventDefault={doLogin} style="display:flex;flex-direction:column;gap:10px;text-align:left">
+        <div class="field">
+          <label for="login-pseudo">Pseudo</label>
+          <input id="login-pseudo" type="text" bind:value={loginPseudo}
+            autocomplete="username" autocapitalize="off" spellcheck="false"
+            placeholder="Ton pseudo" disabled={loginLoading} />
+        </div>
+        <div class="field">
+          <label for="login-password">Mot de passe</label>
+          <input id="login-password" type="password" bind:value={loginPassword}
+            autocomplete="current-password"
+            placeholder="••••••••" disabled={loginLoading} />
+        </div>
+        {#if loginError}
+          <div style="color:#ff9585;font-size:12px;background:rgba(255,68,68,0.08);border:1px solid rgba(255,68,68,0.3);padding:8px 10px;border-radius:8px">
+            ⚠ {loginError}
+          </div>
         {/if}
+        <button class="btn-save" type="submit" disabled={loginLoading || !loginPseudo || !loginPassword} style="margin-top:6px">
+          {loginLoading ? '…' : '🔐 Se connecter'}
+        </button>
+      </form>
+      <div style="color:var(--text3);font-size:11px;margin-top:16px;line-height:1.5">
+        Pas de compte ? Contacte <b>Gandalf</b>.
       </div>
-      <button class="btn-save" style="margin-top:14px" on:click={async () => {
-        authState = 'loading'
-        authError = ''
-        try {
-          const auth = await GetMyRole()
-          myUsername = auth?.username || ''
-          myRole     = auth?.role     || ''
-          myAvatar   = auth?.avatar   || ''
-          myTitle    = auth?.title    || ''
-          authState = myRole ? 'ok' : 'forbidden'
-        } catch(e) {
-          authError = String(e?.message || e)
-          authState = 'error'
-        }
-      }}>🔄 Réessayer</button>
     </div>
   </div>
 {:else}
@@ -1421,6 +1463,9 @@
           {#if !sidebarCollapsed}<span>{updateCheckMsg || 'Vérifier maj'}</span>{/if}
         </button>
       {/if}
+      <button class="btn-logout" on:click={doLogout} title="Se déconnecter">
+        {#if sidebarCollapsed}🚪{:else}🚪 Se déconnecter{/if}
+      </button>
     </div>
   </aside>
 
@@ -2467,6 +2512,66 @@
       <div class="tab-content">
         <h2>Réglages</h2>
         <div class="sections">
+
+          {#if myRole === 'admin'}
+            <!-- ===== Gestion utilisateurs (admin uniquement) ===== -->
+            <div style="font-size:11px;color:var(--text3);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">👥 Gestion utilisateurs</div>
+            <div class="section" style="border-color:rgba(126,240,192,0.35)">
+              <div class="section-header">
+                <span style="color:#7ef0c0">🔐 Créer une entrée team.json</span>
+              </div>
+              <div style="color:var(--text3);font-size:12px;line-height:1.5;margin-bottom:10px">
+                Génère un bloc JSON prêt à coller dans <code>team.json</code> sur GitHub.
+                Le mot de passe est hashé en bcrypt — il n'est jamais envoyé nulle part.
+              </div>
+              <div class="field">
+                <label for="newuser-pseudo">Pseudo</label>
+                <input id="newuser-pseudo" type="text" bind:value={newUserPseudo}
+                  autocapitalize="off" spellcheck="false" placeholder="Ex: Karo" />
+              </div>
+              <div class="field">
+                <label for="newuser-password">Mot de passe</label>
+                <input id="newuser-password" type="text" bind:value={newUserPassword}
+                  placeholder="Mot de passe en clair (ne sera pas stocké)" />
+              </div>
+              <div class="field">
+                <label for="newuser-role">Rôle</label>
+                <select id="newuser-role" bind:value={newUserRole}>
+                  <option value="admin">admin (🥇 accès complet)</option>
+                  <option value="modo">modo (🥈 pas de Log API)</option>
+                  <option value="team">team (🥉 subset)</option>
+                  <option value="user">user (🔵 minimal)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="newuser-title">Titre affiché</label>
+                <input id="newuser-title" type="text" bind:value={newUserTitle}
+                  placeholder="Ex: Admin, Co-Admin, Modérateur…" />
+              </div>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <button class="btn-save" on:click={generateTeamEntry}
+                  disabled={!newUserPseudo || !newUserPassword || newUserGenerating}>
+                  {newUserGenerating ? '…' : '🔒 Générer + copier'}
+                </button>
+                {#if newUserCopied}
+                  <span style="color:#7ef0c0;font-size:12px;align-self:center">✅ Copié dans le presse-papier</span>
+                {/if}
+                {#if newUserError}
+                  <span style="color:#ff9585;font-size:12px;align-self:center">⚠ {newUserError}</span>
+                {/if}
+              </div>
+              {#if newUserOutput}
+                <div style="margin-top:10px">
+                  <label style="font-size:11px;color:var(--text3)">Entrée JSON (à coller dans team.json → users[])</label>
+                  <textarea readonly rows="6" style="width:100%;font-family:monospace;font-size:11px;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text1)">{newUserOutput}</textarea>
+                  <div style="font-size:11px;color:var(--text3);margin-top:4px">
+                    → Ouvre <a href="#" on:click|preventDefault={() => OpenBrowser('https://github.com/Gandalfleblanc/Go-Post-Tools/edit/main/team.json')}>team.json sur GitHub</a>,
+                    colle dans <code>"users": [...]</code>, commit.
+                  </div>
+                </div>
+              {/if}
+            </div>
+          {/if}
 
           <!-- ===== Clés API ===== -->
           <div style="font-size:11px;color:var(--text3);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">🔑 Clés API</div>
@@ -3908,6 +4013,21 @@
   .btn-check-update:hover { background: rgba(255,255,255,0.08); color: var(--text); }
   .btn-check-update:disabled { opacity: 0.5; cursor: not-allowed; }
   .sidebar.collapsed .btn-check-update { padding: 7px 4px; }
+
+  .btn-logout {
+    width: 100%;
+    background: rgba(255, 107, 107, 0.06);
+    color: #ff9585;
+    border: 1px solid rgba(255, 107, 107, 0.18);
+    padding: 7px 10px;
+    font-size: 11px; font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 6px;
+    display: flex; align-items: center; gap: 6px; justify-content: center;
+  }
+  .btn-logout:hover { background: rgba(255, 107, 107, 0.14); color: #ffb8b8; }
+  .sidebar.collapsed .btn-logout { padding: 7px 4px; }
   @keyframes pulse-update {
     0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 6px 18px -6px var(--accent-glow); }
     50%      { box-shadow: inset 0 1px 0 rgba(255,255,255,0.3),  0 10px 28px -4px var(--accent-glow); }

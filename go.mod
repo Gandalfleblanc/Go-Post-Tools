@@ -8,6 +8,7 @@ require (
 	github.com/gen2brain/beeep v0.11.2
 	github.com/jlaffaye/ftp v0.2.0
 	github.com/wailsapp/wails/v2 v2.12.0
+	golang.org/x/crypto v0.50.0
 	modernc.org/sqlite v1.49.1
 )
 
@@ -58,7 +59,6 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
-	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
