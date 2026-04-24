@@ -1,6 +1,7 @@
 {
   "users": [
     { "pseudo": "Gandalf", "role": "admin", "title": "Admin" },
-    { "pseudo": "Noxako",  "role": "admin", "title": "Co-Admin" }
+    { "pseudo": "Noxako",  "role": "admin", "title": "Co-Admin" },
+    { "pseudo": "Karo",  "role": "admin", "title": "Co-Admin" }
   ]
 }
