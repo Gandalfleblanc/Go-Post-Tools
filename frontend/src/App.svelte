@@ -6,7 +6,7 @@
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
   import loginLogo from './assets/login-logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, LoginUser, Logout, GetCurrentUser, HashPassword, GetTeamConfig, BuildTeamJSON, FetchHydrackerAvatar, ChangeMyPassword, GetNzbFilenames, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, TestNexum, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, LoginUser, Logout, GetCurrentUser, HashPassword, GetTeamConfig, BuildTeamJSON, FetchHydrackerAvatar, ChangeMyPassword, GetNzbFilenames, DeleteSeedboxByHash, MediaSearch, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, TestNexum, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
   import nexumLogo from './assets/nexum-logo.png'
 
   // --- Tabs (réorganisés par workflow, 8 onglets principaux) ---
@@ -887,6 +887,14 @@
   let seedboxHashes = new Set()
   let seedboxHashesLoaded = false
   let onlyMine = true   // toggle "présents seulement" / "tous les Hydracker"
+  // Vue dédiée 3+ seeds (scan toutes les pages)
+  let topSeedsView = false           // si true, affiche la vue dédiée 3+ seeds
+  let topSeedsTorrents = []          // torrents avec >= 3 seeds, agrégés sur toutes les pages
+  let topSeedsScanning = false
+  let topSeedsScanProg = ''
+  let topSeedsSelected = new Set()
+  let topSeedsBulkDeleting = false
+  let topSeedsBulkResult = ''
 
   // Index Nexum : map lowercase info_hash → {id, name, seeders, created_at, …}
   let nexumIndex = {}
@@ -907,6 +915,78 @@
     }
     mySeedsLoading = false
     loadSeedboxHashes()
+  }
+
+  async function scanAllPagesFor3PlusSeeds() {
+    topSeedsScanning = true
+    topSeedsTorrents = []
+    topSeedsScanProg = 'Scan en cours…'
+    try {
+      // Page 1 d'abord pour connaître le nombre total
+      let r = await ListMyTorrents(myUsername, 1)
+      const lastPage = r?.pagination?.last_page || 1
+      let acc = []
+      const pushIfTopSeed = arr => {
+        for (const t of (arr || [])) {
+          if ((t.seeders || 0) >= 3) acc.push(t)
+        }
+      }
+      pushIfTopSeed(r?.pagination?.data)
+      topSeedsScanProg = `Page 1/${lastPage} · ${acc.length} torrents 3+ seeds`
+      for (let p = 2; p <= lastPage; p++) {
+        const rp = await ListMyTorrents(myUsername, p)
+        pushIfTopSeed(rp?.pagination?.data)
+        topSeedsScanProg = `Page ${p}/${lastPage} · ${acc.length} torrents 3+ seeds`
+      }
+      // Tri seeds DESC
+      acc.sort((a, b) => (b.seeders || 0) - (a.seeders || 0))
+      topSeedsTorrents = acc
+      topSeedsScanProg = `✓ Scan terminé : ${acc.length} torrents avec 3+ seeds sur ${lastPage} page${lastPage > 1 ? 's' : ''}`
+      addLog('SEED', topSeedsScanProg)
+    } catch (e) {
+      topSeedsScanProg = '✗ ' + String(e?.message || e)
+      addLog('SEED', '✗ scan 3+ : ' + e)
+    }
+    topSeedsScanning = false
+  }
+
+  function toggleTopSeedSelect(id) {
+    if (topSeedsSelected.has(id)) topSeedsSelected.delete(id)
+    else topSeedsSelected.add(id)
+    topSeedsSelected = new Set(topSeedsSelected)
+  }
+  function toggleTopSeedSelectAll() {
+    if (topSeedsSelected.size === topSeedsTorrents.length) {
+      topSeedsSelected = new Set()
+    } else {
+      topSeedsSelected = new Set(topSeedsTorrents.map(t => t.id))
+    }
+  }
+  $: topSeedsSelectedSize = topSeedsTorrents
+    .filter(t => topSeedsSelected.has(t.id))
+    .reduce((acc, t) => acc + (t.taille || t.size || 0), 0)
+
+  async function bulkDeleteTopSeeds() {
+    const ids = [...topSeedsSelected]
+    if (!ids.length) return
+    if (!confirm(`Supprimer ${ids.length} torrent(s) sur Hydracker + leur fichier sur ton FTP ?\n⚠ Action irréversible.`)) return
+    topSeedsBulkDeleting = true
+    topSeedsBulkResult = ''
+    let ok = 0, errs = []
+    for (const id of ids) {
+      try {
+        await DeleteTorrentAndFTP(id)
+        ok++
+        topSeedsTorrents = topSeedsTorrents.filter(t => t.id !== id)
+        topSeedsSelected.delete(id)
+      } catch (e) {
+        errs.push('#' + id + ': ' + String(e?.message || e).replace(/^Error:\s*/, ''))
+      }
+    }
+    topSeedsSelected = new Set(topSeedsSelected)
+    topSeedsBulkDeleting = false
+    topSeedsBulkResult = `✅ ${ok}/${ids.length} supprimé(s)${errs.length ? ' · ❌ ' + errs.length + ' erreur(s)' : ''}`
+    addLog('SEED', `Bulk delete 3+ : ${ok}/${ids.length} OK${errs.length ? ' · errs: ' + errs.join(' | ') : ''}`)
   }
 
   async function loadSeedboxHashes() {
@@ -1391,9 +1471,15 @@
   let checkLoading = false
   let checkState = {}  // { [hash]: { stage, msg, percent, speed } }
   let checkFilter = 'all'  // 'all' | 'active' | 'inactive'
-  let checkSort = 'seeds_desc'  // 'seeds_desc' | 'seeds_asc' | 'size_desc' | 'name'
+  let checkSort = 'seeds_desc'
   let checkPage = 1
   const checkPageSize = 100
+  let checkSelected = new Set() // hashes sélectionnés
+  let checkExpanded = ''        // hash du torrent expandé (un seul à la fois)
+  let checkDeleting = false
+  let checkDeleteResult = ''    // message après bulk delete
+  let seedboxSectionOpen = false  // Ma seedbox repliée par défaut
+  let seedboxLocalSearch = {}    // { [hash]: { state: 'searching|ok|err|nomatch', results?, error? } }
   function isIncomplete(t) { return t.size > 0 && t.done < t.size }
   function seedsOf(t) {
     const v = t.seeders ?? t.seeds ?? t.seed ?? t.num_seeders
@@ -1430,6 +1516,88 @@
     checkState = { ...checkState, [t.hash]: { stage: 'download', msg: 'Démarrage…', percent: 0, speed: 0 } }
     try { await ReseedFromLihdl(t.hash, t.lihdl_url, t.file_name) }
     catch(e) { addLog('CHK', '✗ ' + e) }
+  }
+
+  function toggleCheckSelect(hash) {
+    if (checkSelected.has(hash)) checkSelected.delete(hash)
+    else checkSelected.add(hash)
+    checkSelected = new Set(checkSelected) // trigger Svelte reactivity
+  }
+  function toggleCheckSelectAllPaged() {
+    const allSelected = pagedCheckTorrents.every(t => checkSelected.has(t.hash))
+    if (allSelected) {
+      pagedCheckTorrents.forEach(t => checkSelected.delete(t.hash))
+    } else {
+      pagedCheckTorrents.forEach(t => checkSelected.add(t.hash))
+    }
+    checkSelected = new Set(checkSelected)
+  }
+  function clearCheckSelection() {
+    checkSelected = new Set()
+  }
+  $: checkSelectedSize = pagedCheckTorrents
+    .concat(filteredCheckTorrents)
+    .filter((t, i, arr) => arr.findIndex(x => x.hash === t.hash) === i) // dedupe
+    .filter(t => checkSelected.has(t.hash))
+    .reduce((acc, t) => acc + (t.size || 0), 0)
+  $: pagedAllSelected = pagedCheckTorrents.length > 0 && pagedCheckTorrents.every(t => checkSelected.has(t.hash))
+
+  async function bulkDeleteSelected() {
+    const hashes = [...checkSelected]
+    if (!hashes.length) return
+    const total = hashes.length
+    if (!confirm(`Supprimer ${total} torrent(s) de la seedbox ? (Hydracker n'est pas affecté)`)) return
+    checkDeleting = true
+    checkDeleteResult = ''
+    let ok = 0, errs = []
+    for (const h of hashes) {
+      try {
+        await DeleteSeedboxByHash(h)
+        ok++
+        // Retire de la liste localement (effet immédiat)
+        checkTorrents = checkTorrents.filter(t => t.hash !== h)
+        checkSelected.delete(h)
+      } catch (e) {
+        errs.push(`${h.slice(0,8)}: ${String(e?.message || e).replace(/^Error:\s*/, '')}`)
+      }
+    }
+    checkSelected = new Set(checkSelected)
+    checkDeleting = false
+    checkDeleteResult = `✅ ${ok}/${total} supprimé(s)${errs.length ? ' · ❌ ' + errs.length + ' erreur(s)' : ''}`
+    addLog('CHK', `Bulk delete : ${ok}/${total} OK${errs.length ? ` · errs: ${errs.join(' | ')}` : ''}`)
+  }
+
+  async function browseLocalForRow(t) {
+    // Ouvre le modal "Parcourir un MKV local" avec un préfill éventuel
+    await checkLocalMkv()
+  }
+
+  async function searchFreeLink(t) {
+    const q = t.file_name || t.name || ''
+    if (!q) return
+    seedboxLocalSearch = { ...seedboxLocalSearch, [t.hash]: { state: 'searching' } }
+    try {
+      const results = await MediaSearch(q)
+      if (results && results.length > 0) {
+        seedboxLocalSearch = { ...seedboxLocalSearch, [t.hash]: { state: 'ok', results } }
+      } else {
+        seedboxLocalSearch = { ...seedboxLocalSearch, [t.hash]: { state: 'nomatch' } }
+      }
+    } catch (e) {
+      seedboxLocalSearch = { ...seedboxLocalSearch, [t.hash]: { state: 'err', error: String(e?.message || e).replace(/^Error:\s*/, '') } }
+    }
+  }
+
+  async function deleteOne(hash) {
+    if (!confirm('Supprimer ce torrent de la seedbox ?')) return
+    try {
+      await DeleteSeedboxByHash(hash)
+      checkTorrents = checkTorrents.filter(t => t.hash !== hash)
+      checkSelected.delete(hash)
+      checkSelected = new Set(checkSelected)
+    } catch (e) {
+      addLog('CHK', '✗ delete : ' + e)
+    }
   }
 
   onMount(async () => {
@@ -2612,6 +2780,77 @@
 
         <!-- Section 1 : Mes torrents Hydracker (par seeders) -->
         <div class="section">
+          {#if topSeedsView}
+            <!-- Vue dédiée 3+ seeds (scan toutes les pages) -->
+            <div class="section-header">
+              <span style="display:flex;align-items:center;gap:10px">
+                <button class="btn-test" on:click={() => { topSeedsView = false; topSeedsSelected = new Set() }}>← Retour</button>
+                <span>🟢 Mes torrents 3+ seeds (toutes pages)</span>
+                {#if topSeedsScanning}<span style="color:var(--text3);font-size:11px">{topSeedsScanProg}</span>{:else}<span style="color:var(--text3);font-size:11px">{topSeedsTorrents.length} torrents · {fmtBytes(topSeedsTorrents.reduce((a, t) => a + (t.taille || t.size || 0), 0))}</span>{/if}
+              </span>
+              <button class="btn-test" on:click={scanAllPagesFor3PlusSeeds} disabled={topSeedsScanning}>{topSeedsScanning ? '⏳ Scan…' : '🔄 Re-scan'}</button>
+            </div>
+
+            {#if topSeedsScanning && !topSeedsTorrents.length}
+              <div style="text-align:center;padding:30px;color:var(--text3)">⏳ {topSeedsScanProg}</div>
+            {:else if !topSeedsTorrents.length}
+              <div style="text-align:center;padding:30px;color:var(--text3)">{topSeedsScanProg || 'Aucun torrent 3+ seeds trouvé.'}</div>
+            {:else}
+              <!-- Bulk delete bar -->
+              {#if topSeedsSelected.size > 0}
+                <div class="chk-bulk-bar" style="border-color:rgba(255,107,107,0.3);background:linear-gradient(90deg, rgba(255,107,107,0.08), rgba(255,107,107,0.02))">
+                  <div>
+                    <span class="chk-bulk-count" style="background:#ff6b6b;color:#fff">{topSeedsSelected.size}</span>
+                    <span style="color:var(--text2)">torrent(s) sélectionné(s)</span>
+                    <span style="color:var(--text3);margin-left:10px">· {fmtBytes(topSeedsSelectedSize)} à libérer</span>
+                  </div>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    {#if topSeedsBulkResult}<span style="color:#7ef0c0;font-size:12px">{topSeedsBulkResult}</span>{/if}
+                    <button class="btn-test" on:click={() => topSeedsSelected = new Set()}>Désélectionner</button>
+                    <button class="btn-bulk-delete" on:click={bulkDeleteTopSeeds} disabled={topSeedsBulkDeleting}>
+                      {topSeedsBulkDeleting ? '⏳ Suppression…' : `🗑 Supprimer ${topSeedsSelected.size} torrent(s) + FTP`}
+                    </button>
+                  </div>
+                </div>
+              {/if}
+
+              <div class="myseeds-list">
+                <div class="myseed-header">
+                  <label class="chk-cell-check">
+                    <input type="checkbox" checked={topSeedsSelected.size === topSeedsTorrents.length && topSeedsTorrents.length > 0}
+                      on:change={toggleTopSeedSelectAll} />
+                    <span class="chk-checkbox-custom"></span>
+                  </label>
+                  <span>🌱 Seeds</span>
+                  <span>ID</span>
+                  <span>Nom</span>
+                  <span style="text-align:right">Taille · S/E</span>
+                  <span style="text-align:right">Actions</span>
+                </div>
+                {#each topSeedsTorrents as t (t.id)}
+                  {@const seeders = t.seeders || 0}
+                  {@const isSelected = topSeedsSelected.has(t.id)}
+                  <div class="myseed-row myseed-row-selectable" class:selected={isSelected} style="border-left:3px solid #7ef0c0">
+                    <label class="chk-cell-check" on:click|stopPropagation>
+                      <input type="checkbox" checked={isSelected} on:change={() => toggleTopSeedSelect(t.id)} />
+                      <span class="chk-checkbox-custom"></span>
+                    </label>
+                    <span class="myseed-seeds" style="color:#7ef0c0">{seeders}</span>
+                    <span class="myseed-id">#{t.id}</span>
+                    <span class="myseed-name" title={t.torrent_name || t.name || ''}>{t.torrent_name || t.name || '(sans nom)'}</span>
+                    <span class="myseed-meta">
+                      {#if t.taille || t.size}{((t.taille||t.size)/1e9).toFixed(1)}GB{/if}
+                      {#if t.saison || t.episode} · S{String(t.saison||0).padStart(2,'0')}E{String(t.episode||0).padStart(2,'0')}{/if}
+                    </span>
+                    <div class="myseed-actions">
+                      <button class="myseed-btn" on:click={() => OpenBrowser(`https://hydracker.com/titles/${t.title_id}`)} title="Voir la fiche">🌐</button>
+                      <button class="myseed-btn danger" on:click={() => askDeleteTorrent(t)} disabled={mySeedsActioning[t.id]} title="Supprimer torrent + FTP">🗑</button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          {:else}
           <div class="section-header">
             <span>🌱 Mes torrents Hydracker — par seeders ASC ({filteredMySeeds.length}/{mySeedsTorrents.length})</span>
             <div style="display:flex;gap:6px;align-items:center">
@@ -2631,7 +2870,10 @@
             <button class="btn-test" class:active-chip={mySeedsFilter === 'all'} on:click={() => mySeedsFilter = 'all'}>Tous ({mySeedsTorrents.length})</button>
             <button class="btn-test" class:active-chip={mySeedsFilter === '0seed'} on:click={() => mySeedsFilter = '0seed'} style="color:#ff6b6b">🔴 0 seed ({mySeedsTorrents.filter(t => (t.seeders||0) === 0).length})</button>
             <button class="btn-test" class:active-chip={mySeedsFilter === 'low'} on:click={() => mySeedsFilter = 'low'} style="color:#ffd60a">🟠 1-2 seeds ({mySeedsTorrents.filter(t => (t.seeders||0) > 0 && (t.seeders||0) <= 2).length})</button>
-            <button class="btn-test" class:active-chip={mySeedsFilter === 'ok'} on:click={() => mySeedsFilter = 'ok'} style="color:#7ef0c0">🟢 3+ seeds ({mySeedsTorrents.filter(t => (t.seeders||0) >= 3).length})</button>
+            <button class="btn-test" style="color:#7ef0c0;border-color:rgba(126,240,192,0.4)" on:click={() => { topSeedsView = true; if (!topSeedsTorrents.length) scanAllPagesFor3PlusSeeds() }}
+              title="Scanne toutes les pages et liste tous les torrents avec 3+ seeds (vue dédiée + bulk delete)">
+              🟢 3+ seeds (toutes pages) →
+            </button>
             <button class="btn-test" on:click={checkLocalMkv} disabled={localMkvChecking} title="Vérifier qu'un MKV local correspond à une fiche Hydracker (et voir les sources DDL/torrents dispos)">
               {localMkvChecking ? '…' : '🔍 Parcourir un MKV local'}
             </button>
@@ -2644,54 +2886,40 @@
           {:else if filteredMySeeds.length === 0}
             <div style="color:var(--text3);font-size:12px;margin-top:10px">Aucun torrent dans ce filtre.</div>
           {:else}
-            {#each filteredMySeeds as t}
-              {@const seeders = t.seeders || 0}
-              {@const seedColor = seeders === 0 ? '#ff6b6b' : (seeders <= 2 ? '#ffd60a' : '#7ef0c0')}
-              <div class="my-item" style="border-left: 3px solid {seedColor}">
-                <div style="flex:1;min-width:0">
-                  <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:3px">
-                    #{t.id} · {t.torrent_name || t.name || '(sans nom)'}
-                  </div>
-                  <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text3)">
-                    <span style="color:{seedColor};font-weight:600">🌱 {seeders} seed{seeders > 1 ? 's' : ''}</span>
-                    {#if t.leechers}<span>⬇ {t.leechers} leech</span>{/if}
-                    <span>fiche #{t.title_id}</span>
-                    {#if t.qualite || t.quality}<span>qual #{t.qualite || t.quality}</span>{/if}
-                    {#if t.saison || t.episode}<span>S{String(t.saison||0).padStart(2,'0')}E{String(t.episode||0).padStart(2,'0')}</span>{/if}
-                    {#if t.taille || t.size}<span>{((t.taille||t.size)/1e9).toFixed(2)} GB</span>{/if}
-                    <span>📅 {(t.created_at || '').slice(0,10)}</span>
-                  </div>
-                </div>
-                <div style="display:flex;flex-direction:column;gap:4px;align-self:center">
-                  <button class="btn-save" on:click={() => autoReseedFromCheck(t)} disabled={mySeedsActioning[t.id]} title="Push .torrent sur seedbox (nécessite que quelqu'un seed pour que BT retrouve le fichier)">
-                    {mySeedsActioning[t.id] ? '…' : '⚡ Torrent → seedbox'}
-                  </button>
-                  {#if cfg.ftp_host && cfg.one_fichier_api_key}
-                    <button class="btn-save" style="background:#7ef0c0;color:#000" on:click={() => fullReseedFromCheck(t)} disabled={mySeedsActioning[t.id]}
-                      title="Reseed complet : DDL 1fichier → FTP (nom exact torrent) + .torrent seedbox + force recheck">
-                      {mySeedsActioning[t.id] ? '…' : '⚡⚡ Reseed complet'}
-                    </button>
-                  {/if}
-                  <button class="btn-test" on:click={() => OpenBrowser(`https://hydracker.com/titles/${t.title_id}`)}>🌐 Fiche</button>
-                  <button class="btn-test" style="background:#5a1a1a;color:#ff6b6b;border-color:#ff6b6b" on:click={() => askDeleteTorrent(t)} disabled={mySeedsActioning[t.id]} title="Supprime le .torrent sur Hydracker ET le fichier sur ton FTP">
-                    🗑 Suppr +FTP
-                  </button>
-                </div>
-              </div>
-              {#if checkActionProg[t.id]}
-                {@const prog = checkActionProg[t.id]}
-                <div class="check-prog" class:done={prog.stage === 'done'} class:err={prog.stage === 'error'}>
-                  <div class="check-prog-bar"><div class="check-prog-fill" style="width:{prog.percent || 0}%"></div></div>
-                  <div class="check-prog-meta">
-                    <span class="check-prog-msg">{prog.msg || prog.stage || '…'}</span>
-                    <span class="check-prog-stats">
-                      {(prog.percent || 0).toFixed(0)}%
-                      {#if prog.speed_mb > 0} · ⚡ {prog.speed_mb.toFixed(1)} MB/s{/if}
-                    </span>
+            <div class="myseeds-list">
+              {#each filteredMySeeds as t}
+                {@const seeders = t.seeders || 0}
+                {@const seedColor = seeders === 0 ? '#ff6b6b' : (seeders <= 2 ? '#ffd60a' : '#7ef0c0')}
+                <div class="myseed-row" style="border-left:3px solid {seedColor}">
+                  <span class="myseed-seeds" style="color:{seedColor}">{seeders}</span>
+                  <span class="myseed-id">#{t.id}</span>
+                  <span class="myseed-name" title={t.torrent_name || t.name || ''}>{t.torrent_name || t.name || '(sans nom)'}</span>
+                  <span class="myseed-meta">
+                    {#if t.taille || t.size}{((t.taille||t.size)/1e9).toFixed(1)}GB{/if}
+                    {#if t.saison || t.episode} · S{String(t.saison||0).padStart(2,'0')}E{String(t.episode||0).padStart(2,'0')}{/if}
+                  </span>
+                  <div class="myseed-actions">
+                    <button class="myseed-btn" on:click={() => autoReseedFromCheck(t)} disabled={mySeedsActioning[t.id]} title="Push .torrent sur seedbox">⚡</button>
+                    {#if cfg.ftp_host && cfg.one_fichier_api_key}
+                      <button class="myseed-btn primary" on:click={() => fullReseedFromCheck(t)} disabled={mySeedsActioning[t.id]} title="Reseed complet : DDL → FTP + seedbox">⚡⚡</button>
+                    {/if}
+                    <button class="myseed-btn" on:click={() => OpenBrowser(`https://hydracker.com/titles/${t.title_id}`)} title="Voir la fiche sur Hydracker">🌐</button>
+                    <button class="myseed-btn danger" on:click={() => askDeleteTorrent(t)} disabled={mySeedsActioning[t.id]} title="Supprimer le torrent + FTP">🗑</button>
                   </div>
                 </div>
-              {/if}
-            {/each}
+                {#if checkActionProg[t.id]}
+                  {@const prog = checkActionProg[t.id]}
+                  <div class="check-prog" class:done={prog.stage === 'done'} class:err={prog.stage === 'error'}>
+                    <div class="check-prog-bar"><div class="check-prog-fill" style="width:{prog.percent || 0}%"></div></div>
+                    <div class="check-prog-meta">
+                      <span class="check-prog-msg">{prog.msg || prog.stage || '…'}</span>
+                      <span class="check-prog-stats">{(prog.percent || 0).toFixed(0)}%{#if prog.speed_mb > 0} · ⚡ {prog.speed_mb.toFixed(1)} MB/s{/if}</span>
+                    </div>
+                  </div>
+                {/if}
+              {/each}
+            </div>
+          {/if}
           {/if}
         </div>
 
@@ -2831,93 +3059,193 @@
           </div>
         {/if}
 
-        <!-- Section 2 : Cross-check seedbox local + LiHDL (legacy, optionnelle) -->
-        <div class="section">
-          <div class="section-header">
-            <span>📂 Seedbox locale (cross-check LiHDL)</span>
-            <button class="btn-test" on:click={() => loadCheckTorrents(false)} disabled={checkLoading}>
-              {checkLoading ? '…' : 'Charger seedbox'}
+        <!-- Section 2 : Seedbox locale — vue compacte avec sélection multiple -->
+        <div class="section" class:section-collapsed={!seedboxSectionOpen}>
+          <div class="section-header section-header-toggle" style="margin-bottom:{seedboxSectionOpen ? 14 : 0}px"
+            on:click={() => seedboxSectionOpen = !seedboxSectionOpen}>
+            <span style="display:flex;align-items:center;gap:8px">
+              <span class="section-chevron" class:open={seedboxSectionOpen}>▶</span>
+              📂 Ma seedbox
+              {#if checkTorrents.length > 0}
+                <span style="color:var(--text3);font-size:11px;font-weight:400">({checkTorrents.length} torrents)</span>
+              {/if}
+            </span>
+            <button class="btn-test" on:click|stopPropagation={() => { clearCheckSelection(); seedboxSectionOpen = true; loadCheckTorrents(false) }} disabled={checkLoading}>
+              {checkLoading ? '⏳ Chargement…' : '🔄 Charger / Rafraîchir'}
             </button>
           </div>
-        {#if checkTorrents.length > 0}
-          <div class="check-filters">
-            <button class="filter-btn" class:active={checkFilter === 'all'} on:click={() => checkFilter = 'all'}>
-              Tous <span class="filter-count">{checkTorrents.length}</span>
-            </button>
-            <button class="filter-btn" class:active={checkFilter === 'active'} on:click={() => checkFilter = 'active'}>
-              Actif <span class="filter-count">{checkTorrents.filter(t => t.is_active === 1).length}</span>
-            </button>
-            <button class="filter-btn" class:active={checkFilter === 'inactive'} on:click={() => checkFilter = 'inactive'}>
-              Inactif <span class="filter-count">{checkTorrents.filter(t => isIncomplete(t)).length}</span>
-            </button>
-            <div style="flex:1"></div>
-            <label style="font-size:12px;color:var(--text3);display:flex;align-items:center;gap:6px">
-              Trier :
-              <select bind:value={checkSort} style="font-size:12px;padding:4px 8px">
-                <option value="seeds_desc">🌱 Seeds (+ → -)</option>
-                <option value="seeds_asc">🌱 Seeds (- → +)</option>
-                <option value="size_desc">📦 Taille (+ → -)</option>
-                <option value="name">🔤 Nom A-Z</option>
-              </select>
-            </label>
-          </div>
-        {/if}
-        {#if !checkTorrents.length && !checkLoading}
-          <p class="coming-soon">Clique sur <b>Charger</b> pour lister les torrents de la seedbox.</p>
-        {:else}
-          {#if filteredCheckTorrents.length > checkPageSize}
-            <div class="check-pagination">
-              <button class="btn-test" on:click={() => checkPage = Math.max(1, checkPage - 1)} disabled={checkPage <= 1}>← Préc</button>
-              <span style="color:var(--text2);font-size:12px">
-                Page {checkPage} / {checkTotalPages} — {filteredCheckTorrents.length} torrent{filteredCheckTorrents.length > 1 ? 's' : ''} ({(checkPage - 1) * checkPageSize + 1}–{Math.min(checkPage * checkPageSize, filteredCheckTorrents.length)})
-              </span>
-              <button class="btn-test" on:click={() => checkPage = Math.min(checkTotalPages, checkPage + 1)} disabled={checkPage >= checkTotalPages}>Suiv →</button>
-            </div>
-          {/if}
-          {#each pagedCheckTorrents as t (t.hash)}
-            {@const st = checkState[t.hash] || {}}
-            <div class="chk-card" class:err={t.has_error} class:ok={!t.has_error}>
-              <div class="chk-head">
-                <div class="chk-name" title={t.name}>{t.name}</div>
-                {#if t.has_error}
-                  <span class="chk-badge err">⚠ Erreur</span>
-                {:else if t.is_active}
-                  <span class="chk-badge ok">✓ Actif</span>
-                {:else}
-                  <span class="chk-badge">Inactif</span>
-                {/if}
+
+          {#if seedboxSectionOpen}
+          {#if !checkTorrents.length && !checkLoading}
+            <p class="coming-soon">Clique sur <b>Charger</b> pour lister les torrents de la seedbox.</p>
+          {:else if checkTorrents.length > 0}
+            <!-- Toolbar : filtres + sélection bulk + tri -->
+            <div class="chk-toolbar">
+              <div class="chk-toolbar-left">
+                <button class="filter-btn" class:active={checkFilter === 'all'} on:click={() => checkFilter = 'all'}>
+                  Tous <span class="filter-count">{checkTorrents.length}</span>
+                </button>
+                <button class="filter-btn" class:active={checkFilter === 'active'} on:click={() => checkFilter = 'active'}>
+                  ✓ Actifs <span class="filter-count">{checkTorrents.filter(t => t.is_active === 1).length}</span>
+                </button>
+                <button class="filter-btn" class:active={checkFilter === 'inactive'} on:click={() => checkFilter = 'inactive'}>
+                  ⚠ Inactifs <span class="filter-count">{checkTorrents.filter(t => isIncomplete(t)).length}</span>
+                </button>
               </div>
-              {#if t.message}
-                <div class="chk-msg">{t.message}</div>
-              {/if}
-              {#if t.file_name}
-                <div class="chk-file">📄 {t.file_name}</div>
-              {/if}
-              {#if t.lihdl_url}
-                <div class="chk-lihdl">
-                  <span>✓ Match LiHDL : <code>{t.lihdl_name}</code></span>
-                </div>
-                {#if st.stage && st.stage !== 'done'}
-                  <div class="chk-progress">
-                    <div class="chk-status">{st.msg}{#if st.speed} · {st.speed.toFixed(1)} MB/s{/if}</div>
-                    {#if st.percent >= 0}
-                      <div class="progress-bar"><div class="progress-fill" style="width:{st.percent}%"></div></div>
-                      <span class="chk-pct">{(st.percent || 0).toFixed(0)}%</span>
-                    {/if}
-                  </div>
-                {:else if st.stage === 'done'}
-                  <div class="chk-done">✓ {st.msg}</div>
-                {:else}
-                  <button class="btn-save chk-btn" on:click={() => reseedOne(t)}>
-                    ⬇ Télécharger et re-seed
-                  </button>
-                {/if}
-              {:else}
-                <div class="chk-nomatch">Pas de MKV correspondant sur LiHDL</div>
-              {/if}
+              <div class="chk-toolbar-right">
+                <label class="chk-sort-label">
+                  <span style="color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Trier</span>
+                  <select bind:value={checkSort} class="chk-sort-select">
+                    <option value="seeds_desc">🌱 Seeds (+ → -)</option>
+                    <option value="seeds_asc">🌱 Seeds (- → +)</option>
+                    <option value="size_desc">📦 Taille (+ → -)</option>
+                    <option value="name">🔤 Nom A-Z</option>
+                  </select>
+                </label>
+              </div>
             </div>
-          {/each}
-        {/if}
+
+            <!-- Bulk action bar (visible si sélection) -->
+            {#if checkSelected.size > 0}
+              <div class="chk-bulk-bar">
+                <div>
+                  <span class="chk-bulk-count">{checkSelected.size}</span>
+                  <span style="color:var(--text2)">torrent(s) sélectionné(s)</span>
+                  <span style="color:var(--text3);margin-left:10px">· {fmtBytes(checkSelectedSize)} à libérer</span>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center">
+                  {#if checkDeleteResult}
+                    <span style="color:#7ef0c0;font-size:12px">{checkDeleteResult}</span>
+                  {/if}
+                  <button class="btn-test" on:click={clearCheckSelection}>Désélectionner</button>
+                  <button class="btn-bulk-delete" on:click={bulkDeleteSelected} disabled={checkDeleting}>
+                    {checkDeleting ? '⏳ Suppression…' : `🗑 Supprimer ${checkSelected.size} torrent(s)`}
+                  </button>
+                </div>
+              </div>
+            {/if}
+
+            <!-- Table compacte -->
+            <div class="chk-table">
+              <div class="chk-thead">
+                <label class="chk-cell-check">
+                  <input type="checkbox" checked={pagedAllSelected} on:change={toggleCheckSelectAllPaged} />
+                  <span class="chk-checkbox-custom"></span>
+                </label>
+                <div class="chk-cell-seeds">🌱 Seeds</div>
+                <div class="chk-cell-size">📦 Taille</div>
+                <div class="chk-cell-name">Nom</div>
+                <div class="chk-cell-status">Statut</div>
+                <div class="chk-cell-actions"></div>
+              </div>
+              {#each pagedCheckTorrents as t (t.hash)}
+                {@const seeds = seedsOf(t)}
+                {@const st = checkState[t.hash] || {}}
+                {@const isSelected = checkSelected.has(t.hash)}
+                {@const isExpanded = checkExpanded === t.hash}
+                <div class="chk-row" class:selected={isSelected} class:expanded={isExpanded}>
+                  <div class="chk-row-main" on:click={() => checkExpanded = isExpanded ? '' : t.hash}>
+                    <label class="chk-cell-check" on:click|stopPropagation>
+                      <input type="checkbox" checked={isSelected} on:change={() => toggleCheckSelect(t.hash)} />
+                      <span class="chk-checkbox-custom"></span>
+                    </label>
+                    <div class="chk-cell-seeds">
+                      <span class="chk-seeds-chip" class:zero={seeds === 0} class:low={seeds > 0 && seeds <= 2} class:mid={seeds > 2 && seeds <= 10} class:high={seeds > 10}>
+                        {seeds}
+                      </span>
+                    </div>
+                    <div class="chk-cell-size">{fmtBytes(t.size)}</div>
+                    <div class="chk-cell-name" title={t.name}>{t.name}</div>
+                    <div class="chk-cell-status">
+                      {#if t.has_error}
+                        <span class="chk-badge err">⚠</span>
+                      {:else if t.is_active}
+                        <span class="chk-badge ok">✓</span>
+                      {:else}
+                        <span class="chk-badge">⏸</span>
+                      {/if}
+                    </div>
+                    <div class="chk-cell-actions" on:click|stopPropagation>
+                      <button class="mgr-icon-btn mgr-icon-danger" title="Supprimer de la seedbox" on:click={() => deleteOne(t.hash)}>🗑</button>
+                      <span class="chk-chevron" class:open={isExpanded}>›</span>
+                    </div>
+                  </div>
+                  {#if isExpanded}
+                    <div class="chk-row-detail">
+                      {#if t.file_name}
+                        <div class="chk-detail-row"><span class="chk-detail-label">📄 Fichier</span><span class="chk-detail-val">{t.file_name}</span></div>
+                      {/if}
+                      <div class="chk-detail-row"><span class="chk-detail-label">🔑 Hash</span><span class="chk-detail-val mono">{t.hash}</span></div>
+                      {#if t.message}
+                        <div class="chk-detail-row"><span class="chk-detail-label">💬 Message</span><span class="chk-detail-val">{t.message}</span></div>
+                      {/if}
+                      {#if t.lihdl_url}
+                        <div class="chk-detail-row">
+                          <span class="chk-detail-label">✓ Match LiHDL</span>
+                          <span class="chk-detail-val mono">{t.lihdl_name}</span>
+                        </div>
+                        {#if st.stage && st.stage !== 'done'}
+                          <div class="chk-progress">
+                            <div class="chk-status">{st.msg}{#if st.speed} · {st.speed.toFixed(1)} MB/s{/if}</div>
+                            {#if st.percent >= 0}
+                              <div class="progress-bar"><div class="progress-fill" style="width:{st.percent}%"></div></div>
+                              <span class="chk-pct">{(st.percent || 0).toFixed(0)}%</span>
+                            {/if}
+                          </div>
+                        {:else if st.stage === 'done'}
+                          <div class="chk-done">✓ {st.msg}</div>
+                        {:else}
+                          <button class="btn-save chk-btn" on:click={() => reseedOne(t)}>⬇ Télécharger et re-seed</button>
+                        {/if}
+                      {:else}
+                        <div class="chk-detail-row">
+                          <span class="chk-detail-label">Match LiHDL</span>
+                          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex:1">
+                            <span style="color:var(--text3);font-size:12px">— pas de MKV correspondant sur LiHDL</span>
+                            <button class="btn-test" on:click={() => browseLocalForRow(t)}>📁 Parcourir mon Mac</button>
+                            <button class="btn-test" on:click={() => searchFreeLink(t)} disabled={seedboxLocalSearch[t.hash]?.state === 'searching'}>
+                              {seedboxLocalSearch[t.hash]?.state === 'searching' ? '⏳ Recherche…' : '🔍 Chercher un DDL gratuit'}
+                            </button>
+                          </div>
+                        </div>
+                        {#if seedboxLocalSearch[t.hash]?.state === 'ok'}
+                          <div class="chk-detail-row">
+                            <span class="chk-detail-label">Résultats</span>
+                            <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+                              {#each seedboxLocalSearch[t.hash].results.slice(0, 5) as r}
+                                <div style="display:flex;gap:8px;align-items:center;padding:6px 10px;background:rgba(126,240,192,0.05);border:1px solid rgba(126,240,192,0.2);border-radius:8px;font-size:12px">
+                                  <span style="flex:1;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title={r.name || r.title || r.url}>{r.name || r.title || r.url}</span>
+                                  {#if r.url}
+                                    <button class="btn-test" on:click={() => OpenBrowser(r.url)}>🌐 Ouvrir</button>
+                                  {/if}
+                                </div>
+                              {/each}
+                            </div>
+                          </div>
+                        {:else if seedboxLocalSearch[t.hash]?.state === 'nomatch'}
+                          <div class="chk-detail-row"><span class="chk-detail-label"></span><span style="color:var(--text3);font-size:12px">Aucun DDL gratuit trouvé pour ce nom</span></div>
+                        {:else if seedboxLocalSearch[t.hash]?.state === 'err'}
+                          <div class="chk-detail-row"><span class="chk-detail-label"></span><span style="color:#ff9585;font-size:12px">⚠ {seedboxLocalSearch[t.hash].error}</span></div>
+                        {/if}
+                      {/if}
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+
+            <!-- Pagination en bas -->
+            {#if filteredCheckTorrents.length > checkPageSize}
+              <div class="check-pagination">
+                <button class="btn-test" on:click={() => checkPage = Math.max(1, checkPage - 1)} disabled={checkPage <= 1}>← Préc</button>
+                <span style="color:var(--text2);font-size:12px">
+                  Page {checkPage} / {checkTotalPages} — {filteredCheckTorrents.length} torrents · {(checkPage - 1) * checkPageSize + 1}–{Math.min(checkPage * checkPageSize, filteredCheckTorrents.length)}
+                </span>
+                <button class="btn-test" on:click={() => checkPage = Math.min(checkTotalPages, checkPage + 1)} disabled={checkPage >= checkTotalPages}>Suiv →</button>
+              </div>
+            {/if}
+          {/if}
+          {/if}
         </div>
       </div>
 
@@ -4771,12 +5099,301 @@
 
   .check-pagination {
     display: flex; align-items: center; justify-content: center; gap: 14px;
-    margin: 10px 0 16px;
+    margin: 14px 0 6px;
     padding: 10px;
     background: rgba(255,255,255,0.02);
     border: 1px solid var(--border);
     border-radius: 10px;
   }
+
+  /* Mes torrents Hydracker — vue compacte */
+  .myseed-header {
+    display: grid;
+    grid-template-columns: 44px 60px 60px 1fr 180px 100px;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .myseed-row-selectable {
+    display: grid !important;
+    grid-template-columns: 44px 60px 60px 1fr 180px 100px !important;
+  }
+  .myseed-row-selectable.selected { background: rgba(126,240,192,0.04); }
+
+  .myseeds-list {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-top: 6px;
+  }
+  .myseed-row {
+    display: grid;
+    grid-template-columns: 50px 60px 1fr 180px 180px;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.12s ease;
+    font-size: 12px;
+  }
+  .myseed-row:last-child { border-bottom: none; }
+  .myseed-row:hover { background: rgba(255,255,255,0.03); }
+  .myseed-seeds {
+    font-weight: 700; font-size: 14px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .myseed-id { color: var(--text3); font-size: 11px; font-weight: 500; }
+  .myseed-name {
+    color: var(--text); font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .myseed-meta {
+    color: var(--text3); font-size: 11px;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .myseed-actions {
+    display: flex; gap: 4px; justify-content: flex-end;
+  }
+  .myseed-btn {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    width: 30px; height: 30px;
+    padding: 0;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 13px;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: all 0.15s ease;
+  }
+  .myseed-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: var(--text); transform: translateY(-1px); }
+  .myseed-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .myseed-btn.primary {
+    background: rgba(126,240,192,0.12);
+    border-color: rgba(126,240,192,0.3);
+    color: #7ef0c0;
+  }
+  .myseed-btn.primary:hover:not(:disabled) { background: rgba(126,240,192,0.2); }
+  .myseed-btn.danger:hover:not(:disabled) {
+    background: rgba(255,107,107,0.15);
+    border-color: rgba(255,107,107,0.3);
+    color: #ff6b6b;
+  }
+
+  /* Section repliable */
+  .section-header-toggle {
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s ease;
+    padding: 8px 10px; margin: -8px -10px;
+    border-radius: 8px;
+  }
+  .section-header-toggle:hover { background: rgba(255,255,255,0.03); }
+  .section-chevron {
+    display: inline-block;
+    color: var(--text3);
+    font-size: 10px;
+    transition: transform 0.2s ease;
+    width: 12px; text-align: center;
+  }
+  .section-chevron.open { transform: rotate(90deg); color: var(--accent, #7ef0c0); }
+  .section-collapsed { padding-bottom: 8px; }
+
+  /* Toolbar Check Torrent */
+  .chk-toolbar {
+    display: flex; gap: 12px; align-items: center;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .chk-toolbar-left { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
+  .chk-toolbar-right { display: flex; gap: 10px; align-items: center; }
+  .chk-sort-label { display: flex; align-items: center; gap: 8px; }
+  .chk-sort-select {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 12px; font-weight: 500;
+    padding: 6px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  /* Bulk action bar */
+  .chk-bulk-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 12px;
+    background: linear-gradient(90deg, rgba(126,240,192,0.08), rgba(126,240,192,0.02));
+    border: 1px solid rgba(126,240,192,0.3);
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-bottom: 14px;
+    animation: bulk-slide 0.25s ease-out;
+  }
+  @keyframes bulk-slide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+  .chk-bulk-count {
+    background: var(--accent, #7ef0c0);
+    color: #0d0a10;
+    font-weight: 700;
+    padding: 2px 12px; border-radius: 12px;
+    margin-right: 8px;
+    font-size: 13px;
+  }
+  .btn-bulk-delete {
+    background: linear-gradient(180deg, #ef4444, #dc2626);
+    color: #fff;
+    border: 1px solid rgba(0,0,0,0.25);
+    padding: 8px 16px; font-size: 12px; font-weight: 700;
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 12px -4px rgba(220,38,38,0.5);
+    transition: all 0.15s ease;
+  }
+  .btn-bulk-delete:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+  .btn-bulk-delete:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Table compacte */
+  .chk-table {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .chk-thead {
+    display: grid;
+    grid-template-columns: 44px 80px 90px 1fr 60px 100px;
+    align-items: center;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .chk-row {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.12s ease;
+  }
+  .chk-row:last-child { border-bottom: none; }
+  .chk-row:hover { background: rgba(255,255,255,0.02); }
+  .chk-row.selected { background: rgba(126,240,192,0.04); }
+  .chk-row.selected:hover { background: rgba(126,240,192,0.07); }
+  .chk-row.expanded { background: rgba(255,255,255,0.03); }
+  .chk-row-main {
+    display: grid;
+    grid-template-columns: 44px 80px 90px 1fr 60px 100px;
+    align-items: center;
+    padding: 10px 14px;
+    cursor: pointer;
+  }
+  .chk-cell-check {
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .chk-cell-check input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none;
+    position: absolute;
+    width: 0; height: 0; opacity: 0; pointer-events: none;
+  }
+  .chk-checkbox-custom {
+    display: inline-block;
+    width: 18px; height: 18px;
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid var(--border-strong, rgba(255,255,255,0.2));
+    border-radius: 5px;
+    position: relative;
+    transition: all 0.15s ease;
+  }
+  .chk-cell-check:hover .chk-checkbox-custom { border-color: var(--accent, #7ef0c0); }
+  .chk-cell-check input[type="checkbox"]:checked + .chk-checkbox-custom {
+    background: var(--accent, #7ef0c0);
+    border-color: var(--accent, #7ef0c0);
+  }
+  .chk-cell-check input[type="checkbox"]:checked + .chk-checkbox-custom::after {
+    content: ''; position: absolute;
+    top: 2px; left: 5px;
+    width: 4px; height: 8px;
+    border: solid #0d0a10;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .chk-cell-seeds {
+    font-size: 13px; font-weight: 600;
+  }
+  .chk-seeds-chip {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 36px; padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 12px; font-weight: 700;
+    background: rgba(255,255,255,0.06);
+    color: var(--text2);
+  }
+  .chk-seeds-chip.zero { background: rgba(239,68,68,0.15); color: #ff6b6b; }
+  .chk-seeds-chip.low { background: rgba(251,191,36,0.15); color: #ffd60a; }
+  .chk-seeds-chip.mid { background: rgba(96,165,250,0.15); color: #60a5fa; }
+  .chk-seeds-chip.high { background: rgba(126,240,192,0.15); color: #7ef0c0; }
+  .chk-cell-size {
+    font-size: 12px; color: var(--text2);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+  }
+  .chk-cell-name {
+    font-size: 13px; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    padding-right: 12px;
+  }
+  .chk-cell-status { display: flex; justify-content: center; }
+  .chk-cell-status .chk-badge {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    background: rgba(255,255,255,0.06);
+  }
+  .chk-cell-status .chk-badge.ok { background: rgba(126,240,192,0.15); color: #7ef0c0; }
+  .chk-cell-status .chk-badge.err { background: rgba(255,107,107,0.15); color: #ff6b6b; }
+  .chk-cell-actions {
+    display: flex; gap: 4px; align-items: center; justify-content: flex-end;
+  }
+  .chk-chevron {
+    color: var(--text3); font-size: 16px;
+    transition: transform 0.2s ease;
+    width: 16px; text-align: center;
+  }
+  .chk-chevron.open { transform: rotate(90deg); color: var(--accent, #7ef0c0); }
+
+  .chk-row-detail {
+    padding: 14px 18px 16px 58px;
+    background: rgba(0,0,0,0.15);
+    border-top: 1px solid var(--border);
+    animation: detail-slide 0.2s ease-out;
+  }
+  @keyframes detail-slide { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+  .chk-detail-row {
+    display: flex; gap: 14px; padding: 4px 0;
+    font-size: 12px;
+  }
+  .chk-detail-label {
+    min-width: 130px;
+    color: var(--text3);
+    text-transform: uppercase;
+    font-size: 10px; letter-spacing: 0.5px;
+    font-weight: 600;
+    padding-top: 2px;
+  }
+  .chk-detail-val { color: var(--text); flex: 1; }
+  .chk-detail-val.mono { font-family: 'SF Mono', Monaco, monospace; font-size: 11px; color: var(--text2); word-break: break-all; }
 
   /* Sections dépliables par saison (Fiches séries) */
   .season-group {

@@ -50,7 +50,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const Version = "5.2.1"
+const Version = "5.2.2"
 
 type App struct {
 	ctx         context.Context
@@ -1402,6 +1402,35 @@ func (a *App) GetCurrentUser() *AuthResult {
 	a.sessionMu.Lock()
 	defer a.sessionMu.Unlock()
 	return a.currentUser
+}
+
+// DeleteSeedboxByHash : supprime un torrent de la seedbox (rutorrent puis qbit fallback)
+// SANS toucher Hydracker ni FTP — utilisé par Check Torrent pour libérer de la place.
+// Renvoie nil si supprimé avec succès, ou erreur explicite si rien n'a marché.
+func (a *App) DeleteSeedboxByHash(infoHash string) error {
+	infoHash = strings.ToLower(strings.TrimSpace(infoHash))
+	if infoHash == "" {
+		return fmt.Errorf("hash vide")
+	}
+	if a.cfg.SeedboxURL == "" && a.cfg.QBitURL == "" {
+		return fmt.Errorf("aucune seedbox configurée")
+	}
+	var errs []string
+	if a.cfg.SeedboxURL != "" {
+		if err := rutorrent.Erase(a.cfg.SeedboxURL, a.cfg.SeedboxUser, a.cfg.SeedboxPassword, infoHash); err == nil {
+			return nil
+		} else {
+			errs = append(errs, "rutorrent: "+err.Error())
+		}
+	}
+	if a.cfg.QBitURL != "" {
+		if err := qbittorrent.Delete(a.cfg.QBitURL, a.cfg.QBitUser, a.cfg.QBitPassword, infoHash, false); err == nil {
+			return nil
+		} else {
+			errs = append(errs, "qbit: "+err.Error())
+		}
+	}
+	return fmt.Errorf("%s", strings.Join(errs, " · "))
 }
 
 // HashPassword : génère un hash bcrypt pour un mot de passe.

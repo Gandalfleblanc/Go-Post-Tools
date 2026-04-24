@@ -41,6 +41,8 @@ export function DeleteMyTorrent(arg1:number):Promise<void>;
 
 export function DeleteNzb(arg1:number):Promise<void>;
 
+export function DeleteSeedboxByHash(arg1:string):Promise<void>;
+
 export function DeleteTorrent(arg1:number):Promise<void>;
 
 export function DeleteTorrentAndFTP(arg1:number):Promise<main.DeleteTorrentResult>;

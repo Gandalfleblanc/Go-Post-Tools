@@ -66,6 +66,10 @@ export function DeleteNzb(arg1) {
   return window['go']['main']['App']['DeleteNzb'](arg1);
 }
 
+export function DeleteSeedboxByHash(arg1) {
+  return window['go']['main']['App']['DeleteSeedboxByHash'](arg1);
+}
+
 export function DeleteTorrent(arg1) {
   return window['go']['main']['App']['DeleteTorrent'](arg1);
 }
