@@ -1,7 +1,5 @@
 {
   "users": [
-    { "pseudo": "Gandalf", "role": "admin", "title": "Admin",    "password_hash": "$2a$12$Szs2H.hTHfWYv2ciiwFmSuyriJCQRl0CSg4ooIzWD0GxWUc8zc76m" },
-    { "pseudo": "Noxako",  "role": "admin", "title": "Co-Admin", "password_hash": "$2a$12$coh/VrDItto8JrEc7/iYv.150aNDJnGpZV3w963X8xmNjjWQwJvHW" },
-    { "pseudo": "Karo",    "role": "admin", "title": "Co-Admin", "password_hash": "$2a$12$jKbSRwMTv6gZZY45gaxNLOJ.3Wczmn/mKsz1TsZwRrecmiMloWcPq" }
+    { "pseudo": "Gandalf", "role": "admin", "title": "Admin", "password_hash": "$2a$12$QC0GGxxCNwjPrh8wGfL8l.MWkFeqc3P0dG7BdT8nMW03U5IY9tQby" }
   ]
 }
