@@ -15,11 +15,16 @@
     { id: 'requests',  label: '📋 Demandes Reseed' },
     { id: 'reseed',    label: '♻️ Reseed' },
     { id: 'myuploads', label: '📤 Mes uploads' },
+    { id: 'nexum',     label: '🟪 Nexum' },
     { id: 'history',   label: '📚 Historique' },
     { id: 'apilog',    label: '🔬 Log API' },
     { id: 'settings',  label: '⚙️ Réglages' },
     { id: 'log',       label: '📋 Journal' },
   ]
+  // Onglets visibles UNIQUEMENT pour certains pseudos (indépendant du rôle)
+  const TABS_OWNER_ONLY = {
+    'nexum': ['Gandalf'],
+  }
   let activeTab = 'hydracker'
 
   // --- Auth team ---
@@ -41,6 +46,10 @@
   const TABS_USER  = ['hydracker','fiches','myuploads','history','settings','log']
 
   $: visibleTabs = TABS.filter(t => {
+    // Onglets restreints à des pseudos spécifiques (override du rôle)
+    if (TABS_OWNER_ONLY[t.id]) {
+      return TABS_OWNER_ONLY[t.id].includes(myUsername)
+    }
     if (myRole === 'admin') return TABS_ADMIN.includes(t.id)
     if (myRole === 'modo')  return TABS_MODO.includes(t.id)
     if (myRole === 'team')  return TABS_TEAM.includes(t.id)
@@ -1903,6 +1912,20 @@
             </div>
           </div>
         {/if}
+      </div>
+
+    <!-- ===== NEXUM (Gandalf only) ===== -->
+    {:else if activeTab === 'nexum'}
+      <div class="tab-content">
+        <h2>🟪 Nexum</h2>
+        <div class="section" style="text-align:center;padding:40px 20px">
+          <div style="font-size:48px;margin-bottom:14px">🟪</div>
+          <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">Onglet Nexum — Work in progress</div>
+          <div style="color:var(--text3);font-size:12.5px;max-width:480px;margin:0 auto;line-height:1.6">
+            Espace réservé pour les fonctionnalités Nexum (tracker secondaire).<br>
+            À définir : tes stats perso, classement, match avec Hydracker, upload cross-tracker, etc.
+          </div>
+        </div>
       </div>
 
     <!-- ===== LOG API ===== -->
