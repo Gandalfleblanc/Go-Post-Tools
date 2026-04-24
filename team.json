@@ -1,5 +1,102 @@
 {
+  "roles": {
+    "admin": {
+      "badge": "🥇",
+      "color": "#fbbf24",
+      "title": "Admin",
+      "tabs": [
+        "hydracker",
+        "fiches",
+        "check",
+        "requests",
+        "reseed",
+        "myuploads",
+        "history",
+        "apilog",
+        "manager",
+        "settings",
+        "log"
+      ]
+    },
+    "co-admin": {
+      "badge": "🥈",
+      "color": "#cbd5e1",
+      "title": "Co-Admin",
+      "tabs": [
+        "hydracker",
+        "settings",
+        "check",
+        "reseed",
+        "apilog",
+        "fiches",
+        "requests",
+        "myuploads",
+        "history",
+        "manager",
+        "log"
+      ]
+    },
+    "modo": {
+      "badge": "🥈",
+      "color": "#cbd5e1",
+      "title": "Modo",
+      "tabs": [
+        "hydracker",
+        "fiches",
+        "check",
+        "requests",
+        "reseed",
+        "myuploads",
+        "history",
+        "settings",
+        "log"
+      ]
+    },
+    "team": {
+      "badge": "🥉",
+      "color": "#cd7f32",
+      "title": "Team",
+      "tabs": [
+        "hydracker",
+        "fiches",
+        "check",
+        "requests",
+        "myuploads",
+        "history",
+        "settings",
+        "log"
+      ]
+    },
+    "user": {
+      "badge": "🔵",
+      "color": "#60a5fa",
+      "title": "User",
+      "tabs": [
+        "hydracker",
+        "fiches",
+        "myuploads",
+        "history",
+        "settings",
+        "log"
+      ]
+    }
+  },
   "users": [
-    { "pseudo": "Gandalf", "role": "admin", "title": "Admin", "password_hash": "$2a$12$QC0GGxxCNwjPrh8wGfL8l.MWkFeqc3P0dG7BdT8nMW03U5IY9tQby" }
+    {
+      "pseudo": "Gandalf",
+      "role": "admin",
+      "title": "Admin",
+      "password_hash": "$2a$12$QC0GGxxCNwjPrh8wGfL8l.MWkFeqc3P0dG7BdT8nMW03U5IY9tQby"
+    },
+    {
+      "pseudo": "Noxako",
+      "role": "co-admin",
+      "password_hash": "$2a$12$J4KlolrD9phY5TvKn8Ez7.o0Xzjww0NdbWxskvkN74YjtyxKfIYkq"
+    },
+    {
+      "pseudo": "Karo",
+      "role": "co-admin",
+      "password_hash": "$2a$12$8FYB8XwUGsxwL39/ni6v7u2ZzIyk3bHaiSpVZIEDCQReGL4KBqvDu"
+    }
   ]
 }
