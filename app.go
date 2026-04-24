@@ -47,7 +47,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const Version = "4.2.0"
+const Version = "4.3.0"
 
 type App struct {
 	ctx         context.Context
@@ -704,6 +704,21 @@ func (a *App) ClearSeedboxSettingsPassword(currentPassword string) error {
 	return config.Save(a.cfg)
 }
 
+// IsTorrentAdminAcknowledged retourne true si l'user a déjà entré le mdp une fois.
+func (a *App) IsTorrentAdminAcknowledged() bool {
+	return a.cfg.TorrentAdminAcknowledged
+}
+
+// AcknowledgeTorrentAdmin vérifie le mdp partagé et persiste l'acknowledge.
+// Retourne nil si OK, erreur si le mdp est incorrect.
+func (a *App) AcknowledgeTorrentAdmin(password string) error {
+	if !a.VerifySeedboxSettingsPassword(password) {
+		return fmt.Errorf("mot de passe incorrect")
+	}
+	a.cfg.TorrentAdminAcknowledged = true
+	return config.Save(a.cfg)
+}
+
 // recordHistory enregistre un post dans la base (best-effort, ignore les erreurs).
 func (a *App) recordHistory(e history.Entry) {
 	if a.hist == nil {
@@ -1115,6 +1130,30 @@ func (a *App) FicheGetContent(titleID int) (*FicheContent, error) {
 	return out, nil
 }
 
+// FicheGetNfo récupère le NFO HTML d'un torrent/lien/nzb.
+// kind = "torrents" | "liens" | "nzbs"
+func (a *App) FicheGetNfo(kind string, id int) (string, error) {
+	a.resetCancellation()
+	return a.client.GetNfo(kind, id)
+}
+
+// GetDDLFilename résout le nom de fichier réel derrière une URL DDL (1fichier
+// pour l'instant). Utilisé dans la section Fiches pour afficher le vrai
+// filename à côté de chaque lien partagé.
+func (a *App) GetDDLFilename(shareURL string) (string, error) {
+	if shareURL == "" {
+		return "", fmt.Errorf("URL vide")
+	}
+	if strings.Contains(shareURL, "1fichier.com") {
+		info, err := downloader.OneFichierGetInfo(context.Background(), a.cfg.OneFichierApiKey, shareURL)
+		if err != nil {
+			return "", err
+		}
+		return info.Filename, nil
+	}
+	return "", fmt.Errorf("host non supporté pour résolution de filename")
+}
+
 func (a *App) ReseedExecute(torrentPath, mkvPath string) error {
 	if a.cfg.FTPHost == "" {
 		return fmt.Errorf("FTP non configuré")
@@ -1203,22 +1242,47 @@ func (a *App) seedboxConfigured() bool {
 	return a.cfg.QBitURL != "" || a.cfg.SeedboxURL != ""
 }
 
-// findTorrentByHashOnFiche cherche un torrent avec l'info_hash donné parmi les
-// torrents publics d'une fiche. Retourne l'ID si trouvé, 0 sinon.
-// Utilisé pour dédupliquer avant UploadTorrent au cas où un retry aurait déjà
-// créé un torrent avec le même info_hash (ce qui ferait échouer le 2e upload).
-func (a *App) findTorrentByHashOnFiche(titleID int, infoHash string) (int, error) {
-	if titleID <= 0 || infoHash == "" {
+// findExistingTorrent cherche un torrent existant sur Hydracker qui matche
+// soit l'info_hash (via /content/torrents) soit le torrent_name (via /admin/torrents).
+// Utilisé pour dedup avant UploadTorrent — évite un 422 "Torrent existe déjà"
+// si un retry précédent a laissé le 1er post en place.
+func (a *App) findExistingTorrent(titleID int, infoHash, torrentName string) (int, error) {
+	if titleID <= 0 {
 		return 0, nil
 	}
-	res, err := a.client.GetTorrents(titleID, api.ContentFilter{})
-	if err != nil {
-		return 0, err
+	targetHash := strings.ToLower(infoHash)
+	targetName := strings.TrimSpace(torrentName)
+
+	// Essai 1 : endpoint public /content/torrents (a info_hash si opt-in API)
+	if targetHash != "" {
+		if res, err := a.client.GetTorrents(titleID, api.ContentFilter{}); err == nil {
+			for _, t := range res.Torrents {
+				if strings.ToLower(t.InfoHash) == targetHash || strings.ToLower(t.Hash) == targetHash {
+					return t.ID, nil
+				}
+			}
+		}
 	}
-	target := strings.ToLower(infoHash)
-	for _, t := range res.Torrents {
-		if strings.ToLower(t.InfoHash) == target || strings.ToLower(t.Hash) == target {
-			return t.ID, nil
+
+	// Essai 2 : /admin/torrents (a torrent_name, pas forcément info_hash).
+	// On match par title_id + torrent_name (qui reste stable entre retries).
+	if targetName != "" {
+		for page := 1; page <= 3; page++ {
+			res, err := a.client.ListAdminTorrents("", page)
+			if err != nil {
+				break
+			}
+			for _, t := range res.Pagination.Data {
+				if t.TitleID != titleID {
+					continue
+				}
+				if strings.EqualFold(t.Name, targetName) {
+					return t.ID, nil
+				}
+			}
+			if res.Pagination.CurrentPage >= res.Pagination.LastPage {
+				break
+			}
 		}
 	}
 	return 0, nil
@@ -2227,11 +2291,12 @@ func (a *App) PostTorrentWorkflow(titleID, qualite int, langues, subs []string, 
 	if a.isCancelled() {
 		return nil, fmt.Errorf("annulé par l'utilisateur")
 	}
-	// 3a. Dedup : si un retry précédent a créé un torrent avec le même info_hash,
-	//     le supprimer avant de re-uploader (évite l'erreur 422 "duplicate").
+	// 3a. Dedup : si un retry précédent a créé un torrent avec le même info_hash
+	//     ou nom, le supprimer avant de re-uploader (évite l'erreur 422 "duplicate").
 	if mi, err := metainfo.LoadFromFile(torrentPath); err == nil {
 		newHash := mi.HashInfoBytes().HexString()
-		if existingID, _ := a.findTorrentByHashOnFiche(titleID, newHash); existingID > 0 {
+		info, _ := mi.UnmarshalInfo()
+		if existingID, _ := a.findExistingTorrent(titleID, newHash, info.Name); existingID > 0 {
 			emit("dedup", fmt.Sprintf("Suppression du duplicate précédent #%d…", existingID))
 			if err := a.client.DeleteTorrent(existingID); err != nil {
 				emit("dedup_warn", fmt.Sprintf("dedup échoué : %s (ignoré)", err.Error()))

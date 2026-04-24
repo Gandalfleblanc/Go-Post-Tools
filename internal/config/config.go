@@ -71,6 +71,12 @@ type Config struct {
 	// Mutualisé pour 1 mdp partagé entre admins.
 	SeedboxSettingsPasswordHash string `json:"seedbox_settings_password_hash"`
 
+	// Flag définitif : une fois que l'user a entré le mdp partagé pour
+	// débloquer l'option "Torrent ADMIN", on sauvegarde true ici et on
+	// ne redemande plus jamais. Un vrai user peut toujours modifier ce
+	// flag manuellement dans config.json pour re-demander (reset).
+	TorrentAdminAcknowledged bool `json:"torrent_admin_acknowledged"`
+
 	// Torrent creation
 	TrackerURL       string `json:"tracker_url"`
 	TorrentPieceSize int    `json:"torrent_piece_size"` // en octets
@@ -160,55 +166,58 @@ func Load() *Config {
 	if err == nil {
 		_ = json.Unmarshal(data, cfg)
 	}
-	// Pre-fill avec les defaults bakés au build si le champ user est vide.
-	// Permet à une équipe d'admins de partager un binaire officiel déjà
-	// pré-configuré sans avoir à saisir manuellement les creds.
-	if cfg.FTPHost == "" {
+	// Override avec les defaults bakés au build SI ils sont définis (non-vides).
+	// Sinon préserve la valeur user. Comme ça :
+	//  - si la team déploie une version avec creds bakés → tout le monde
+	//    a les bonnes valeurs au démarrage (override les user qui auraient
+	//    saisi/conservé une vieille valeur fausse)
+	//  - si build sans secret (dev local par ex) → chaque user garde son perso
+	if DefaultFTPHost != "" {
 		cfg.FTPHost = DefaultFTPHost
 	}
-	if cfg.FTPUser == "" {
+	if DefaultFTPUser != "" {
 		cfg.FTPUser = DefaultFTPUser
 	}
-	if cfg.FTPPassword == "" {
+	if DefaultFTPPassword != "" {
 		cfg.FTPPassword = DefaultFTPPassword
 	}
-	if cfg.FTPPath == "" {
+	if DefaultFTPPath != "" {
 		cfg.FTPPath = DefaultFTPPath
 	}
-	if cfg.SeedboxURL == "" {
+	if DefaultSeedboxURL != "" {
 		cfg.SeedboxURL = DefaultSeedboxURL
 	}
-	if cfg.SeedboxUser == "" {
+	if DefaultSeedboxUser != "" {
 		cfg.SeedboxUser = DefaultSeedboxUser
 	}
-	if cfg.SeedboxPassword == "" {
+	if DefaultSeedboxPassword != "" {
 		cfg.SeedboxPassword = DefaultSeedboxPassword
 	}
-	if cfg.SeedboxLabel == "" {
+	if DefaultSeedboxLabel != "" {
 		cfg.SeedboxLabel = DefaultSeedboxLabel
 	}
-	if cfg.QBitURL == "" {
+	if DefaultQBitURL != "" {
 		cfg.QBitURL = DefaultQBitURL
 	}
-	if cfg.QBitUser == "" {
+	if DefaultQBitUser != "" {
 		cfg.QBitUser = DefaultQBitUser
 	}
-	if cfg.QBitPassword == "" {
+	if DefaultQBitPassword != "" {
 		cfg.QBitPassword = DefaultQBitPassword
 	}
-	if cfg.FTPModHost == "" {
+	if DefaultFTPModHost != "" {
 		cfg.FTPModHost = DefaultFTPModHost
 	}
-	if cfg.FTPModUser == "" {
+	if DefaultFTPModUser != "" {
 		cfg.FTPModUser = DefaultFTPModUser
 	}
-	if cfg.FTPModPassword == "" {
+	if DefaultFTPModPassword != "" {
 		cfg.FTPModPassword = DefaultFTPModPassword
 	}
-	if cfg.FTPModPath == "" {
+	if DefaultFTPModPath != "" {
 		cfg.FTPModPath = DefaultFTPModPath
 	}
-	if cfg.TrackerURL == "" {
+	if DefaultTrackerURL != "" {
 		cfg.TrackerURL = DefaultTrackerURL
 	}
 	return cfg

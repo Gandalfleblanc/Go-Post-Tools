@@ -750,7 +750,7 @@ export namespace api {
 	    message: string;
 	    download_url: string;
 	    expires_at: string;
-	    // Go type: struct { ID int "json:\"id\""; Hash string "json:\"hash\""; Active bool "json:\"active\""; TitleID int "json:\"title_id,string\""; Qualite int "json:\"qualite,string\"" }
+	    // Go type: struct { ID int "json:\"id\""; Hash string "json:\"hash\""; Active bool "json:\"active\"" }
 	    torrent: any;
 	
 	    static createFrom(source: any = {}) {
@@ -881,6 +881,7 @@ export namespace config {
 	    ftp_mod_password: string;
 	    ftp_mod_path: string;
 	    seedbox_settings_password_hash: string;
+	    torrent_admin_acknowledged: boolean;
 	    tracker_url: string;
 	    torrent_piece_size: number;
 	    hydracker_base_url: string;
@@ -934,6 +935,7 @@ export namespace config {
 	        this.ftp_mod_password = source["ftp_mod_password"];
 	        this.ftp_mod_path = source["ftp_mod_path"];
 	        this.seedbox_settings_password_hash = source["seedbox_settings_password_hash"];
+	        this.torrent_admin_acknowledged = source["torrent_admin_acknowledged"];
 	        this.tracker_url = source["tracker_url"];
 	        this.torrent_piece_size = source["torrent_piece_size"];
 	        this.hydracker_base_url = source["hydracker_base_url"];

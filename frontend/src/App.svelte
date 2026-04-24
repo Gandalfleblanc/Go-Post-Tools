@@ -5,7 +5,7 @@
   import HydrackerTab from './HydrackerTab.svelte'
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, HydrackerSearch, HydrackerGetByID, HydrackerGetByTmdbID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, HydrackerSearch, HydrackerGetByID, HydrackerGetByTmdbID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
 
   // --- Tabs ---
   const TABS = [
@@ -427,6 +427,89 @@
       addLog('FICHE', `✓ Lien #${lien.id} téléchargé dans Downloads`)
     } catch(e) { addLog('FICHE', '✗ ' + e) }
   }
+
+  // --- Modale NFO ---
+  let nfoModal = null  // { kind, id, title, html, loading, error }
+  async function openNfo(kind, id, title) {
+    nfoModal = { kind, id, title, html: '', loading: true, error: '' }
+    try {
+      const html = await FicheGetNfo(kind, id)
+      if (!html || !html.trim()) {
+        nfoModal = { ...nfoModal, loading: false, error: 'Aucun NFO disponible pour cet item.' }
+      } else {
+        nfoModal = { ...nfoModal, loading: false, html }
+      }
+    } catch(e) {
+      nfoModal = { ...nfoModal, loading: false, error: String(e) }
+    }
+  }
+  function closeNfo() { nfoModal = null }
+
+  // --- DDL filename resolver (cache mémoire pendant la session) ---
+  // ddlFilenames[lien.id] = { state: 'loading'|'ok'|'err', filename, error }
+  // Queue séquentielle avec délai pour éviter rate limit 1fichier (429).
+  let ddlFilenames = {}
+  let ddlQueue = []
+  let ddlQueueRunning = false
+  async function processDDLQueue() {
+    if (ddlQueueRunning) return
+    ddlQueueRunning = true
+    while (ddlQueue.length > 0) {
+      const { lienId, url } = ddlQueue.shift()
+      // Retry simple : 1 retry après 2s sur 429, sinon abandon
+      let attempt = 0
+      while (attempt < 2) {
+        try {
+          const fname = await GetDDLFilename(url)
+          ddlFilenames = { ...ddlFilenames, [lienId]: { state: 'ok', filename: fname } }
+          break
+        } catch(e) {
+          const msg = String(e)
+          if (attempt === 0 && /429|too many/i.test(msg)) {
+            attempt++
+            await new Promise(r => setTimeout(r, 2500))  // backoff
+            continue
+          }
+          ddlFilenames = { ...ddlFilenames, [lienId]: { state: 'err', error: msg } }
+          break
+        }
+      }
+      // Délai entre chaque requête pour rester sous le rate limit
+      await new Promise(r => setTimeout(r, 350))
+    }
+    ddlQueueRunning = false
+  }
+  function resolveDDLName(lienId, url) {
+    if (!url || !url.includes('1fichier.com')) return
+    if (ddlFilenames[lienId]) return  // déjà résolu/en cours/échoué
+    if (ddlQueue.some(x => x.lienId === lienId)) return  // déjà en queue
+    ddlFilenames = { ...ddlFilenames, [lienId]: { state: 'loading' } }
+    ddlQueue.push({ lienId, url })
+    processDDLQueue()
+  }
+  // Auto-résolution batch dès qu'on bascule sur l'onglet "Liens DDL" d'une fiche.
+  // Limité à 1fichier pour l'instant. Les autres hosts restent affichés sans nom.
+  $: if (fichesContentTab === 'liens' && fichesContent?.liens?.liens?.length) {
+    for (const l of fichesContent.liens.liens) {
+      if (l.lien && l.lien.includes('1fichier.com')) resolveDDLName(l.id, l.lien)
+    }
+  }
+
+  // Formatters partagés pour les cartes Fiches
+  function fmtSize(b) {
+    if (!b) return ''
+    if (b >= 1e9) return (b/1e9).toFixed(2) + ' GB'
+    if (b >= 1e6) return (b/1e6).toFixed(0) + ' MB'
+    return (b/1e3).toFixed(0) + ' KB'
+  }
+  // Drapeaux pour les langues les plus courantes
+  const LANG_FLAGS = {
+    'TrueFrench': '🇫🇷', 'French': '🇫🇷', 'French (Canada)': '🇨🇦', 'FRENCH AD': '🇫🇷👁',
+    'English': '🇬🇧', 'Spanish': '🇪🇸', 'German': '🇩🇪', 'Italian': '🇮🇹',
+    'Japanese': '🇯🇵', 'Korean': '🇰🇷', 'Chinese': '🇨🇳', 'Portuguese': '🇵🇹',
+    'Dutch': '🇳🇱', 'Russian': '🇷🇺', 'Arabic': '🇸🇦', 'Hindi': '🇮🇳',
+  }
+  function langFlag(name) { return LANG_FLAGS[name] || '🌐' }
 
 // --- Check Torrent : nouvelle vue "Mes seeds Hydracker" ---
   let mySeedsTorrents = []          // []TorrentItem depuis /admin/torrents?author=Gandalf
@@ -1193,39 +1276,105 @@
 
               {#if fichesContentTab === 'torrents'}
                 {#if fichesContent.torrents?.torrents?.length}
-                  {#each fichesContent.torrents.torrents as t}
-                    <div class="recap-row" style="gap:8px;flex-wrap:wrap">
-                      <span class="recap-key" style="width:auto;flex:none">#{t.id}</span>
-                      <span class="recap-val" style="flex:1;min-width:200px">{t.name || '(sans nom)'}{t.size ? ` · ${(t.size/1e9).toFixed(2)} GB` : ''}</span>
-                      {#if t.saison || t.episode}<span style="color:var(--text3);font-size:11px">S{String(t.saison||0).padStart(2,'0')}E{String(t.episode||0).padStart(2,'0')}</span>{/if}
-                      <button class="btn-test" on:click={() => downloadLienFromFiche({id:t.id, download_url:t.download_url, name:t.name + '.torrent'})}>⬇ Télécharger</button>
-                    </div>
-                  {/each}
+                  <div class="content-grid">
+                    {#each fichesContent.torrents.torrents as t}
+                      <div class="content-card">
+                        <div class="cc-body">
+                          <div class="cc-head">
+                            <span class="cc-id">#{t.id}</span>
+                            {#if t.qual?.qual}<span class="cc-chip cc-chip-qual">{t.qual.qual}</span>{/if}
+                            {#if t.saison || t.episode}<span class="cc-chip cc-chip-se">S{String(t.saison||0).padStart(2,'0')}E{String(t.episode||0).padStart(2,'0')}</span>{/if}
+                            {#if t.full_saison}<span class="cc-chip cc-chip-se">Saison complète</span>{/if}
+                            {#if t.size || t.taille}<span class="cc-chip cc-chip-size">{fmtSize(t.size || t.taille)}</span>{/if}
+                            {#if (t.seeders ?? null) !== null}
+                              <span class="cc-chip cc-chip-seed" style="color:{(t.seeders||0)===0?'#ff6b6b':((t.seeders||0)<=2?'#ffd60a':'#7ef0c0')}">🌱 {t.seeders||0}</span>
+                            {/if}
+                          </div>
+                          <div class="cc-name" title={t.torrent_name || t.name || ''}>{t.torrent_name || t.name || '(sans nom)'}</div>
+                          <div class="cc-tags">
+                            {#each (t.langues_compact || []) as la}<span class="cc-tag cc-tag-lang">{langFlag(la.name)} {la.name}</span>{/each}
+                            {#each (t.subs_compact || []) as s}<span class="cc-tag cc-tag-sub">💬 {s.name}</span>{/each}
+                            {#if t.author}<span class="cc-tag cc-tag-author">👤 {t.author}</span>{/if}
+                          </div>
+                        </div>
+                        <div class="cc-actions">
+                          <button class="btn-test btn-icon" title="Voir le NFO" on:click={() => openNfo('torrents', t.id, t.torrent_name || t.name || '')}>ⓘ</button>
+                          <button class="btn-test" on:click={() => downloadLienFromFiche({id:t.id, download_url:t.download_url, name:(t.torrent_name || t.name || ('torrent-'+t.id)) + '.torrent'})}>⬇ Torrent</button>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
                 {:else}
                   <div style="color:var(--text3);font-size:12px">Aucun torrent partagé via API pour cette fiche.</div>
                 {/if}
               {:else if fichesContentTab === 'nzbs'}
                 {#if fichesContent.nzbs?.nzbs?.length}
-                  {#each fichesContent.nzbs.nzbs as n}
-                    <div class="recap-row" style="gap:8px;flex-wrap:wrap">
-                      <span class="recap-key" style="width:auto;flex:none">#{n.id}</span>
-                      <span class="recap-val" style="flex:1;min-width:200px">{n.name || '(sans nom)'}{n.size ? ` · ${(n.size/1e9).toFixed(2)} GB` : ''}</span>
-                      <button class="btn-test" on:click={() => downloadLienFromFiche({id:n.id, download_url:n.download_url, name:(n.name || ('nzb-' + n.id)) + '.nzb'})}>⬇ Télécharger</button>
-                    </div>
-                  {/each}
+                  <div class="content-grid">
+                    {#each fichesContent.nzbs.nzbs as n}
+                      <div class="content-card">
+                        <div class="cc-body">
+                          <div class="cc-head">
+                            <span class="cc-id">#{n.id}</span>
+                            {#if n.qual?.qual}<span class="cc-chip cc-chip-qual">{n.qual.qual}</span>{/if}
+                            {#if n.saison || n.episode}<span class="cc-chip cc-chip-se">S{String(n.saison||0).padStart(2,'0')}E{String(n.episode||0).padStart(2,'0')}</span>{/if}
+                            {#if n.size || n.taille}<span class="cc-chip cc-chip-size">{fmtSize(n.size || n.taille)}</span>{/if}
+                          </div>
+                          <div class="cc-name" title={n.name || ''}>{n.name || '(sans nom)'}</div>
+                          <div class="cc-tags">
+                            {#each (n.langues_compact || []) as la}<span class="cc-tag cc-tag-lang">{langFlag(la.name)} {la.name}</span>{/each}
+                            {#each (n.subs_compact || []) as s}<span class="cc-tag cc-tag-sub">💬 {s.name}</span>{/each}
+                            {#if n.author || n.id_user}<span class="cc-tag cc-tag-author">👤 {n.author || n.id_user}</span>{/if}
+                          </div>
+                        </div>
+                        <div class="cc-actions">
+                          <button class="btn-test btn-icon" title="Voir le NFO" on:click={() => openNfo('nzbs', n.id, n.name || '')}>ⓘ</button>
+                          <button class="btn-test" on:click={() => downloadLienFromFiche({id:n.id, download_url:n.download_url, name:(n.name || ('nzb-'+n.id)) + '.nzb'})}>⬇ NZB</button>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
                 {:else}
                   <div style="color:var(--text3);font-size:12px">Aucun NZB partagé via API pour cette fiche.</div>
                 {/if}
               {:else if fichesContentTab === 'liens'}
                 {#if fichesContent.liens?.liens?.length}
-                  {#each fichesContent.liens.liens as l}
-                    <div class="recap-row" style="gap:8px;flex-wrap:wrap">
-                      <span class="recap-key" style="width:auto;flex:none">#{l.id}</span>
-                      <span class="recap-val" style="flex:1;min-width:200px;font-size:11px;word-break:break-all">{l.lien || '(URL masquée — récupérez via /content/liens/{id})'}</span>
-                      {#if l.host?.name || l.id_host}<span style="color:var(--text3);font-size:11px">{l.host?.name || ('host#' + l.id_host)}</span>{/if}
-                      <button class="btn-test" on:click={() => OpenBrowser(l.lien)} disabled={!l.lien}>🌐 Ouvrir</button>
-                    </div>
-                  {/each}
+                  <div class="content-grid">
+                    {#each fichesContent.liens.liens as l}
+                      <div class="content-card">
+                        <div class="cc-body">
+                          <div class="cc-head">
+                            <span class="cc-id">#{l.id}</span>
+                            {#if l.qual?.qual}<span class="cc-chip cc-chip-qual">{l.qual.qual}</span>{/if}
+                            {#if l.saison || l.episode}<span class="cc-chip cc-chip-se">S{String(l.saison||0).padStart(2,'0')}E{String(l.episode||0).padStart(2,'0')}</span>{/if}
+                            {#if l.full_saison}<span class="cc-chip cc-chip-se">Saison complète</span>{/if}
+                            {#if l.taille}<span class="cc-chip cc-chip-size">{fmtSize(l.taille)}</span>{/if}
+                            {#if l.host?.name || l.id_host}<span class="cc-chip cc-chip-host">{l.host?.name || ('host#'+l.id_host)}</span>{/if}
+                          </div>
+                          {#if ddlFilenames[l.id]?.state === 'ok'}
+                            <div class="cc-name" title={ddlFilenames[l.id].filename}>{ddlFilenames[l.id].filename}</div>
+                            <div class="cc-name cc-name-mono cc-sub-url" title={l.lien || ''}>{l.lien}</div>
+                          {:else if ddlFilenames[l.id]?.state === 'loading'}
+                            <div class="cc-name cc-name-mono cc-sub-url">{l.lien}</div>
+                            <div class="cc-name-loading">⏳ Résolution du nom du fichier…</div>
+                          {:else if ddlFilenames[l.id]?.state === 'err'}
+                            <div class="cc-name cc-name-mono cc-sub-url">{l.lien}</div>
+                            <div class="cc-name-loading" style="color:#ff9585" title={ddlFilenames[l.id].error}>⚠ {ddlFilenames[l.id].error.length > 80 ? ddlFilenames[l.id].error.slice(0,80)+'…' : ddlFilenames[l.id].error}</div>
+                          {:else}
+                            <div class="cc-name cc-name-mono" title={l.lien || ''}>{l.lien || '(URL masquée — clic Ouvrir pour résoudre)'}</div>
+                          {/if}
+                          <div class="cc-tags">
+                            {#each (l.langues_compact || []) as la}<span class="cc-tag cc-tag-lang">{langFlag(la.name)} {la.name}</span>{/each}
+                            {#each (l.subs_compact || []) as s}<span class="cc-tag cc-tag-sub">💬 {s.name}</span>{/each}
+                            {#if l.id_user}<span class="cc-tag cc-tag-author">👤 {l.id_user}</span>{/if}
+                          </div>
+                        </div>
+                        <div class="cc-actions">
+                          <button class="btn-test btn-icon" title="Voir le NFO" on:click={() => openNfo('liens', l.id, l.lien || '')}>ⓘ</button>
+                          <button class="btn-test" on:click={() => OpenBrowser(l.lien)} disabled={!l.lien}>🌐 Ouvrir</button>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
                 {:else}
                   <div style="color:var(--text3);font-size:12px">Aucun DDL partagé via API pour cette fiche.</div>
                 {/if}
@@ -2709,6 +2858,29 @@
   </div>
 {/if}
 
+{#if nfoModal}
+  <div class="nfo-modal-bg" on:click={closeNfo}>
+    <div class="nfo-modal-card" on:click|stopPropagation>
+      <div class="nfo-modal-head">
+        <div>
+          <div class="nfo-modal-title">📄 NFO — {nfoModal.kind === 'torrents' ? 'Torrent' : nfoModal.kind === 'nzbs' ? 'NZB' : 'Lien DDL'} #{nfoModal.id}</div>
+          {#if nfoModal.title}<div class="nfo-modal-sub">{nfoModal.title}</div>{/if}
+        </div>
+        <button class="btn-test" on:click={closeNfo}>✕ Fermer</button>
+      </div>
+      <div class="nfo-modal-body">
+        {#if nfoModal.loading}
+          <div style="color:var(--text3);font-size:12px">Chargement…</div>
+        {:else if nfoModal.error}
+          <div style="color:#ff9585;font-size:12px">{nfoModal.error}</div>
+        {:else}
+          {@html nfoModal.html}
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   :global(:root) {
     color-scheme: dark;
@@ -3007,6 +3179,89 @@
   .fiche-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 3px; line-height: 1.2; }
   .fiche-meta { font-size: 11px; color: var(--text3); }
   .fiche-id { font-size: 10px; color: var(--text3); margin-top: 2px; opacity: 0.7; }
+
+  /* === Cartes contenu (torrents/nzbs/liens) dans la fiche === */
+  .content-grid { display: flex; flex-direction: column; gap: 8px; }
+  .content-card {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .content-card:hover { border-color: rgba(0, 180, 216, 0.35); background: rgba(0, 180, 216, 0.025); }
+  .cc-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .cc-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .cc-name { font-size: 12px; color: var(--text); font-weight: 500; word-break: break-all; line-height: 1.35; }
+  .cc-name-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--text2, #b8b3c0); }
+  .cc-sub-url { opacity: 0.7; }
+  .cc-name-loading { font-size: 10.5px; color: var(--text3); font-style: italic; }
+  .cc-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .cc-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+
+  .cc-id { font-size: 10px; color: var(--text3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .cc-chip {
+    display: inline-flex; align-items: center;
+    padding: 2px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: 600; line-height: 1.4;
+    border: 1px solid transparent;
+  }
+  .cc-chip-qual { background: rgba(249, 115, 22, 0.12); color: #fb923c; border-color: rgba(249, 115, 22, 0.35); }
+  .cc-chip-se   { background: rgba(126, 240, 192, 0.10); color: #7ef0c0; border-color: rgba(126, 240, 192, 0.30); }
+  .cc-chip-size { background: rgba(255,255,255,0.05); color: var(--text3); border-color: rgba(255,255,255,0.10); }
+  .cc-chip-host { background: rgba(59, 130, 246, 0.12); color: #60a5fa; border-color: rgba(59, 130, 246, 0.30); }
+  .cc-chip-seed { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.10); }
+
+  .cc-tag {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 2px 7px; border-radius: 4px;
+    font-size: 10.5px; font-weight: 500;
+    background: rgba(255,255,255,0.04);
+    color: var(--text3);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .cc-tag-lang   { color: #d4d0db; background: rgba(126, 240, 192, 0.06); border-color: rgba(126, 240, 192, 0.18); }
+  .cc-tag-sub    { color: var(--text3); background: rgba(255,255,255,0.035); }
+  .cc-tag-author { color: var(--text3); background: rgba(255,255,255,0.025); font-style: italic; }
+
+  .btn-icon {
+    min-width: 28px; padding: 4px 8px !important;
+    font-size: 13px; font-weight: bold;
+  }
+
+  /* === Modale NFO === */
+  .nfo-modal-bg {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.75);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .nfo-modal-card {
+    background: var(--bg2); border: 1px solid var(--border-strong);
+    border-radius: 12px; max-width: 880px; width: 100%; max-height: 85vh;
+    display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .nfo-modal-head {
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .nfo-modal-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .nfo-modal-sub { font-size: 11px; color: var(--text3); margin-top: 3px; word-break: break-all; }
+  .nfo-modal-body {
+    padding: 16px 18px; overflow-y: auto; flex: 1;
+    font-family: ui-monospace, SFMono-Regular, Menlo, "Courier New", monospace;
+    font-size: 11.5px; color: var(--text); line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .nfo-modal-body :global(p) { margin: 0 0 2px; }
+  .nfo-modal-body :global(a) { color: #60a5fa; text-decoration: none; word-break: break-all; }
+  .nfo-modal-body :global(a:hover) { text-decoration: underline; }
+  .nfo-modal-body :global(img) { max-width: 100%; height: auto; }
 
   .req-card {
     background: rgba(255,255,255,0.03);

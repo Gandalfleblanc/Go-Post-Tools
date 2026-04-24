@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime.js'
-  import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, PostTorrentWorkflow, PostExistingTorrent, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetMetaLangs, GetMetaSubs, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode } from '../wailsjs/go/main/App.js'
+  import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, PostTorrentWorkflow, PostExistingTorrent, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetMetaLangs, GetMetaSubs, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, IsTorrentAdminAcknowledged, AcknowledgeTorrentAdmin } from '../wailsjs/go/main/App.js'
   import { addLog } from './logs.js'
   import { LANGUAGES as HYD_LANGUAGES, SUBS as HYD_SUBS } from './hydrackerData.js'
 
@@ -42,7 +42,40 @@
   let postSubs = []        // [{id, name}]
   let langsAutoFilled = false
   let subsAutoFilled = false
-  let postUploadTypes = { nzb: false, torrent_admin: true, torrent_modo: false, ddl: false }
+  let postUploadTypes = { nzb: false, torrent_admin: false, torrent_modo: true, ddl: false }
+  // Torrent ADMIN est gardé par un mot de passe (une fois acknowledge, jamais redemandé)
+  let adminAcknowledged = false
+  let adminLockModal = false
+  let adminPwdInput = ''
+  let adminPwdError = ''
+  let adminLockLoading = false
+
+  // Tente d'activer la checkbox Torrent ADMIN. Si l'acknowledge n'a pas été
+  // fait, ouvre la modal pour que l'user tape le mdp une fois pour toute.
+  function tryEnableTorrentAdmin() {
+    if (adminAcknowledged) {
+      postUploadTypes = { ...postUploadTypes, torrent_admin: true, torrent_modo: false }
+      return
+    }
+    adminPwdInput = ''
+    adminPwdError = ''
+    adminLockModal = true
+  }
+
+  async function submitAdminPwd() {
+    adminLockLoading = true
+    adminPwdError = ''
+    try {
+      await AcknowledgeTorrentAdmin(adminPwdInput)
+      adminAcknowledged = true
+      adminLockModal = false
+      // Active direct la checkbox après validation
+      postUploadTypes = { ...postUploadTypes, torrent_admin: true, torrent_modo: false }
+    } catch(e) {
+      adminPwdError = String(e?.message || e).replace('Error: ', '')
+    }
+    adminLockLoading = false
+  }
   let postDdlHosts = { onefichier: true, sendcm: true }
   let postSeason = 0
   let postEpisode = 0
@@ -89,6 +122,7 @@
   let subOptions = []      // [{id, name}] — liste spécifique aux sous-titres
 
   onMount(async () => {
+    try { adminAcknowledged = await IsTorrentAdminAcknowledged() } catch(e) { adminAcknowledged = false }
     try { qualityOptions = await GetMetaQualities() || [] } catch(e) { console.error(e) }
     // Langues et sous-titres : on tente l'API Hydracker (/meta/langs + /meta/subs),
     // fallback sur la liste statique (hydrackerData.js) si l'API est indispo ou vide.
@@ -263,6 +297,13 @@
     // Snapshot de la fiche TMDB déjà sélectionnée (typiquement le show TV pour
     // les 10 épisodes droppés) → réutilisée sur tous les items suivants.
     queueTMDBHint = selectedTMDB?.id || 0
+    // Snapshot des choix utilisateur sur l'épisode 1 (qualité/langues/subs).
+    // Si l'auto-detect s'est trompé et l'user a corrigé, on propage la correction
+    // sur tous les épisodes suivants au lieu de re-laisser l'auto-detect refaire
+    // la même erreur.
+    const lockedQuality = postQuality
+    const lockedLanguages = [...postLanguages]
+    const lockedSubs = [...postSubs]
     while (queue.length > 0) {
       const path = queue.shift()
       queue = queue
@@ -277,6 +318,10 @@
         if (!alreadyReady) {
           loadFileFromPath(path, null)
           await waitForReady(60000)
+          // Override l'auto-detect avec les choix user de l'épisode 1
+          if (lockedQuality) postQuality = lockedQuality
+          if (lockedLanguages.length) postLanguages = [...lockedLanguages]
+          postSubs = [...lockedSubs]
         }
         await lancerPost()
         queueDone++
@@ -987,23 +1032,20 @@
     const torrentActive = postUploadTypes.torrent_admin || postUploadTypes.torrent_modo
     const seedboxType = postUploadTypes.torrent_modo ? 'modo' : 'admin'
     if (torrentActive) {
+      // Pas de retry sur Torrent : un post torrent crée une entrée sur
+      // Hydracker, un retry causerait un 422 duplicate. Si un step foire
+      // (ex: seedbox refuse), on remonte l'erreur et l'user relance manuellement.
       if (existingTorrentPath) {
         try {
-          const r = await withRetry(
-            'Torrent',
-            () => PostExistingTorrent(titleID, postQuality, langIDs, subIDs, existingTorrentPath, nfo, postSeason, postEpisode),
-            r => !!r?.hydracker_id,
-          )
+          const r = await PostExistingTorrent(titleID, postQuality, langIDs, subIDs, existingTorrentPath, nfo, postSeason, postEpisode)
+          if (!r?.hydracker_id) throw new Error('pas de hydracker_id dans la réponse')
           successes.push(`Torrent #${r.hydracker_id} ajouté sur Hydracker (mode existant)`)
         } catch(e) { errors.push(`Torrent : ${e}`) }
       } else if (!mkvFilePath) errors.push('Torrent : chemin MKV introuvable')
       else {
         try {
-          const r = await withRetry(
-            'Torrent',
-            () => PostTorrentWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postSeason, postEpisode, seedboxType),
-            r => !!r?.hydracker_id,
-          )
+          const r = await PostTorrentWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postSeason, postEpisode, seedboxType)
+          if (!r?.hydracker_id) throw new Error('pas de hydracker_id dans la réponse')
           successes.push(`Torrent #${r.hydracker_id} ajouté + seedbox ${seedboxType.toUpperCase()} OK`)
         } catch(e) { errors.push(`Torrent ${seedboxType.toUpperCase()} : ${e}`) }
       }
@@ -1449,8 +1491,17 @@
               <div class="post-field-label">Uploader via</div>
               <div class="upload-types">
                 <label class="check-label"><input type="checkbox" checked={postUploadTypes.torrent_admin}
-                  on:change={(e) => { const v = e.currentTarget.checked; postUploadTypes = { ...postUploadTypes, torrent_admin: v, torrent_modo: v ? false : postUploadTypes.torrent_modo } }} />
-                  Torrent ADMIN
+                  on:change={(e) => {
+                    const v = e.currentTarget.checked
+                    if (v && !adminAcknowledged) {
+                      // Bloque le check tant que mdp pas validé, ouvre modal
+                      e.currentTarget.checked = false
+                      tryEnableTorrentAdmin()
+                    } else {
+                      postUploadTypes = { ...postUploadTypes, torrent_admin: v, torrent_modo: v ? false : postUploadTypes.torrent_modo }
+                    }
+                  }} />
+                  Torrent ADMIN {#if !adminAcknowledged}🔒{/if}
                 </label>
                 <label class="check-label"><input type="checkbox" checked={postUploadTypes.torrent_modo}
                   on:change={(e) => { const v = e.currentTarget.checked; postUploadTypes = { ...postUploadTypes, torrent_modo: v, torrent_admin: v ? false : postUploadTypes.torrent_admin } }} />
@@ -1459,8 +1510,12 @@
                 <label class="check-label"><input type="checkbox" bind:checked={postUploadTypes.nzb} /> NZB</label>
                 <label class="check-label"><input type="checkbox" bind:checked={postUploadTypes.ddl} /> DDL</label>
                 <button class="btn-full-auto" class:active={postUploadTypes.torrent_admin && postUploadTypes.nzb && postUploadTypes.ddl}
-                  on:click={() => { const on = !(postUploadTypes.torrent_admin && postUploadTypes.nzb && postUploadTypes.ddl); postUploadTypes = { torrent_admin: on, torrent_modo: false, nzb: on, ddl: on } }}>
-                  ⚡ Full Auto (ADMIN)
+                  on:click={() => {
+                    const on = !(postUploadTypes.torrent_admin && postUploadTypes.nzb && postUploadTypes.ddl)
+                    if (on && !adminAcknowledged) { tryEnableTorrentAdmin(); return }
+                    postUploadTypes = { torrent_admin: on, torrent_modo: false, nzb: on, ddl: on }
+                  }}>
+                  ⚡ Full Auto (ADMIN) {#if !adminAcknowledged}🔒{/if}
                 </button>
               </div>
             </div>
@@ -1709,7 +1764,47 @@
   {/if}
 </div>
 
+<!-- Modal mdp — débloque "Torrent ADMIN" une seule fois pour toutes -->
+{#if adminLockModal}
+  <div class="admin-modal-bg" on:click|self={() => adminLockModal = false}>
+    <div class="admin-modal-card">
+      <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px">🔒 Torrent ADMIN verrouillé</div>
+      <div style="color:var(--text3);font-size:12px;margin-bottom:12px">
+        Entre le mot de passe partagé pour débloquer l'option "Torrent ADMIN". Ce sera demandé UNE seule fois, puis enregistré pour toujours.
+      </div>
+      <form on:submit|preventDefault={submitAdminPwd}>
+        <input type="password" bind:value={adminPwdInput} placeholder="Mot de passe" autocomplete="off"
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:rgba(0,0,0,0.3);color:var(--text);font-size:13px" />
+        {#if adminPwdError}
+          <div style="color:#ff6b6b;font-size:11px;margin-top:6px">✗ {adminPwdError}</div>
+        {/if}
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+          <button type="button" class="btn-cancel" on:click={() => adminLockModal = false}>Annuler</button>
+          <button type="submit" class="btn-start" disabled={adminLockLoading || !adminPwdInput}>
+            {adminLockLoading ? '…' : 'Valider'}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
+
 <style>
+  .admin-modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+  }
+  .admin-modal-card {
+    background: var(--paper, #1e1e24);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    max-width: 420px;
+    width: 90%;
+  }
   .hydracker-tab { height: 100%; overflow-y: auto; padding: 24px; }
 
   .queue-bar {

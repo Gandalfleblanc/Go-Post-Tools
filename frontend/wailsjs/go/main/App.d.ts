@@ -9,6 +9,8 @@ import {parser} from '../models';
 import {tmdb} from '../models';
 import {tester} from '../models';
 
+export function AcknowledgeTorrentAdmin(arg1:string):Promise<void>;
+
 export function AutoReseedDDLFromHydracker(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<main.AutoReseedDDLResult>;
 
 export function AutoReseedFromHydracker(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<main.AutoReseedResult>;
@@ -45,9 +47,13 @@ export function FetchImageBase64(arg1:string):Promise<string>;
 
 export function FicheGetContent(arg1:number):Promise<main.FicheContent>;
 
+export function FicheGetNfo(arg1:string,arg2:number):Promise<string>;
+
 export function FindHydrackerSources(arg1:number,arg2:number,arg3:number):Promise<main.FindHydrackerSourcesResult>;
 
 export function GetConfig():Promise<config.Config>;
+
+export function GetDDLFilename(arg1:string):Promise<string>;
 
 export function GetEffectiveHydrackerURL():Promise<string>;
 
@@ -84,6 +90,10 @@ export function HydrackerSearch(arg1:string):Promise<Array<api.PartialTitle>>;
 export function IsHydrackerURLManaged():Promise<boolean>;
 
 export function IsLihdlPasswordManaged():Promise<boolean>;
+
+export function IsSeedboxPasswordManaged():Promise<boolean>;
+
+export function IsTorrentAdminAcknowledged():Promise<boolean>;
 
 export function IsWatching():Promise<boolean>;
 

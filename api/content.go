@@ -122,3 +122,21 @@ func (c *Client) GetLiens(titleID int, f ContentFilter) (*LiensResult, error) {
 	}
 	return &resp, nil
 }
+
+// GetNfo récupère le NFO HTML d'un item via /{kind}/{id} qui retourne
+// {model: {nfo: "..."}}. kind = "torrents" | "liens" | "nzbs".
+func (c *Client) GetNfo(kind string, id int) (string, error) {
+	data, err := c.get(fmt.Sprintf("/%s/%d", kind, id), nil)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		Model struct {
+			Nfo string `json:"nfo"`
+		} `json:"model"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", err
+	}
+	return resp.Model.Nfo, nil
+}

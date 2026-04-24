@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/anacrolix/torrent/metainfo"
 )
 
 // Progress rapporte l'avancement de l'upload vers qBit.
@@ -138,8 +140,20 @@ func Upload(ctx context.Context, baseURL, user, password, label, torrentPath str
 		return "", fmt.Errorf("add torrent qbit HTTP %d: %s", resp.StatusCode, string(body))
 	}
 	bodyStr := strings.TrimSpace(string(body))
-	// qBit renvoie "Ok." si tout va bien, "Fails." si duplicate / format invalide
+	// qBit renvoie "Ok." si tout va bien, "Fails." si duplicate / format invalide.
+	// Comme qBit ne distingue pas les 2 cas dans la réponse, on vérifie après coup
+	// si le torrent est bien présent (via son info_hash) — si oui, c'est un
+	// duplicate benign, on considère ça comme succès.
 	if strings.Contains(bodyStr, "Fails") {
+		if mi, merr := metainfo.LoadFromFile(torrentPath); merr == nil {
+			hash := strings.ToLower(mi.HashInfoBytes().HexString())
+			if isPresent(ctx, c, baseURL, hash) {
+				if onProgress != nil {
+					onProgress(Progress{Stage: "done", Percent: 100})
+				}
+				return fmt.Sprintf("qBit: %s déjà présent (duplicate OK)", filepath.Base(torrentPath)), nil
+			}
+		}
 		return "", fmt.Errorf("qBit a refusé le .torrent: %s", bodyStr)
 	}
 
@@ -147,6 +161,25 @@ func Upload(ctx context.Context, baseURL, user, password, label, torrentPath str
 		onProgress(Progress{Stage: "done", Percent: 100})
 	}
 	return fmt.Sprintf("qBit: %s ajouté", filepath.Base(torrentPath)), nil
+}
+
+// isPresent vérifie si un torrent est déjà présent sur qBit via
+// GET /api/v2/torrents/info?hashes=X. Retourne true si présent.
+func isPresent(ctx context.Context, c *http.Client, baseURL, hash string) bool {
+	u := strings.TrimRight(baseURL, "/") + "/api/v2/torrents/info?hashes=" + url.QueryEscape(hash)
+	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
+	req.Header.Set("Referer", strings.TrimRight(baseURL, "/"))
+	req.Header.Set("User-Agent", "GoPostTools/3.3")
+	resp, err := c.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	// qBit renvoie un JSON array. Si le hash est trouvé → non-vide comme "[{...}]".
+	// Si pas trouvé → "[]".
+	trimmed := strings.TrimSpace(string(body))
+	return resp.StatusCode == 200 && trimmed != "" && trimmed != "[]"
 }
 
 // Recheck force un recheck sur le torrent identifié par son info_hash.
