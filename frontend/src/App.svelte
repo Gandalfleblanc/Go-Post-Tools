@@ -36,7 +36,10 @@
     usenet_group: 'alt.binaries.test',
     parpar_redundancy: 5, parpar_threads: 8, parpar_slice_size: 768000,
     ftp_host: '', ftp_port: 21, ftp_user: '', ftp_password: '', ftp_path: '',
+    private_ftp_host: '', private_ftp_port: 21, private_ftp_user: '', private_ftp_password: '', private_ftp_path: '',
     seedbox_url: '', seedbox_user: '', seedbox_password: '', seedbox_label: '',
+    private_seedbox_url: '', private_seedbox_user: '', private_seedbox_password: '', private_seedbox_label: '',
+    private_qbit_url: '', private_qbit_user: '', private_qbit_password: '',
     qbit_url: '', qbit_user: '', qbit_password: '',
     mod_seedbox_url: '', mod_seedbox_user: '', mod_seedbox_password: '',
     ftp_mod_host: '', ftp_mod_port: 21, ftp_mod_user: '', ftp_mod_password: '', ftp_mod_path: '/',
@@ -580,22 +583,7 @@
       addLog('SEED', '✗ ' + mySeedsError)
     }
     mySeedsLoading = false
-    // Refresh aussi les hashes seedbox + index Nexum en parallèle (non bloquant)
     loadSeedboxHashes()
-    loadNexumIndex()
-  }
-
-  async function loadNexumIndex() {
-    if (!cfg.nexum_api_key) { nexumLoaded = false; return }
-    try {
-      const idx = await GetNexumIndex()
-      nexumIndex = idx || {}
-      nexumLoaded = true
-      addLog('NEXUM', `📡 Nexum : ${Object.keys(nexumIndex).length} torrents trouvés sur ton compte`)
-    } catch(e) {
-      nexumLoaded = false
-      addLog('NEXUM', `⚠ Index Nexum indispo : ${e}`)
-    }
   }
 
   async function loadSeedboxHashes() {
@@ -2077,21 +2065,12 @@
             {#each filteredMySeeds as t}
               {@const seeders = t.seeders || 0}
               {@const seedColor = seeders === 0 ? '#ff6b6b' : (seeders <= 2 ? '#ffd60a' : '#7ef0c0')}
-              {@const nx = (() => {
-                const h = (t.info_hash || t.hash || '').toLowerCase()
-                if (h && nexumIndex['h:' + h]) return nexumIndex['h:' + h]
-                const norm = (t.torrent_name || t.name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
-                if (norm && nexumIndex['n:' + norm]) return nexumIndex['n:' + norm]
-                return null
-              })()}
               <div class="my-item" style="border-left: 3px solid {seedColor}">
                 <div style="flex:1;min-width:0">
                   <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:3px">
                     #{t.id} · {t.torrent_name || t.name || '(sans nom)'}
                   </div>
-                  <!-- Ligne Hydracker -->
                   <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text3)">
-                    <span style="color:#fb923c;font-weight:600">🟧 Hydra</span>
                     <span style="color:{seedColor};font-weight:600">🌱 {seeders} seed{seeders > 1 ? 's' : ''}</span>
                     {#if t.leechers}<span>⬇ {t.leechers} leech</span>{/if}
                     <span>fiche #{t.title_id}</span>
@@ -2100,21 +2079,6 @@
                     {#if t.taille || t.size}<span>{((t.taille||t.size)/1e9).toFixed(2)} GB</span>{/if}
                     <span>📅 {(t.created_at || '').slice(0,10)}</span>
                   </div>
-                  <!-- Ligne Nexum (si match) -->
-                  {#if nx}
-                    {@const nxSeeders = nx.seeders || 0}
-                    {@const nxColor = nxSeeders === 0 ? '#ff6b6b' : (nxSeeders <= 2 ? '#ffd60a' : '#7ef0c0')}
-                    <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text3);margin-top:2px">
-                      <span style="color:#a78bfa;font-weight:600">🟪 Nexum</span>
-                      <span style="color:{nxColor};font-weight:600">🌱 {nxSeeders} seed{nxSeeders > 1 ? 's' : ''}</span>
-                      {#if nx.leechers}<span>⬇ {nx.leechers} leech</span>{/if}
-                      <span>#{nx.id}</span>
-                      <span>📅 {(nx.created_at || '').slice(0,10)}</span>
-                      <button class="btn-test" style="padding:0 6px;font-size:10px" on:click={() => OpenBrowser(`${cfg.nexum_base_url || 'https://nexum-core.com'}/torrents/${nx.id}`)}>🌐</button>
-                    </div>
-                  {:else if nexumLoaded}
-                    <div style="font-size:10px;color:var(--text3);margin-top:2px;opacity:0.6">🟪 Nexum : pas posté</div>
-                  {/if}
                 </div>
                 <div style="display:flex;flex-direction:column;gap:4px;align-self:center">
                   <button class="btn-save" on:click={() => autoReseedFromCheck(t)} disabled={mySeedsActioning[t.id]} title="Push .torrent sur seedbox (nécessite que quelqu'un seed pour que BT retrouve le fichier)">
@@ -2365,9 +2329,9 @@
           <!-- ===== Clés API ===== -->
           <div style="font-size:11px;color:var(--text3);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">🔑 Clés API</div>
 
-          <div class="section">
+          <div class="section section-locked">
             <div class="section-header">
-              <span>Hydracker</span>
+              <span>🔒 Hydracker (verrouillé team)</span>
               <button class="btn-test" on:click={() => runTest('hydracker', () => TestHydracker(cfg.hydracker_base_url, cfg.hydracker_token))}>
                 {#if testLoading.hydracker}…{:else}Tester{/if}
               </button>
@@ -2388,9 +2352,9 @@
             </div>
           </div>
 
-          <div class="section">
+          <div class="section section-locked">
             <div class="section-header">
-              <span>🔒 TMDB (verrouillé)</span>
+              <span>🔒 TMDB (verrouillé team)</span>
               <button class="btn-test" on:click={() => runTest('tmdb', () => TestTMDB(''))}>
                 {#if testLoading.tmdb}…{:else}Tester{/if}
               </button>
@@ -2448,38 +2412,6 @@
             <div class="field">
               <label>Clé API Send.now</label>
               <input type="password" bind:value={cfg.sendcm_api_key} placeholder="API key" />
-            </div>
-          </div>
-
-          <div class="section">
-            <div class="section-header">
-              <span>Nexum (tracker secondaire)</span>
-              <button class="btn-test" on:click={async () => {
-                testLoading = { ...testLoading, nexum: true }
-                try {
-                  const msg = await TestNexum()
-                  testResults = { ...testResults, nexum: { ok: true, message: msg } }
-                } catch(e) {
-                  testResults = { ...testResults, nexum: { ok: false, message: String(e?.message || e) } }
-                }
-                testLoading = { ...testLoading, nexum: false }
-              }}>
-                {#if testLoading.nexum}…{:else}Tester{/if}
-              </button>
-            </div>
-            {#if testResults.nexum}
-              <div class="test-result" class:ok={testResults.nexum.ok}>{testResults.nexum.message}</div>
-            {/if}
-            <div class="field">
-              <label>URL Nexum</label>
-              <input type="text" bind:value={cfg.nexum_base_url} placeholder="https://nexum-core.com" />
-            </div>
-            <div class="field">
-              <label>Clé API Nexum (X-API-Key)</label>
-              <input type="password" bind:value={cfg.nexum_api_key} placeholder="Génère ta clé dans Paramètres → Clé API sur Nexum" />
-              <div style="color:var(--text3);font-size:11px;margin-top:4px">
-                Optionnel — si renseigné, Check Torrent affichera aussi tes stats Nexum (id, seeds, date) à côté de Hydracker.
-              </div>
             </div>
           </div>
 
@@ -2558,58 +2490,6 @@
           </div>
 
 
-          <!-- LiHDL Index (URL + Basic Auth) — verrouillé par mdp admin -->
-          <div class="section">
-            <div class="section-header">
-              <span>🔒 Index + recherche TMDB {#if !lihdlUnlocked}(admin){/if}</span>
-              {#if lihdlUnlocked}
-                <div style="display:flex;gap:6px">
-                  <button class="btn-test" on:click={() => { lihdlUnlocked = false }}>🔒 Re-verrouiller</button>
-                  <button class="btn-test" on:click={() => runTest('lihdl', () => TestLihdl(cfg.lihdl_base_url, cfg.lihdl_user, cfg.lihdl_password))}>
-                    {#if testLoading.lihdl}…{:else}Tester{/if}
-                  </button>
-                </div>
-              {:else}
-                <button class="btn-test" on:click={openLihdlLockModal}>🔓 Déverrouiller</button>
-              {/if}
-            </div>
-            {#if !lihdlUnlocked}
-              <div class="locked-box">
-                Section admin — entre le mot de passe partagé pour accéder à l'index LiHDL et la recherche TMDB custom. Si tu n'es pas admin, pas besoin : l'API TMDB et la recherche Hydracker suffisent.
-              </div>
-            {:else}
-              {#if testResults.lihdl}
-                <div class="test-result" class:ok={testResults.lihdl.ok}>{testResults.lihdl.message}</div>
-              {/if}
-              <div class="field">
-                <label for="lihdl-base-url">URL dossier LiHDL</label>
-                <input id="lihdl-base-url" type="text" bind:value={cfg.lihdl_base_url} placeholder="https://exemple.tld/chemin/LiHDL/" />
-              </div>
-              <div class="field">
-                <label for="sp-search-url">URL recherche TMDB</label>
-                <input id="sp-search-url" type="text" bind:value={cfg.media_search_url} placeholder="https://exemple.tld/stats/search.php?query=" />
-              </div>
-              <div class="fields-grid">
-                <div class="field">
-                  <label for="lihdl-user">Utilisateur</label>
-                  <input id="lihdl-user" type="text" bind:value={cfg.lihdl_user} autocomplete="off" />
-                </div>
-                <div class="field">
-                  <label for="lihdl-password">Mot de passe</label>
-                  <div class="pwd-row">
-                    {#if showPwd.lihdl}
-                      <input id="lihdl-password" type="text" bind:value={cfg.lihdl_password} autocomplete="off" />
-                    {:else}
-                      <input id="lihdl-password" type="password" bind:value={cfg.lihdl_password} autocomplete="off" />
-                    {/if}
-                    <button type="button" class="pwd-toggle" on:click={() => showPwd = { ...showPwd, lihdl: !showPwd.lihdl }} title={showPwd.lihdl ? 'Cacher' : 'Afficher'}>
-                      {showPwd.lihdl ? '🙈' : '👁'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            {/if}
-          </div>
 
           <!-- ParPar -->
           <div class="section">
@@ -2647,7 +2527,7 @@
           <!-- FTP RUTORRENT -->
           <div class="section">
             <div class="section-header">
-              <span>FTP RUTORRENT</span>
+              <span>FTP Rutorrent</span>
               <button class="btn-test" on:click={() => runTest('ftp', () => TestFTP(cfg.ftp_host, cfg.ftp_port, cfg.ftp_user, cfg.ftp_password))}>
                 {#if testLoading.ftp}…{:else}Tester{/if}
               </button>
@@ -2682,7 +2562,7 @@
           <!-- Seedbox -->
           <div class="section">
             <div class="section-header">
-              <span>Seedbox (ruTorrent WebUI)</span>
+              <span>Seedbox Rutorrent</span>
               <button class="btn-test" on:click={() => runTest('seedbox', () => TestSeedbox(cfg.seedbox_url, cfg.seedbox_user, cfg.seedbox_password))}>
                 {#if testLoading.seedbox}…{:else}Tester{/if}
               </button>
@@ -2710,37 +2590,10 @@
             </div>
           </div>
 
-          <!-- Seedbox qBittorrent Web UI -->
-          <div class="section">
-            <div class="section-header">
-              <span>SEEDBOX MODÉRATEUR qBittorrent WEB UI</span>
-              <button class="btn-test" on:click={() => runTest('qbit', () => TestQBit(cfg.qbit_url, cfg.qbit_user, cfg.qbit_password))}>
-                {#if testLoading.qbit}…{:else}Tester{/if}
-              </button>
-            </div>
-            {#if testResults.qbit}
-              <div class="test-result" class:ok={testResults.qbit.ok}>{testResults.qbit.message}</div>
-            {/if}
-            <div class="field">
-              <label for="qbit-url">URL qBittorrent Web UI</label>
-              <input id="qbit-url" type="text" bind:value={cfg.qbit_url} placeholder="https://my-seedbox.example/qbittorrent/" />
-            </div>
-            <div class="fields-grid">
-              <div class="field">
-                <label>Utilisateur</label>
-                <input type="text" bind:value={cfg.qbit_user} />
-              </div>
-              <div class="field">
-                <label>Mot de passe</label>
-                <input type="password" bind:value={cfg.qbit_password} />
-              </div>
-            </div>
-          </div>
-
           <!-- FTP MODÉRATEUR (upload gros fichiers MKV pour le workflow Torrent MODO) -->
-          <div class="section">
+          <div class="section section-locked">
             <div class="section-header">
-              <span>FTP MODÉRATEUR</span>
+              <span>🔒 FTP Modérateur (verrouillé team)</span>
               <button class="btn-test" on:click={() => runTest('ftpmod', () => TestFTP(cfg.ftp_mod_host, cfg.ftp_mod_port, cfg.ftp_mod_user, cfg.ftp_mod_password))}>
                 {#if testLoading.ftpmod}…{:else}Tester{/if}
               </button>
@@ -2775,32 +2628,136 @@
             </div>
           </div>
 
-          <!-- Seedbox Modérateur (upload via site web qui sync avec la seedbox) -->
-          <div class="section">
+          <!-- Seedbox MODÉRATEUR (qBittorrent shared team) -->
+          <div class="section section-locked">
             <div class="section-header">
-              <span>SEEDBOX MODÉRATEUR (web — alternative WebDAV)</span>
-              <button class="btn-test" on:click={() => runTest('modsb', () => TestModSeedbox(cfg.mod_seedbox_url, cfg.mod_seedbox_user, cfg.mod_seedbox_password))}>
-                {#if testLoading.modsb}…{:else}Tester{/if}
+              <span>🔒 Seedbox Modérateur — qBittorrent (verrouillé team)</span>
+              <button class="btn-test" on:click={() => runTest('qbit', () => TestQBit(cfg.qbit_url, cfg.qbit_user, cfg.qbit_password))}>
+                {#if testLoading.qbit}…{:else}Tester{/if}
               </button>
             </div>
-            {#if testResults.modsb}
-              <div class="test-result" class:ok={testResults.modsb.ok}>{testResults.modsb.message}</div>
+            {#if testResults.qbit}
+              <div class="test-result" class:ok={testResults.qbit.ok}>{testResults.qbit.message}</div>
             {/if}
-            <div style="color:var(--text3);font-size:11px;margin-bottom:8px">
-              Site web où tu uploades tes fichiers, qui seront ensuite synchronisés avec la seedbox.
-            </div>
             <div class="field">
-              <label for="modsb-url">URL</label>
-              <input id="modsb-url" type="text" bind:value={cfg.mod_seedbox_url} placeholder="https://seedbox-mods.example" />
+              <label for="qbit-url">URL qBittorrent Web UI</label>
+              <input id="qbit-url" type="text" bind:value={cfg.qbit_url} placeholder="https://my-seedbox.example/qbittorrent/" />
             </div>
             <div class="fields-grid">
               <div class="field">
                 <label>Utilisateur</label>
-                <input type="text" bind:value={cfg.mod_seedbox_user} />
+                <input type="text" bind:value={cfg.qbit_user} />
               </div>
               <div class="field">
                 <label>Mot de passe</label>
-                <input type="password" bind:value={cfg.mod_seedbox_password} />
+                <input type="password" bind:value={cfg.qbit_password} />
+              </div>
+            </div>
+          </div>
+
+          <!-- FTP Privé (pour le workflow "Torrent Privé" — chacun son FTP) -->
+          <div class="section">
+            <div class="section-header">
+              <span>🏠 FTP Privé</span>
+              <button class="btn-test" on:click={() => runTest('ftppriv', () => TestFTP(cfg.private_ftp_host, cfg.private_ftp_port, cfg.private_ftp_user, cfg.private_ftp_password))}>
+                {#if testLoading.ftppriv}…{:else}Tester{/if}
+              </button>
+            </div>
+            {#if testResults.ftppriv}
+              <div class="test-result" class:ok={testResults.ftppriv.ok}>{testResults.ftppriv.message}</div>
+            {/if}
+            <div style="color:var(--text3);font-size:11px;margin-bottom:8px">
+              TON FTP perso (si tu utilises "Torrent Privé" au lieu de "Torrent ADMIN"). Jamais écrasé par le build.
+            </div>
+            <div class="fields-grid">
+              <div class="field">
+                <label for="pftp-host">Host</label>
+                <input id="pftp-host" type="text" bind:value={cfg.private_ftp_host} placeholder="ftp.monserveur.com" />
+              </div>
+              <div class="field">
+                <label for="pftp-port">Port</label>
+                <input id="pftp-port" type="number" bind:value={cfg.private_ftp_port} />
+              </div>
+              <div class="field">
+                <label for="pftp-user">Utilisateur</label>
+                <input id="pftp-user" type="text" bind:value={cfg.private_ftp_user} />
+              </div>
+              <div class="field">
+                <label for="pftp-pass">Mot de passe</label>
+                <input id="pftp-pass" type="password" bind:value={cfg.private_ftp_password} />
+              </div>
+              <div class="field">
+                <label for="pftp-path">Path distant</label>
+                <input id="pftp-path" type="text" bind:value={cfg.private_ftp_path} placeholder="/ ou /downloads/" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Seedbox Privée — ruTorrent OU qBittorrent (au choix) -->
+          <div class="section">
+            <div class="section-header">
+              <span>🏠 Seedbox Privée (ruTorrent / qBittorrent)</span>
+            </div>
+            <div style="color:var(--text3);font-size:11px;margin-bottom:8px">
+              TA seedbox perso (pour le workflow "Torrent Privé"). Renseigne <b>l'un OU l'autre</b> selon ton client. Jamais écrasée par le build.
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+              <!-- ruTorrent -->
+              <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:10px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <b style="font-size:12px">ruTorrent</b>
+                  <button class="btn-test" on:click={() => runTest('seedboxpriv', () => TestSeedbox(cfg.private_seedbox_url, cfg.private_seedbox_user, cfg.private_seedbox_password))}>
+                    {#if testLoading.seedboxpriv}…{:else}Tester{/if}
+                  </button>
+                </div>
+                {#if testResults.seedboxpriv}
+                  <div class="test-result" class:ok={testResults.seedboxpriv.ok}>{testResults.seedboxpriv.message}</div>
+                {/if}
+                <div class="field">
+                  <label for="pseedbox-url">URL ruTorrent</label>
+                  <input id="pseedbox-url" type="text" bind:value={cfg.private_seedbox_url} placeholder="https://serveur/rutorrent/" />
+                </div>
+                <div class="field">
+                  <label for="pseedbox-user">Utilisateur</label>
+                  <input id="pseedbox-user" type="text" bind:value={cfg.private_seedbox_user} />
+                </div>
+                <div class="field">
+                  <label for="pseedbox-pass">Mot de passe</label>
+                  <input id="pseedbox-pass" type="password" bind:value={cfg.private_seedbox_password} />
+                </div>
+                <div class="field">
+                  <label for="pseedbox-label">Label (optionnel)</label>
+                  <input id="pseedbox-label" type="text" bind:value={cfg.private_seedbox_label} />
+                </div>
+              </div>
+
+              <!-- qBittorrent -->
+              <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:10px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <b style="font-size:12px">qBittorrent</b>
+                  <button class="btn-test" on:click={() => runTest('qbitpriv', () => TestQBit(cfg.private_qbit_url, cfg.private_qbit_user, cfg.private_qbit_password))}>
+                    {#if testLoading.qbitpriv}…{:else}Tester{/if}
+                  </button>
+                </div>
+                {#if testResults.qbitpriv}
+                  <div class="test-result" class:ok={testResults.qbitpriv.ok}>{testResults.qbitpriv.message}</div>
+                {/if}
+                <div class="field">
+                  <label for="pqbit-url">URL Web UI</label>
+                  <input id="pqbit-url" type="text" bind:value={cfg.private_qbit_url} placeholder="https://serveur:8080/" />
+                </div>
+                <div class="field">
+                  <label for="pqbit-user">Utilisateur</label>
+                  <input id="pqbit-user" type="text" bind:value={cfg.private_qbit_user} />
+                </div>
+                <div class="field">
+                  <label for="pqbit-pass">Mot de passe</label>
+                  <input id="pqbit-pass" type="password" bind:value={cfg.private_qbit_password} />
+                </div>
+                <div style="font-size:10px;color:var(--text3);font-style:italic;margin-top:8px">
+                  qBit prioritaire si configuré, sinon ruTorrent.
+                </div>
               </div>
             </div>
           </div>
@@ -3225,6 +3182,14 @@
   .section-header span {
     font-weight: 600; color: var(--text2); font-size: 11px;
     text-transform: uppercase; letter-spacing: 1.2px;
+  }
+  /* Section verrouillée team-shared (creds bakés au build) */
+  .section-locked > .section-header {
+    border-bottom: 2px solid #ff4444;
+    padding-bottom: 8px;
+  }
+  .section-locked > .section-header span {
+    color: #ff4444;
   }
 
   .btn-test {

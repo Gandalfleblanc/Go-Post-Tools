@@ -42,7 +42,7 @@
   let postSubs = []        // [{id, name}]
   let langsAutoFilled = false
   let subsAutoFilled = false
-  let postUploadTypes = { nzb: false, torrent_admin: false, torrent_modo: true, ddl: false }
+  let postUploadTypes = { nzb: false, torrent_admin: false, torrent_modo: true, torrent_prive: false, ddl: false }
   // Torrent ADMIN n'est visible que pour les admins (= ceux qui ont déverrouillé
   // la section Seedbox dans Réglages avec le mdp partagé).
   let adminAcknowledged = false
@@ -1009,8 +1009,8 @@
     // Étape 1 : Torrent d'abord (séquentiel)
     // - Mode "existing" (depuis Reseed) : upload direct du .torrent à Hydracker (pas de FTP/seedbox)
     // - Mode normal : ftpup + create + hydracker + seedbox (admin=ruTorrent OU modo=qBit)
-    const torrentActive = postUploadTypes.torrent_admin || postUploadTypes.torrent_modo
-    const seedboxType = postUploadTypes.torrent_modo ? 'modo' : 'admin'
+    const torrentActive = postUploadTypes.torrent_admin || postUploadTypes.torrent_modo || postUploadTypes.torrent_prive
+    const seedboxType = postUploadTypes.torrent_modo ? 'modo' : (postUploadTypes.torrent_prive ? 'prive' : 'admin')
     if (torrentActive) {
       // Pas de retry sur Torrent : un post torrent crée une entrée sur
       // Hydracker, un retry causerait un 422 duplicate. Si un step foire
@@ -1304,7 +1304,7 @@
       <!-- Actions principales (Lancer / Stop / Réinitialiser) juste sous le fichier -->
       <div class="post-actions">
         <button class="btn-start" title="⌘↵"
-          disabled={postLoading || queueProcessing || (queue.length === 0 && (!postQuality || !postLanguages.length || !selectedHydracker || (!postUploadTypes.torrent_admin && !postUploadTypes.torrent_modo && !postUploadTypes.nzb && !postUploadTypes.ddl)))}
+          disabled={postLoading || queueProcessing || (queue.length === 0 && (!postQuality || !postLanguages.length || !selectedHydracker || (!postUploadTypes.torrent_admin && !postUploadTypes.torrent_modo && !postUploadTypes.torrent_prive && !postUploadTypes.nzb && !postUploadTypes.ddl)))}
           on:click={() => queue.length > 0 ? processQueue() : lancerPost()}>
           {postLoading || queueProcessing ? '…' : (queue.length > 0 ? `▶ Lancer la queue (${queue.length})` : '▶ Lancer')}
         </button>
@@ -1470,26 +1470,42 @@
             <div class="post-field">
               <div class="post-field-label">Uploader via</div>
               <div class="upload-types">
-                <label class="check-label"><input type="checkbox" checked={postUploadTypes.torrent_admin}
-                  on:change={(e) => {
-                    const v = e.currentTarget.checked
-                    postUploadTypes = { ...postUploadTypes, torrent_admin: v, torrent_modo: v ? false : postUploadTypes.torrent_modo }
-                  }} />
-                  Torrent ADMIN
+                <label class="check-label" title="Workflow team-shared : FTP ADMIN + seedbox ruTorrent de la team">
+                  <input type="checkbox" checked={postUploadTypes.torrent_admin}
+                    on:change={(e) => {
+                      const v = e.currentTarget.checked
+                      postUploadTypes = { ...postUploadTypes, torrent_admin: v, torrent_modo: v?false:postUploadTypes.torrent_modo, torrent_prive: v?false:postUploadTypes.torrent_prive }
+                    }} />
+                  👑 Torrent ADMIN
                 </label>
-                <label class="check-label"><input type="checkbox" checked={postUploadTypes.torrent_modo}
-                  on:change={(e) => { const v = e.currentTarget.checked; postUploadTypes = { ...postUploadTypes, torrent_modo: v, torrent_admin: v ? false : postUploadTypes.torrent_admin } }} />
-                  Torrent MODO
+                <label class="check-label" title="Workflow team modo : FTP MOD + qBit shared">
+                  <input type="checkbox" checked={postUploadTypes.torrent_modo}
+                    on:change={(e) => {
+                      const v = e.currentTarget.checked
+                      postUploadTypes = { ...postUploadTypes, torrent_modo: v, torrent_admin: v?false:postUploadTypes.torrent_admin, torrent_prive: v?false:postUploadTypes.torrent_prive }
+                    }} />
+                  👥 Torrent MODO
+                </label>
+                <label class="check-label" title="Workflow perso : TON FTP + TA seedbox (saisis dans Réglages)">
+                  <input type="checkbox" checked={postUploadTypes.torrent_prive}
+                    on:change={(e) => {
+                      const v = e.currentTarget.checked
+                      postUploadTypes = { ...postUploadTypes, torrent_prive: v, torrent_admin: v?false:postUploadTypes.torrent_admin, torrent_modo: v?false:postUploadTypes.torrent_modo }
+                    }} />
+                  🏠 Torrent Privé
                 </label>
                 <label class="check-label"><input type="checkbox" bind:checked={postUploadTypes.nzb} /> NZB</label>
                 <label class="check-label"><input type="checkbox" bind:checked={postUploadTypes.ddl} /> DDL</label>
                 <button class="btn-full-auto" class:active={postUploadTypes.torrent_admin && postUploadTypes.nzb && postUploadTypes.ddl}
                   on:click={() => {
                     const on = !(postUploadTypes.torrent_admin && postUploadTypes.nzb && postUploadTypes.ddl)
-                    postUploadTypes = { torrent_admin: on, torrent_modo: false, nzb: on, ddl: on }
+                    postUploadTypes = { torrent_admin: on, torrent_modo: false, torrent_prive: false, nzb: on, ddl: on }
                   }}>
                   ⚡ Full Auto (ADMIN)
                 </button>
+              </div>
+              <div style="margin-top:8px;font-size:11px;color:var(--text3);line-height:1.4">
+                💡 <b>Juste envoyer un .torrent ?</b> Glisse directement ton fichier <code>.torrent</code> dans l'app au lieu d'un <code>.mkv</code> — l'app le postera sur Hydracker sans FTP ni seedbox.
               </div>
             </div>
 

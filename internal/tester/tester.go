@@ -58,20 +58,32 @@ func TestHydracker(baseURL, token string) Result {
 	if !strings.HasSuffix(baseURL, "/api/v1") {
 		baseURL += "/api/v1"
 	}
-	req, _ := http.NewRequest("GET", baseURL+"/user-profile/me", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	// /meta/langs : endpoint simple protégé par auth. Distinct des résultats :
+	//   200 → token OK
+	//   401 → token invalide/expiré
+	//   404 → URL de base incorrecte
+	req, _ := http.NewRequest("GET", baseURL+"/meta/langs", nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "GoPostTools/3.0 (https://github.com/Gandalfleblanc/Go-Post-Tools)")
+	req.Header.Set("User-Agent", "GoPostTools/4.x (https://github.com/Gandalfleblanc/Go-Post-Tools)")
 	c := &http.Client{Timeout: 10 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {
 		return fail(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == 200 {
-		return ok("Connecté à Hydracker")
+	switch resp.StatusCode {
+	case 200:
+		return ok("Connecté à Hydracker ✓")
+	case 401:
+		return Result{false, "Token invalide ou expiré — vérifie la clé d'accès"}
+	case 404:
+		return Result{false, fmt.Sprintf("URL de base incorrecte (404) — utilisé : %s", baseURL)}
+	default:
+		return Result{false, fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}
-	return Result{false, fmt.Sprintf("HTTP %d", resp.StatusCode)}
 }
 
 // TestTMDB ping le proxytmdb (pas besoin de clé). Le paramètre apiKey est

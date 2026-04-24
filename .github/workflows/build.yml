@@ -59,6 +59,14 @@ jobs:
           HYDRACKER_URL: ${{ secrets.HYDRACKER_URL }}
           TMDB_PROXY_URL: ${{ secrets.TMDB_PROXY_URL }}
           MEDIA_SEARCH_URL: ${{ secrets.MEDIA_SEARCH_URL }}
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_PATH: ${{ secrets.FTP_PATH }}
+          SEEDBOX_URL: ${{ secrets.SEEDBOX_URL }}
+          SEEDBOX_USER: ${{ secrets.SEEDBOX_USER }}
+          SEEDBOX_PASSWORD: ${{ secrets.SEEDBOX_PASSWORD }}
+          SEEDBOX_LABEL: ${{ secrets.SEEDBOX_LABEL }}
           QBIT_URL: ${{ secrets.QBIT_URL }}
           QBIT_USER: ${{ secrets.QBIT_USER }}
           QBIT_PASSWORD: ${{ secrets.QBIT_PASSWORD }}
@@ -73,6 +81,14 @@ jobs:
             -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}' \
             -X 'go-post-tools/internal/config.DefaultTMDBProxyURL=${TMDB_PROXY_URL}' \
             -X 'go-post-tools/internal/config.DefaultMediaSearchURL=${MEDIA_SEARCH_URL}' \
+            -X 'go-post-tools/internal/config.DefaultFTPHost=${FTP_HOST}' \
+            -X 'go-post-tools/internal/config.DefaultFTPUser=${FTP_USER}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPassword=${FTP_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPath=${FTP_PATH}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxURL=${SEEDBOX_URL}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxUser=${SEEDBOX_USER}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxPassword=${SEEDBOX_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxLabel=${SEEDBOX_LABEL}' \
             -X 'go-post-tools/internal/config.DefaultQBitURL=${QBIT_URL}' \
             -X 'go-post-tools/internal/config.DefaultQBitUser=${QBIT_USER}' \
             -X 'go-post-tools/internal/config.DefaultQBitPassword=${QBIT_PASSWORD}' \
@@ -129,6 +145,14 @@ jobs:
           HYDRACKER_URL: ${{ secrets.HYDRACKER_URL }}
           TMDB_PROXY_URL: ${{ secrets.TMDB_PROXY_URL }}
           MEDIA_SEARCH_URL: ${{ secrets.MEDIA_SEARCH_URL }}
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_PATH: ${{ secrets.FTP_PATH }}
+          SEEDBOX_URL: ${{ secrets.SEEDBOX_URL }}
+          SEEDBOX_USER: ${{ secrets.SEEDBOX_USER }}
+          SEEDBOX_PASSWORD: ${{ secrets.SEEDBOX_PASSWORD }}
+          SEEDBOX_LABEL: ${{ secrets.SEEDBOX_LABEL }}
           QBIT_URL: ${{ secrets.QBIT_URL }}
           QBIT_USER: ${{ secrets.QBIT_USER }}
           QBIT_PASSWORD: ${{ secrets.QBIT_PASSWORD }}
@@ -143,6 +167,14 @@ jobs:
             -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}' \
             -X 'go-post-tools/internal/config.DefaultTMDBProxyURL=${TMDB_PROXY_URL}' \
             -X 'go-post-tools/internal/config.DefaultMediaSearchURL=${MEDIA_SEARCH_URL}' \
+            -X 'go-post-tools/internal/config.DefaultFTPHost=${FTP_HOST}' \
+            -X 'go-post-tools/internal/config.DefaultFTPUser=${FTP_USER}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPassword=${FTP_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPath=${FTP_PATH}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxURL=${SEEDBOX_URL}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxUser=${SEEDBOX_USER}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxPassword=${SEEDBOX_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxLabel=${SEEDBOX_LABEL}' \
             -X 'go-post-tools/internal/config.DefaultQBitURL=${QBIT_URL}' \
             -X 'go-post-tools/internal/config.DefaultQBitUser=${QBIT_USER}' \
             -X 'go-post-tools/internal/config.DefaultQBitPassword=${QBIT_PASSWORD}' \
@@ -187,6 +219,14 @@ jobs:
           HYDRACKER_URL: ${{ secrets.HYDRACKER_URL }}
           TMDB_PROXY_URL: ${{ secrets.TMDB_PROXY_URL }}
           MEDIA_SEARCH_URL: ${{ secrets.MEDIA_SEARCH_URL }}
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_PATH: ${{ secrets.FTP_PATH }}
+          SEEDBOX_URL: ${{ secrets.SEEDBOX_URL }}
+          SEEDBOX_USER: ${{ secrets.SEEDBOX_USER }}
+          SEEDBOX_PASSWORD: ${{ secrets.SEEDBOX_PASSWORD }}
+          SEEDBOX_LABEL: ${{ secrets.SEEDBOX_LABEL }}
           QBIT_URL: ${{ secrets.QBIT_URL }}
           QBIT_USER: ${{ secrets.QBIT_USER }}
           QBIT_PASSWORD: ${{ secrets.QBIT_PASSWORD }}
@@ -201,6 +241,14 @@ jobs:
             -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}' \
             -X 'go-post-tools/internal/config.DefaultTMDBProxyURL=${TMDB_PROXY_URL}' \
             -X 'go-post-tools/internal/config.DefaultMediaSearchURL=${MEDIA_SEARCH_URL}' \
+            -X 'go-post-tools/internal/config.DefaultFTPHost=${FTP_HOST}' \
+            -X 'go-post-tools/internal/config.DefaultFTPUser=${FTP_USER}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPassword=${FTP_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultFTPPath=${FTP_PATH}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxURL=${SEEDBOX_URL}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxUser=${SEEDBOX_USER}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxPassword=${SEEDBOX_PASSWORD}' \
+            -X 'go-post-tools/internal/config.DefaultSeedboxLabel=${SEEDBOX_LABEL}' \
             -X 'go-post-tools/internal/config.DefaultQBitURL=${QBIT_URL}' \
             -X 'go-post-tools/internal/config.DefaultQBitUser=${QBIT_USER}' \
             -X 'go-post-tools/internal/config.DefaultQBitPassword=${QBIT_PASSWORD}' \

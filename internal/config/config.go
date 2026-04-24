@@ -39,18 +39,36 @@ type Config struct {
 	ParParThreads    int     `json:"parpar_threads"`
 	ParParSliceSize  int     `json:"parpar_slice_size"`
 
-	// FTP
+	// FTP ADMIN (team-shared, baked au build)
 	FTPHost     string `json:"ftp_host"`
 	FTPPort     int    `json:"ftp_port"`
 	FTPUser     string `json:"ftp_user"`
 	FTPPassword string `json:"ftp_password"`
 	FTPPath     string `json:"ftp_path"`
 
-	// Seedbox (ruTorrent Web UI)
+	// FTP Privé (perso de chaque user, saisi dans Réglages, jamais baked)
+	PrivateFTPHost     string `json:"private_ftp_host"`
+	PrivateFTPPort     int    `json:"private_ftp_port"`
+	PrivateFTPUser     string `json:"private_ftp_user"`
+	PrivateFTPPassword string `json:"private_ftp_password"`
+	PrivateFTPPath     string `json:"private_ftp_path"`
+
+	// Seedbox ADMIN (team-shared ruTorrent, baked au build)
 	SeedboxURL      string `json:"seedbox_url"`      // ex: https://my-seedbox.example/rutorrent/
 	SeedboxUser     string `json:"seedbox_user"`
 	SeedboxPassword string `json:"seedbox_password"`
 	SeedboxLabel    string `json:"seedbox_label"`    // label optionnel ajouté au torrent
+
+	// Seedbox Privée ruTorrent (perso de chaque user)
+	PrivateSeedboxURL      string `json:"private_seedbox_url"`
+	PrivateSeedboxUser     string `json:"private_seedbox_user"`
+	PrivateSeedboxPassword string `json:"private_seedbox_password"`
+	PrivateSeedboxLabel    string `json:"private_seedbox_label"`
+
+	// Seedbox Privée qBittorrent (perso de chaque user, alternative à ruTorrent)
+	PrivateQBitURL      string `json:"private_qbit_url"`
+	PrivateQBitUser     string `json:"private_qbit_user"`
+	PrivateQBitPassword string `json:"private_qbit_password"`
 
 	// Seedbox qBittorrent Web UI (alternative à ruTorrent pour les modérateurs
 	// qui utilisent qBit). URL + login/password.
@@ -136,9 +154,21 @@ var (
 	// Chaque user voit ces valeurs au 1er démarrage, overridées à chaque
 	// lancement pour rester à jour (si la team change un mdp partagé).
 	//
-	// NOTE : on ne bake PAS les credentials perso (FTP perso, Seedbox perso) —
-	// ils sont uniques à chaque user, saisis manuellement dans Réglages UNE
-	// fois, puis sauvegardés dans config.json et jamais écrasés.
+	// NOTE : les champs "Privé" (PrivateFTP*, PrivateSeedbox*) ne sont PAS
+	// bakés — chaque user les saisit manuellement dans Réglages pour utiliser
+	// sa PROPRE seedbox perso via le bouton "Torrent Privé".
+
+	// FTP ADMIN (team-shared seedbox Gandalf nod47.ma-seedbox.me)
+	DefaultFTPHost     = ""
+	DefaultFTPUser     = ""
+	DefaultFTPPassword = ""
+	DefaultFTPPath     = ""
+
+	// Seedbox ADMIN ruTorrent (Gandalf)
+	DefaultSeedboxURL      = ""
+	DefaultSeedboxUser     = ""
+	DefaultSeedboxPassword = ""
+	DefaultSeedboxLabel    = ""
 
 	DefaultQBitURL      = ""
 	DefaultQBitUser     = ""
@@ -167,6 +197,7 @@ func Load() *Config {
 		ParParThreads:   8,
 		ParParSliceSize: 768000,
 		FTPPort:         21,
+		PrivateFTPPort:  21,
 		FTPModPort:      21,
 		TorrentPieceSize: 8 * 1024 * 1024, // 8 MiB
 		NexumBaseURL:    "https://nexum-core.com",
@@ -186,6 +217,14 @@ func Load() *Config {
 			*target = t
 		}
 	}
+	override(&cfg.FTPHost, DefaultFTPHost)
+	override(&cfg.FTPUser, DefaultFTPUser)
+	override(&cfg.FTPPassword, DefaultFTPPassword)
+	override(&cfg.FTPPath, DefaultFTPPath)
+	override(&cfg.SeedboxURL, DefaultSeedboxURL)
+	override(&cfg.SeedboxUser, DefaultSeedboxUser)
+	override(&cfg.SeedboxPassword, DefaultSeedboxPassword)
+	override(&cfg.SeedboxLabel, DefaultSeedboxLabel)
 	override(&cfg.QBitURL, DefaultQBitURL)
 	override(&cfg.QBitUser, DefaultQBitUser)
 	override(&cfg.QBitPassword, DefaultQBitPassword)
