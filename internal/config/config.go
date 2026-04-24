@@ -132,17 +132,13 @@ var (
 	// Si non-vide, les admins update auto avec la protection activée, mdp partagé.
 	DefaultSeedboxUnlockHash = ""
 
-	// Credentials baked au build via secrets GitHub — pre-remplis au 1er démarrage
-	// si config.json n'a rien pour ce champ.
-	DefaultFTPHost     = ""
-	DefaultFTPUser     = ""
-	DefaultFTPPassword = ""
-	DefaultFTPPath     = ""
-
-	DefaultSeedboxURL      = ""
-	DefaultSeedboxUser     = ""
-	DefaultSeedboxPassword = ""
-	DefaultSeedboxLabel    = ""
+	// Credentials TEAM-SHARED bakés au build via secrets GitHub.
+	// Chaque user voit ces valeurs au 1er démarrage, overridées à chaque
+	// lancement pour rester à jour (si la team change un mdp partagé).
+	//
+	// NOTE : on ne bake PAS les credentials perso (FTP perso, Seedbox perso) —
+	// ils sont uniques à chaque user, saisis manuellement dans Réglages UNE
+	// fois, puis sauvegardés dans config.json et jamais écrasés.
 
 	DefaultQBitURL      = ""
 	DefaultQBitUser     = ""
@@ -190,14 +186,6 @@ func Load() *Config {
 			*target = t
 		}
 	}
-	override(&cfg.FTPHost, DefaultFTPHost)
-	override(&cfg.FTPUser, DefaultFTPUser)
-	override(&cfg.FTPPassword, DefaultFTPPassword)
-	override(&cfg.FTPPath, DefaultFTPPath)
-	override(&cfg.SeedboxURL, DefaultSeedboxURL)
-	override(&cfg.SeedboxUser, DefaultSeedboxUser)
-	override(&cfg.SeedboxPassword, DefaultSeedboxPassword)
-	override(&cfg.SeedboxLabel, DefaultSeedboxLabel)
 	override(&cfg.QBitURL, DefaultQBitURL)
 	override(&cfg.QBitUser, DefaultQBitUser)
 	override(&cfg.QBitPassword, DefaultQBitPassword)
