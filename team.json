@@ -102,6 +102,11 @@
       "pseudo": "Terminator17754",
       "role": "modo",
       "password_hash": "$2a$12$6R6mAhR5K3649eB7r1UOxuff/txhTWPgynQYSc6danS4pTxsJR7ya"
+    },
+    {
+      "pseudo": "Thomas57",
+      "role": "modo",
+      "password_hash": "$2a$12$EmzImhVsh.oKlukuOi5.t.cOghrW9EdEbZnR0aTygWkOlrVnUhTWm"
     }
   ]
 }
