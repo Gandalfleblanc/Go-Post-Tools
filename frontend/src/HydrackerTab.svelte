@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime.js'
-  import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostTorrentWorkflow, PostExistingTorrent, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetMetaLangs, GetMetaSubs, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, IsTorrentAdminAcknowledged } from '../wailsjs/go/main/App.js'
+  import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, HydrackerGetByIgdbID, IgdbSearch, IgdbGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostTorrentWorkflow, PostExistingTorrent, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetMetaLangs, GetMetaSubs, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, IsTorrentAdminAcknowledged } from '../wailsjs/go/main/App.js'
   import { addLog } from './logs.js'
   import { LANGUAGES as HYD_LANGUAGES, SUBS as HYD_SUBS } from './hydrackerData.js'
 
@@ -19,7 +19,9 @@
   let selectedTMDB = null
   let tmdbSearchQuery = ''
   let tmdbSearchId = ''
-  let tmdbSearchType = 'movie'  // 'movie' | 'tv' — toggle pour la recherche manuelle
+  let tmdbSearchType = 'movie'  // 'movie' | 'tv' | 'game' — toggle pour la recherche manuelle
+  let igdbResults = []          // résultats recherche IGDB (mode Jeu)
+  $: gameMode = tmdbSearchType === 'game'
   let tmdbSearchLoading = false
 
   // Poster TMDB
@@ -782,6 +784,17 @@
     const isFolder = !!opts.isFolder
     const isArchive = !!opts.isArchive
     const filename = name || path.split(/[\\/]/).pop()
+
+    // Mode Jeu : on a déjà choisi le jeu via la recherche IGDB. Le drop d'une
+    // archive/ISO ne doit PAS relancer le parse + auto-detect TMDB (qui
+    // écraserait la fiche jeu). On garde la sélection, on attache juste le fichier.
+    if (gameMode && selectedTMDB?._igdb) {
+      if (path) mkvFilePath = path
+      file = { name: filename }
+      addLog('IGDB', `📎 fichier attaché : ${filename}`)
+      return
+    }
+
     if (path) mkvFilePath = path
     mediaInfo = null
     selectedTMDB = null
@@ -1002,6 +1015,21 @@
     tmdbSearchLoading = true
     tmdbAmbiguous = false
     try {
+      // ===== Mode Jeu : recherche IGDB =====
+      if (gameMode) {
+        igdbResults = []
+        if (tmdbSearchId) {
+          const g = await IgdbGetByID(parseInt(tmdbSearchId))
+          igdbResults = g ? [g] : []
+        } else if (tmdbSearchQuery) {
+          igdbResults = await IgdbSearch(tmdbSearchQuery) || []
+        }
+        addLog('IGDB', `${igdbResults.length} jeu(x) trouvé(s)`)
+        if (igdbResults.length === 1) await selectGame(igdbResults[0])
+        tmdbSearchLoading = false
+        return
+      }
+      // ===== Mode Film/Série : TMDB =====
       if (tmdbSearchId) {
         const movie = await TMDBGetByID(parseInt(tmdbSearchId), tmdbSearchType)
         if (movie) movie.media_type = tmdbSearchType
@@ -1013,8 +1041,45 @@
       }
       if (tmdbResults.length === 1) selectTMDB(tmdbResults[0])
       else if (tmdbResults.length > 1) tmdbAmbiguous = true
-    } catch(e) { console.error(e) }
+    } catch(e) { addLog(gameMode ? 'IGDB' : 'TMDB', '✗ ' + e); console.error(e) }
     tmdbSearchLoading = false
+  }
+
+  // selectGame : sélectionne un jeu IGDB → cherche la fiche Hydracker par
+  // igdb_id, synthétise un pseudo-selectedTMDB pour que le bloc post-options
+  // s'affiche (le post se fait par title_id, codec-agnostique).
+  async function selectGame(game) {
+    igdbResults = []
+    tmdbAmbiguous = false
+    selectedHydracker = null
+    hydrackerPosterUrl = ''
+    // Pseudo-objet TMDB pour réutiliser tout le bloc post-options existant
+    selectedTMDB = {
+      id: game.id,
+      title: game.name,
+      name: game.name,
+      media_type: 'game',
+      release_date: game.Year ? game.Year + '-01-01' : '',
+      _igdb: true,
+    }
+    posterDataUrl = ''
+    if (game.CoverURL) { try { posterDataUrl = await FetchImageBase64(game.CoverURL) } catch(e) {} }
+    addLog('IGDB', `▶ ${game.name} (IGDB #${game.id})`)
+    // Lookup fiche Hydracker par igdb_id
+    hydrackerNotFound = false
+    try {
+      const found = await HydrackerGetByIgdbID(game.id)
+      if (found && found.id) {
+        addLog('IGDB', `✓ Fiche Hydracker #${found.id} — ${found.name}`)
+        await selectHydracker(found)
+      } else {
+        hydrackerNotFound = true
+        addLog('IGDB', `⚠ Pas de fiche Hydracker pour IGDB #${game.id} — à créer`)
+      }
+    } catch(e) {
+      hydrackerNotFound = true
+      addLog('IGDB', `✗ lookup Hydracker : ${e}`)
+    }
   }
 
   // Re-fetch TMDB depuis l'ID édité dans la card "Fiche Hydracker introuvable"
@@ -1734,20 +1799,32 @@
       <!-- Recherches TMDB + Hydracker côte à côte -->
       <div class="searches-row">
         <div class="search-section">
-          <div class="search-label">🔍 Recherche TMDB</div>
+          <div class="search-label">🔍 Recherche {gameMode ? 'IGDB (Jeux)' : 'TMDB'}</div>
           <div class="search-row">
             <div class="tmdb-type-toggle">
               <button type="button" class:active={tmdbSearchType === 'movie'} on:click={() => tmdbSearchType = 'movie'}>🎬 Film</button>
               <button type="button" class:active={tmdbSearchType === 'tv'} on:click={() => tmdbSearchType = 'tv'}>📺 Série</button>
+              <button type="button" class:active={tmdbSearchType === 'game'} on:click={() => tmdbSearchType = 'game'}>🎮 Jeu</button>
             </div>
-            <input type="text" bind:value={tmdbSearchQuery} placeholder="Nom du film/série"
+            <input type="text" bind:value={tmdbSearchQuery} placeholder={gameMode ? 'Nom du jeu' : 'Nom du film/série'}
               on:keydown={e => e.key === 'Enter' && manualTMDBSearch()} />
-            <input type="text" bind:value={tmdbSearchId} placeholder="ID TMDB" style="width:90px;flex:none"
+            <input type="text" bind:value={tmdbSearchId} placeholder={gameMode ? 'ID IGDB' : 'ID TMDB'} style="width:90px;flex:none"
               on:keydown={e => e.key === 'Enter' && manualTMDBSearch()} />
             <button class="btn-search" on:click={manualTMDBSearch} disabled={tmdbSearchLoading}>
               {tmdbSearchLoading ? '…' : 'Chercher'}
             </button>
           </div>
+          {#if igdbResults.length > 1}
+            <div class="hydracker-results">
+              {#each igdbResults as g}
+                <button class="hydracker-item" on:click={() => selectGame(g)}>
+                  <span class="hyd-name">{g.name}</span>
+                  <span class="hyd-year">{g.Year || ''}</span>
+                  <span class="hyd-type badge-game">🎮 IGDB #{g.id}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
         </div>
 
         <div class="search-section">

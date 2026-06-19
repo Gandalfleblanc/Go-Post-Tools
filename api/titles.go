@@ -13,8 +13,17 @@ type TitlesResponse struct {
 }
 
 func (c *Client) GetTitleByTmdbID(tmdbID int) (*PartialTitle, error) {
+	return c.getTitleByExternalID("tmdb_id", strconv.Itoa(tmdbID))
+}
+
+// GetTitleByIgdbID : retrouve une fiche jeu Hydracker via /titles?igdb_id=X.
+func (c *Client) GetTitleByIgdbID(igdbID int) (*PartialTitle, error) {
+	return c.getTitleByExternalID("igdb_id", strconv.Itoa(igdbID))
+}
+
+func (c *Client) getTitleByExternalID(param, value string) (*PartialTitle, error) {
 	params := url.Values{}
-	params.Set("tmdb_id", strconv.Itoa(tmdbID))
+	params.Set(param, value)
 	data, err := c.get("/titles", params)
 	if err != nil {
 		return nil, err

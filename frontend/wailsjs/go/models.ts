@@ -1,3 +1,28 @@
+export namespace alldebrid {
+	
+	export class UnlockedLink {
+	    link: string;
+	    filename: string;
+	    host: string;
+	    filesize: number;
+	    id: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UnlockedLink(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.link = source["link"];
+	        this.filename = source["filename"];
+	        this.host = source["host"];
+	        this.filesize = source["filesize"];
+	        this.id = source["id"];
+	    }
+	}
+
+}
+
 export namespace api {
 	
 	export class AdminLiensResponse {
@@ -905,6 +930,9 @@ export namespace config {
 	    sendcm_api_key: string;
 	    nexum_api_key: string;
 	    nexum_base_url: string;
+	    alldebrid_api_key: string;
+	    igdb_client_id: string;
+	    igdb_client_secret: string;
 	    usenet_host: string;
 	    usenet_port: number;
 	    usenet_ssl: boolean;
@@ -986,6 +1014,9 @@ export namespace config {
 	        this.sendcm_api_key = source["sendcm_api_key"];
 	        this.nexum_api_key = source["nexum_api_key"];
 	        this.nexum_base_url = source["nexum_base_url"];
+	        this.alldebrid_api_key = source["alldebrid_api_key"];
+	        this.igdb_client_id = source["igdb_client_id"];
+	        this.igdb_client_secret = source["igdb_client_secret"];
 	        this.usenet_host = source["usenet_host"];
 	        this.usenet_port = source["usenet_port"];
 	        this.usenet_ssl = source["usenet_ssl"];
@@ -1097,6 +1128,78 @@ export namespace history {
 	        this.status = source["status"];
 	        this.error = source["error"];
 	    }
+	}
+
+}
+
+export namespace igdb {
+	
+	export class  {
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new (source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	    }
+	}
+	export class Game {
+	    id: number;
+	    name: string;
+	    summary: string;
+	    first_release_date: number;
+	    total_rating: number;
+	    CoverImageID: string;
+	    CoverURL: string;
+	    Year: string;
+	    Platforms: string[];
+	    Genres: string[];
+	    // Go type: struct { ImageID string "json:\"image_id\"" }
+	    cover?: any;
+	    platforms?: [];
+	    genres?: [];
+	
+	    static createFrom(source: any = {}) {
+	        return new Game(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.summary = source["summary"];
+	        this.first_release_date = source["first_release_date"];
+	        this.total_rating = source["total_rating"];
+	        this.CoverImageID = source["CoverImageID"];
+	        this.CoverURL = source["CoverURL"];
+	        this.Year = source["Year"];
+	        this.Platforms = source["Platforms"];
+	        this.Genres = source["Genres"];
+	        this.cover = this.convertValues(source["cover"], Object);
+	        this.platforms = this.convertValues(source["platforms"], );
+	        this.genres = this.convertValues(source["genres"], );
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

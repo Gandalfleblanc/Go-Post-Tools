@@ -6,7 +6,7 @@
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
   import loginLogo from './assets/login-logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, LoginUser, Logout, GetCurrentUser, TryAutoLogin, HashPassword, GetTeamConfig, BuildTeamJSON, FetchHydrackerAvatar, ChangeMyPassword, GetNzbFilenames, DeleteSeedboxByHash, MediaSearch, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, HydrackerGetLienByID, HydrackerGetLienDetailByID, GetDDLFilenameByLienID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, GetSeedboxNexumIndex, DebugNexumMatch, TestNexum, TestSFTP, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, LoginUser, Logout, GetCurrentUser, TryAutoLogin, HashPassword, GetTeamConfig, BuildTeamJSON, FetchHydrackerAvatar, ChangeMyPassword, GetNzbFilenames, DeleteSeedboxByHash, MediaSearch, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, HydrackerGetLienByID, HydrackerGetLienDetailByID, GetDDLFilenameByLienID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, GetSeedboxNexumIndex, DebugNexumMatch, TestNexum, TestSFTP, TestAllDebrid, TestIgdb, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
 
   // --- Tabs (réorganisés par workflow, 8 onglets principaux) ---
   const TABS = [
@@ -336,6 +336,9 @@
     sendcm_api_key: '',
     nexum_api_key: '',
     nexum_base_url: 'https://nexum-core.com',
+    alldebrid_api_key: '',
+    igdb_client_id: '',
+    igdb_client_secret: '',
     usenet_host: '', usenet_port: 119, usenet_ssl: false,
     usenet_user: '', usenet_password: '', usenet_connections: 20,
     usenet_group: 'alt.binaries.test',
@@ -2341,16 +2344,18 @@
                               <div class="cc-actions">
                                 <button class="btn-test btn-icon" title="Voir le NFO" on:click={() => openNfo('liens', l.id, l.lien || '')}>ⓘ</button>
                                 <button class="btn-test" on:click={async () => {
-                                  // Re-fetch frais (URL temporaire qui expire)
+                                  // Re-fetch frais (URL temporaire qui expire) puis DL in-app
                                   try {
                                     const r = await GetDDLFilenameByLienID(l.id)
                                     if (r?.url) {
-                                      OpenBrowser(r.url)
-                                      // Met à jour le cache pour affichage
                                       ddlFilenames = { ...ddlFilenames, [l.id]: { state: 'ok', filename: r.filename || ddlFilenames[l.id]?.filename || '', url: r.url } }
+                                      addLog('FICHE', `▶ DL #${l.id} → ~/Downloads`)
+                                      const path = await DownloadToDownloads(r.url, r.filename || `lien-${l.id}`)
+                                      addLog('FICHE', `✓ DL #${l.id} : ${path}`)
+                                      try { Notify('✓ Téléchargement terminé', r.filename || `lien-${l.id}`) } catch(e) {}
                                     }
-                                  } catch(e) { addLog('FICHE', `✗ open lien #${l.id}: ${e}`) }
-                                }} title="Re-debrid + ouvre l'URL fraîche dans le browser">🌐 Ouvrir</button>
+                                  } catch(e) { addLog('FICHE', `✗ DL lien #${l.id}: ${e}`) }
+                                }} title="Re-debrid + télécharge dans ~/Downloads">⬇️ Télécharger</button>
                               </div>
                             </div>
                           {/each}
@@ -2396,11 +2401,14 @@
                             try {
                               const r = await GetDDLFilenameByLienID(l.id)
                               if (r?.url) {
-                                OpenBrowser(r.url)
                                 ddlFilenames = { ...ddlFilenames, [l.id]: { state: 'ok', filename: r.filename || ddlFilenames[l.id]?.filename || '', url: r.url } }
+                                addLog('FICHE', `▶ DL #${l.id} → ~/Downloads`)
+                                const path = await DownloadToDownloads(r.url, r.filename || `lien-${l.id}`)
+                                addLog('FICHE', `✓ DL #${l.id} : ${path}`)
+                                try { Notify('✓ Téléchargement terminé', r.filename || `lien-${l.id}`) } catch(e) {}
                               }
-                            } catch(e) { addLog('FICHE', `✗ open lien #${l.id}: ${e}`) }
-                          }} title="Re-debrid + ouvre l'URL fraîche">🌐 Ouvrir</button>
+                            } catch(e) { addLog('FICHE', `✗ DL lien #${l.id}: ${e}`) }
+                          }} title="Re-debrid + télécharge dans ~/Downloads">⬇️ Télécharger</button>
                         </div>
                       </div>
                     {/each}
@@ -3877,6 +3885,44 @@
             <div class="field">
               <label>URL de base Nexum</label>
               <input type="text" bind:value={cfg.nexum_base_url} placeholder="https://nexum-core.com" />
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <span>AllDebrid</span>
+              <button class="btn-test" on:click={() => runTest('alldebrid', async () => ({ ok: true, message: await TestAllDebrid(cfg.alldebrid_api_key) }))}>
+                {#if testLoading.alldebrid}…{:else}Tester{/if}
+              </button>
+            </div>
+            {#if testResults.alldebrid}
+              <div class="test-result" class:ok={testResults.alldebrid.ok}>{testResults.alldebrid.message}</div>
+            {/if}
+            <div class="field">
+              <label>Clé API AllDebrid</label>
+              <input type="password" bind:value={cfg.alldebrid_api_key} placeholder="apikey" />
+              <div class="field-hint">Débride les liens DDL (Uptobox, Rapidgator, etc.) en URL directe haute vitesse — fallback quand Hydracker ne fournit pas de directDL 1Fichier. Récupère ta clé sur alldebrid.com → Mon compte → API.</div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <span>IGDB (Jeux vidéo)</span>
+              <button class="btn-test" on:click={() => runTest('igdb', async () => ({ ok: true, message: await TestIgdb(cfg.igdb_client_id, cfg.igdb_client_secret) }))}>
+                {#if testLoading.igdb}…{:else}Tester{/if}
+              </button>
+            </div>
+            {#if testResults.igdb}
+              <div class="test-result" class:ok={testResults.igdb.ok}>{testResults.igdb.message}</div>
+            {/if}
+            <div class="field">
+              <label>Twitch Client ID</label>
+              <input type="password" bind:value={cfg.igdb_client_id} placeholder="client id" />
+            </div>
+            <div class="field">
+              <label>Twitch Client Secret</label>
+              <input type="password" bind:value={cfg.igdb_client_secret} placeholder="client secret" />
+              <div class="field-hint">Active la recherche de jeux vidéo (toggle 🎮 Jeu dans l'onglet Hydracker). Crée une app sur console.twitch.tv → Applications → Enregistrer (gratuit), puis colle le Client ID + Secret.</div>
             </div>
           </div>
 

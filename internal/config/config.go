@@ -25,6 +25,13 @@ type Config struct {
 	NexumApiKey  string `json:"nexum_api_key"`
 	NexumBaseURL string `json:"nexum_base_url"` // ex: https://nexum-core.com
 
+	// AllDebrid (débrideur multi-hoster pour DDL non-1Fichier)
+	AllDebridApiKey string `json:"alldebrid_api_key"`
+
+	// IGDB (jeux vidéo — OAuth2 via Twitch Developer)
+	IgdbClientID     string `json:"igdb_client_id"`
+	IgdbClientSecret string `json:"igdb_client_secret"`
+
 	// Usenet
 	UsenetHost     string `json:"usenet_host"`
 	UsenetPort     int    `json:"usenet_port"`

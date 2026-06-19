@@ -198,16 +198,38 @@ func (c *Client) UploadLien(titleID, qualite int, langues, subs []string, lien, 
 	return &result, nil
 }
 
+// APIError porte le statusCode HTTP + le body brut + les headers de réponse
+// (utile pour identifier un proxy/WAF qui renvoie une erreur AVANT Laravel).
+type APIError struct {
+	Status  int
+	Body    string
+	Msg     string
+	Server  string // header Server: (nginx, cloudflare, etc.)
+	CFRay   string // header cf-ray: (preuve Cloudflare)
+	Via     string // header Via: (chaîne de proxies)
+}
+
+func (e *APIError) Error() string {
+	if e.Msg != "" {
+		return e.Msg
+	}
+	return fmt.Sprintf("HTTP %d: %s", e.Status, e.Body)
+}
+
 func (c *Client) doMultipart(path string, body *bytes.Buffer, contentType string) ([]byte, error) {
 	if c.baseURL == "" {
 		return nil, fmt.Errorf("URL Hydracker non configurée (Réglages)")
 	}
+	// Rate limit : les uploads passent par la même limite (1.5s) que les GET/POST.
+	c.waitRateLimit()
 	req, err := http.NewRequestWithContext(c.getContext(), "POST", c.baseURL+path, body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Accept", "application/json")
+	// User-Agent identique aux autres requêtes (obligatoire selon doc Hydracker).
+	req.Header.Set("User-Agent", "GoPostTools/2.1 (https://github.com/Gandalfleblanc/Go-Post-Tools)")
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
@@ -223,16 +245,26 @@ func (c *Client) doMultipart(path string, body *bytes.Buffer, contentType string
 		return nil, err
 	}
 
+	mkErr := func(msg string) *APIError {
+		return &APIError{
+			Status: resp.StatusCode,
+			Body:   string(data),
+			Msg:    msg,
+			Server: resp.Header.Get("Server"),
+			CFRay:  resp.Header.Get("cf-ray"),
+			Via:    resp.Header.Get("Via"),
+		}
+	}
 	switch resp.StatusCode {
 	case http.StatusOK, http.StatusCreated:
 		return data, nil
 	case http.StatusUnauthorized:
-		return nil, fmt.Errorf("unauthorized: vérifiez votre token")
+		return nil, mkErr("unauthorized: vérifiez votre token")
 	case http.StatusForbidden:
-		return nil, fmt.Errorf("accès refusé (403) — permission manquante")
+		return nil, mkErr("accès refusé (403) — permission manquante")
 	case http.StatusUnprocessableEntity:
-		return nil, fmt.Errorf("données invalides (422): %s", string(data))
+		return nil, mkErr(fmt.Sprintf("données invalides (422): %s", string(data)))
 	default:
-		return nil, fmt.Errorf("erreur HTTP %d: %s", resp.StatusCode, string(data))
+		return nil, mkErr(fmt.Sprintf("erreur HTTP %d: %s", resp.StatusCode, string(data)))
 	}
 }

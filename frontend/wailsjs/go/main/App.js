@@ -6,6 +6,10 @@ export function AcknowledgeTorrentAdmin(arg1) {
   return window['go']['main']['App']['AcknowledgeTorrentAdmin'](arg1);
 }
 
+export function AllDebridUnlock(arg1) {
+  return window['go']['main']['App']['AllDebridUnlock'](arg1);
+}
+
 export function AutoReseedDDLFromHydracker(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['AutoReseedDDLFromHydracker'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -210,6 +214,10 @@ export function HydrackerGetByID(arg1) {
   return window['go']['main']['App']['HydrackerGetByID'](arg1);
 }
 
+export function HydrackerGetByIgdbID(arg1) {
+  return window['go']['main']['App']['HydrackerGetByIgdbID'](arg1);
+}
+
 export function HydrackerGetByTmdbID(arg1) {
   return window['go']['main']['App']['HydrackerGetByTmdbID'](arg1);
 }
@@ -224,6 +232,14 @@ export function HydrackerGetLienDetailByID(arg1) {
 
 export function HydrackerSearch(arg1) {
   return window['go']['main']['App']['HydrackerSearch'](arg1);
+}
+
+export function IgdbGetByID(arg1) {
+  return window['go']['main']['App']['IgdbGetByID'](arg1);
+}
+
+export function IgdbSearch(arg1) {
+  return window['go']['main']['App']['IgdbSearch'](arg1);
 }
 
 export function IsHydrackerURLManaged() {
@@ -414,12 +430,20 @@ export function TMDBSearch(arg1) {
   return window['go']['main']['App']['TMDBSearch'](arg1);
 }
 
+export function TestAllDebrid(arg1) {
+  return window['go']['main']['App']['TestAllDebrid'](arg1);
+}
+
 export function TestFTP(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['TestFTP'](arg1, arg2, arg3, arg4);
 }
 
 export function TestHydracker(arg1, arg2) {
   return window['go']['main']['App']['TestHydracker'](arg1, arg2);
+}
+
+export function TestIgdb(arg1, arg2) {
+  return window['go']['main']['App']['TestIgdb'](arg1, arg2);
 }
 
 export function TestLihdl(arg1, arg2, arg3) {

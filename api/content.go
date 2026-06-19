@@ -76,6 +76,11 @@ type LienDetail struct {
 	DebridErrorInfo string `json:"debrid_error_detail"`
 	LinkSource      string `json:"link_source"`
 	Status          string `json:"status"`
+	// OriginalShareURL : URL share originale telle qu'uploadée par l'user
+	// (ex: https://1fichier.com/?xxx). Préservée AVANT que GetLienDetailByID
+	// n'écrase Lien.URL avec directDL/raw_url. Indispensable pour AllDebrid
+	// qui doit débrider depuis l'URL share, pas depuis l'URL CDN déjà partielle.
+	OriginalShareURL string `json:"-"`
 }
 
 // GetLienByID appelle /content/liens/{id} et retourne le Lien + l'URL débridée.
@@ -102,6 +107,27 @@ func (c *Client) GetLienByID(id int) (*Lien, error) {
 	return &d.Lien, nil
 }
 
+// tryAdminLienShareURL tente plusieurs endpoints admin pour récupérer l'URL
+// share originale d'un lien (que /content/liens/{id} masque). Renvoie ""
+// si rien ne marche (non-admin, endpoint inexistant, etc.).
+func (c *Client) tryAdminLienShareURL(id int) string {
+	// 1) GET /admin/liens/{id} singulier (pattern Laravel resource)
+	if data, err := c.get(fmt.Sprintf("/admin/liens/%d", id), nil); err == nil {
+		// Réponse possible : {"lien": {"id":..., "lien":"https://..."}} ou direct
+		var wrap struct {
+			Lien Lien `json:"lien"`
+		}
+		if json.Unmarshal(data, &wrap) == nil && wrap.Lien.URL != "" {
+			return wrap.Lien.URL
+		}
+		var direct Lien
+		if json.Unmarshal(data, &direct) == nil && direct.URL != "" {
+			return direct.URL
+		}
+	}
+	return ""
+}
+
 // GetLienDetailByID retourne la réponse complète avec statut de débridage.
 func (c *Client) GetLienDetailByID(id int) (*LienDetail, error) {
 	data, err := c.get(fmt.Sprintf("/content/liens/%d", id), nil)
@@ -111,6 +137,15 @@ func (c *Client) GetLienDetailByID(id int) (*LienDetail, error) {
 	var resp LienDetail
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
+	}
+	// Snapshot l'URL share originale AVANT l'écrasement. /content/liens/{id}
+	// masque souvent l'URL share. On tente aussi /admin/liens/{id} qui peut
+	// exposer la vraie URL pour les comptes admin.
+	resp.OriginalShareURL = resp.Lien.URL
+	if resp.OriginalShareURL == "" {
+		if adminURL := c.tryAdminLienShareURL(id); adminURL != "" {
+			resp.OriginalShareURL = adminURL
+		}
 	}
 	if resp.DirectDL != "" {
 		resp.Lien.URL = resp.DirectDL
