@@ -59,7 +59,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "6.2.1"
+const Version = "6.2.2"
 
 type App struct {
 	ctx         context.Context
@@ -2390,23 +2390,26 @@ func (a *App) seedboxConfigured() bool {
 // soit l'info_hash (via /content/torrents) soit le torrent_name (via /admin/torrents).
 // Utilisé pour dedup avant UploadTorrent — évite un 422 "Torrent existe déjà"
 // si un retry précédent a laissé le 1er post en place.
-// findReleaseDuplicate : pré-flight dedup avant tout upload. Query
-// /titles/{id}/content/torrents avec qual+saison+épisode, puis matche les
-// langues côté client. Renvoie (id, name) du 1er duplicate trouvé, ou (0, "").
-// Critère de match : toutes les langues demandées présentes dans un torrent
-// existant avec le même combo qualité/saison/épisode.
-func (a *App) findReleaseDuplicate(titleID, qualite int, langues []string, saison, episode int) (int, string) {
-	if titleID <= 0 || qualite <= 0 {
-		return 0, ""
+// matchesLangues : helper de dedup — true si toutes les langues demandées
+// sont présentes dans la liste existante (set-inclusion, case-insensitive).
+// Si `want` est vide → tout match (utile pour dedup par qual+saison+épisode seul).
+func matchesLangues(want map[string]bool, have []api.LangPivot) bool {
+	if len(want) == 0 {
+		return true
 	}
-	res, err := a.client.GetTorrents(titleID, api.ContentFilter{
-		Quality: qualite,
-		Season:  saison,
-		Episode: episode,
-	})
-	if err != nil || res == nil {
-		return 0, ""
+	got := map[string]bool{}
+	for _, lp := range have {
+		got[strings.ToLower(strings.TrimSpace(lp.Name))] = true
 	}
+	for w := range want {
+		if !got[w] {
+			return false
+		}
+	}
+	return true
+}
+
+func wantSet(langues []string) map[string]bool {
 	want := map[string]bool{}
 	for _, l := range langues {
 		k := strings.ToLower(strings.TrimSpace(l))
@@ -2414,28 +2417,65 @@ func (a *App) findReleaseDuplicate(titleID, qualite int, langues []string, saiso
 			want[k] = true
 		}
 	}
-	// Sans langues spécifiées : tout match sur qual+saison+épisode = doublon
-	if len(want) == 0 {
-		if len(res.Torrents) > 0 {
-			t := res.Torrents[0]
-			return t.ID, t.Name
-		}
+	return want
+}
+
+// findReleaseDuplicate : pré-flight dedup avant upload TORRENT. Query
+// /titles/{id}/content/torrents avec qual+saison+épisode, puis matche les
+// langues côté client. Renvoie (id, name) du 1er duplicate trouvé, ou (0, "").
+func (a *App) findReleaseDuplicate(titleID, qualite int, langues []string, saison, episode int) (int, string) {
+	if titleID <= 0 || qualite <= 0 {
 		return 0, ""
 	}
+	res, err := a.client.GetTorrents(titleID, api.ContentFilter{Quality: qualite, Season: saison, Episode: episode})
+	if err != nil || res == nil {
+		return 0, ""
+	}
+	want := wantSet(langues)
 	for _, t := range res.Torrents {
-		have := map[string]bool{}
-		for _, lp := range t.Langues {
-			have[strings.ToLower(strings.TrimSpace(lp.Name))] = true
-		}
-		allPresent := true
-		for w := range want {
-			if !have[w] {
-				allPresent = false
-				break
-			}
-		}
-		if allPresent {
+		if matchesLangues(want, t.Langues) {
 			return t.ID, t.Name
+		}
+	}
+	return 0, ""
+}
+
+// findReleaseDuplicateNzb : pré-flight dedup avant upload NZB.
+func (a *App) findReleaseDuplicateNzb(titleID, qualite int, langues []string, saison, episode int) (int, string) {
+	if titleID <= 0 || qualite <= 0 {
+		return 0, ""
+	}
+	res, err := a.client.GetNzbs(titleID, api.ContentFilter{Quality: qualite, Season: saison, Episode: episode})
+	if err != nil || res == nil {
+		return 0, ""
+	}
+	want := wantSet(langues)
+	for _, n := range res.Nzbs {
+		if matchesLangues(want, n.Langues) {
+			return n.ID, n.Name
+		}
+	}
+	return 0, ""
+}
+
+// findReleaseDuplicateLien : pré-flight dedup avant upload DDL.
+// Note : un lien Hydracker n'a pas de "Name" — on retourne l'URL pour info.
+func (a *App) findReleaseDuplicateLien(titleID, qualite int, langues []string, saison, episode int) (int, string) {
+	if titleID <= 0 || qualite <= 0 {
+		return 0, ""
+	}
+	res, err := a.client.GetLiens(titleID, api.ContentFilter{Quality: qualite, Season: saison, Episode: episode})
+	if err != nil || res == nil {
+		return 0, ""
+	}
+	want := wantSet(langues)
+	for _, l := range res.Liens {
+		if matchesLangues(want, l.Langues) {
+			label := l.URL
+			if label == "" {
+				label = fmt.Sprintf("lien #%d", l.ID)
+			}
+			return l.ID, label
 		}
 	}
 	return 0, ""
@@ -4270,6 +4310,11 @@ func (a *App) PostNzbWorkflow(titleID, qualite int, langues, subs []string, mkvP
 		return nil, fmt.Errorf("chemin du fichier MKV manquant — utilisez le bouton Parcourir")
 	}
 
+	// Pré-flight dedup NZB
+	if existingID, existingName := a.findReleaseDuplicateNzb(titleID, qualite, langues, saison, episode); existingID > 0 {
+		return nil, fmt.Errorf("doublon NZB Hydracker #%d (%s) avec mêmes qualité+langues+saison+épisode — post annulé", existingID, existingName)
+	}
+
 	srcInfo, statErr := os.Stat(mkvPath)
 	if statErr != nil {
 		return nil, fmt.Errorf("stat source: %w", statErr)
@@ -4385,6 +4430,11 @@ func (a *App) PostDDLWorkflow(titleID, qualite int, langues, subs []string, mkvP
 	}
 	if useSendCm && a.cfg.SendCmApiKey == "" && !use1Fichier {
 		return nil, fmt.Errorf("clé Send.now manquante — renseignez les Settings")
+	}
+
+	// Pré-flight dedup DDL
+	if existingID, existingLabel := a.findReleaseDuplicateLien(titleID, qualite, langues, saison, episode); existingID > 0 {
+		return nil, fmt.Errorf("doublon DDL Hydracker #%d (%s) avec mêmes qualité+langues+saison+épisode — post annulé", existingID, existingLabel)
 	}
 
 	filename := filepath.Base(mkvPath)
