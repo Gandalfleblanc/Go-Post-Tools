@@ -61,13 +61,28 @@ func login(ctx context.Context, c *http.Client, baseURL, user, password string) 
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	bodyStr := strings.TrimSpace(string(body))
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("login qbit HTTP %d: %s", resp.StatusCode, bodyStr)
+	// Le SID cookie est LA vraie preuve de succès — les statuts/body varient
+	// selon la version qBit (4.5 = 200 "Ok.", 4.6+ ou reverse proxy = 204
+	// no-body, certains configs = 200 sans body).
+	hasSID := false
+	if u, perr := url.Parse(strings.TrimRight(baseURL, "/")); perr == nil {
+		for _, ck := range c.Jar.Cookies(u) {
+			if strings.EqualFold(ck.Name, "SID") && ck.Value != "" {
+				hasSID = true
+				break
+			}
+		}
 	}
-	if !strings.HasPrefix(bodyStr, "Ok") {
+	if hasSID {
+		return nil
+	}
+	if resp.StatusCode == 200 || resp.StatusCode == 204 {
+		if bodyStr == "" || strings.HasPrefix(bodyStr, "Ok") {
+			return nil
+		}
 		return fmt.Errorf("login qbit refusé: %s", bodyStr)
 	}
-	return nil
+	return fmt.Errorf("login qbit HTTP %d: %s", resp.StatusCode, bodyStr)
 }
 
 // Ping : test de login, utilisé par tester.TestQBit.

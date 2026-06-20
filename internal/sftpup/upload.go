@@ -372,6 +372,35 @@ func UploadFolder(ctx context.Context, host string, port int, user, password, re
 	return folderName, nil
 }
 
+// RemoteSize : retourne la taille d'un fichier déjà présent sur SFTP, ou -1
+// s'il n'existe pas / inaccessible. Utilisé pour skip l'upload si le fichier
+// est déjà sur la seedbox avec la bonne taille.
+func RemoteSize(host string, port int, user, password, remotePath, remoteName string) (int64, error) {
+	c, err := dialSSH(host, port, user, password)
+	if err != nil {
+		return -1, err
+	}
+	defer c.Close()
+	s, err := sftp.NewClient(c)
+	if err != nil {
+		return -1, fmt.Errorf("sftp: %w", err)
+	}
+	defer s.Close()
+	if remotePath == "" {
+		remotePath = "/"
+	}
+	full := path.Join(remotePath, remoteName)
+	info, err := s.Stat(full)
+	if err != nil {
+		// Fichier absent (no such file) ou autre erreur d'accès
+		return -1, nil
+	}
+	if info.IsDir() {
+		return -1, fmt.Errorf("est un dossier, pas un fichier")
+	}
+	return info.Size(), nil
+}
+
 // Ping teste la connexion SSH (utilisé par tester.TestSFTP).
 func Ping(host string, port int, user, password string) error {
 	c, err := dialSSH(host, port, user, password)

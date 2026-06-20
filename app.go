@@ -59,7 +59,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "6.2.0"
+const Version = "6.2.1"
 
 type App struct {
 	ctx         context.Context
@@ -2390,6 +2390,57 @@ func (a *App) seedboxConfigured() bool {
 // soit l'info_hash (via /content/torrents) soit le torrent_name (via /admin/torrents).
 // Utilisé pour dedup avant UploadTorrent — évite un 422 "Torrent existe déjà"
 // si un retry précédent a laissé le 1er post en place.
+// findReleaseDuplicate : pré-flight dedup avant tout upload. Query
+// /titles/{id}/content/torrents avec qual+saison+épisode, puis matche les
+// langues côté client. Renvoie (id, name) du 1er duplicate trouvé, ou (0, "").
+// Critère de match : toutes les langues demandées présentes dans un torrent
+// existant avec le même combo qualité/saison/épisode.
+func (a *App) findReleaseDuplicate(titleID, qualite int, langues []string, saison, episode int) (int, string) {
+	if titleID <= 0 || qualite <= 0 {
+		return 0, ""
+	}
+	res, err := a.client.GetTorrents(titleID, api.ContentFilter{
+		Quality: qualite,
+		Season:  saison,
+		Episode: episode,
+	})
+	if err != nil || res == nil {
+		return 0, ""
+	}
+	want := map[string]bool{}
+	for _, l := range langues {
+		k := strings.ToLower(strings.TrimSpace(l))
+		if k != "" {
+			want[k] = true
+		}
+	}
+	// Sans langues spécifiées : tout match sur qual+saison+épisode = doublon
+	if len(want) == 0 {
+		if len(res.Torrents) > 0 {
+			t := res.Torrents[0]
+			return t.ID, t.Name
+		}
+		return 0, ""
+	}
+	for _, t := range res.Torrents {
+		have := map[string]bool{}
+		for _, lp := range t.Langues {
+			have[strings.ToLower(strings.TrimSpace(lp.Name))] = true
+		}
+		allPresent := true
+		for w := range want {
+			if !have[w] {
+				allPresent = false
+				break
+			}
+		}
+		if allPresent {
+			return t.ID, t.Name
+		}
+	}
+	return 0, ""
+}
+
 func (a *App) findExistingTorrent(titleID int, infoHash, torrentName string) (int, error) {
 	if titleID <= 0 {
 		return 0, nil
@@ -3944,6 +3995,15 @@ func (a *App) PostTorrentWorkflow(titleID, qualite int, langues, subs []string, 
 		wailsruntime.EventsEmit(a.ctx, "torrent:status", map[string]interface{}{"stage": stage, "msg": msg})
 	}
 
+	// 0. Pré-flight dedup : avant TOUT (avant SFTP, avant création .torrent),
+	// on demande à Hydracker s'il existe déjà un torrent qui matche notre combo
+	// (title_id, qualité, saison, épisode) avec les mêmes langues. Si oui →
+	// on abort avec un message clair — pas d'upload inutile.
+	if existingID, existingName := a.findReleaseDuplicate(titleID, qualite, langues, saison, episode); existingID > 0 {
+		emit("dedup", fmt.Sprintf("Doublon détecté sur Hydracker : #%d — %s", existingID, existingName))
+		return nil, fmt.Errorf("doublon Hydracker #%d (%s) avec mêmes qualité+langues+saison+épisode — post annulé", existingID, existingName)
+	}
+
 	// 1. Upload vers la seedbox cible (single MKV ou dossier complet selon stat).
 	// Le path peut pointer sur un fichier (.mkv unique) ou un dossier (saison
 	// complète) — on bascule automatiquement sur l'API folder selon os.Stat.
@@ -3985,6 +4045,21 @@ func (a *App) PostTorrentWorkflow(titleID, qualite int, langues, subs []string, 
 		if sftpPort == 21 || sftpPort == 0 {
 			sftpPort = 22 // override port FTP standard → port SFTP standard
 		}
+		// Skip upload si le fichier est déjà sur la seedbox avec la même taille
+		// (ex: re-post après cleanup ou tentative précédente OK côté SFTP).
+		// Ne s'applique qu'aux uploads single-file (pas aux dossiers saison).
+		if !isFolder {
+			expectedName := filepath.Base(mkvPath)
+			if remoteSize, _ := sftpup.RemoteSize(ftpHost, sftpPort, ftpUser, ftpPass, ftpPath, expectedName); remoteSize > 0 {
+				if remoteSize == srcInfo.Size() {
+					emit("ftp", fmt.Sprintf("Fichier déjà présent sur SFTP (%.2f GB, taille identique) — skip upload", float64(remoteSize)/1e9))
+					remoteName = expectedName
+					emit("ftp_done", fmt.Sprintf("SFTP OK (skip) : %s", remoteName))
+					goto sftpDone
+				}
+				emit("ftp", fmt.Sprintf("Fichier remote présent mais taille ≠ (remote %.2f GB vs local %.2f GB) — ré-upload", float64(remoteSize)/1e9, float64(srcInfo.Size())/1e9))
+			}
+		}
 		if isFolder {
 			emit("ftp", fmt.Sprintf("Upload SFTP %s (dossier saison)…", ftpHost))
 			remoteName, uploadErr = sftpup.UploadFolder(a.workContext(), ftpHost, sftpPort, ftpUser, ftpPass, ftpPath, mkvPath, func(p sftpup.Progress) {
@@ -4000,6 +4075,7 @@ func (a *App) PostTorrentWorkflow(titleID, qualite int, langues, subs []string, 
 			return nil, fmt.Errorf("sftp: %w", uploadErr)
 		}
 		emit("ftp_done", fmt.Sprintf("SFTP OK : %s", remoteName))
+	sftpDone:
 	} else {
 		if isFolder {
 			emit("ftp", fmt.Sprintf("Upload FTP %s (dossier saison)…", strings.ToUpper(seedboxType)))
