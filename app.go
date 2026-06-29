@@ -59,7 +59,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "6.2.2"
+const Version = "6.2.3"
 
 type App struct {
 	ctx         context.Context
@@ -4430,11 +4430,6 @@ func (a *App) PostDDLWorkflow(titleID, qualite int, langues, subs []string, mkvP
 	}
 	if useSendCm && a.cfg.SendCmApiKey == "" && !use1Fichier {
 		return nil, fmt.Errorf("clé Send.now manquante — renseignez les Settings")
-	}
-
-	// Pré-flight dedup DDL
-	if existingID, existingLabel := a.findReleaseDuplicateLien(titleID, qualite, langues, saison, episode); existingID > 0 {
-		return nil, fmt.Errorf("doublon DDL Hydracker #%d (%s) avec mêmes qualité+langues+saison+épisode — post annulé", existingID, existingLabel)
 	}
 
 	filename := filepath.Base(mkvPath)
