@@ -59,7 +59,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "6.2.3"
+const Version = "6.3.0"
 
 type App struct {
 	ctx         context.Context
@@ -926,11 +926,12 @@ func (a *App) TestUsenet(host string, port int) tester.Result {
 	return tester.TestUsenet(host, port)
 }
 
-// --- TMDB (via proxytmdb configurable, default https://tmdb.uklm.xyz) ---
+// --- TMDB (API officielle api.themoviedb.org — proxy UKLM retiré) ---
 
-// tmdbClient retourne un client TMDB qui respecte la config user (proxy URL).
+// tmdbClient : client TMDB avec la clé API user + éventuellement une base URL
+// custom (Réglages TMDB). Si aucun override, tape api.themoviedb.org/3.
 func (a *App) tmdbClient() *tmdb.Client {
-	return tmdb.NewClientWithBase(a.cfg.TMDBProxyURL)
+	return tmdb.NewClientWithBase(a.cfg.TMDBProxyURL).WithAPIKey(a.cfg.TMDBApiKey)
 }
 
 func (a *App) TMDBSearch(query string) ([]tmdb.Movie, error) {
@@ -941,7 +942,7 @@ func (a *App) TMDBGetByID(id int, mediaType string) (*tmdb.Movie, error) {
 	return a.tmdbClient().GetByID(id, mediaType)
 }
 
-// TMDBGetByImdbID : lookup direct via IMDb ID (ex: "tt0120855"). Bonus du proxy.
+// TMDBGetByImdbID : lookup direct via IMDb ID (ex: "tt0120855").
 func (a *App) TMDBGetByImdbID(imdbID string) (*tmdb.Movie, error) {
 	return a.tmdbClient().GetByImdbID(imdbID)
 }
@@ -1266,7 +1267,7 @@ func (a *App) ReseedPrepare(torrentPath string) (*ReseedPrepareResult, error) {
 		result.Size = info.Length
 	}
 	// Recherche TMDB (prend le 1er résultat ; pour reseed on ne propose pas de choix)
-	if results, err := mediasearch.Search(a.cfg.MediaSearchURL, info.Name); err == nil && len(results) > 0 {
+	if results, err := mediasearch.Search(a.cfg.MediaSearchURL, info.Name, a.cfg.LihdlUser, a.cfg.LihdlPassword); err == nil && len(results) > 0 {
 		result.Search = &results[0]
 		if results[0].TmdbID > 0 {
 			if fiche, err := a.client.GetTitleByTmdbID(results[0].TmdbID); err == nil {
@@ -1279,7 +1280,7 @@ func (a *App) ReseedPrepare(torrentPath string) (*ReseedPrepareResult, error) {
 
 // MediaSearch expose la recherche multi-résultats pour la modal de choix côté UI.
 func (a *App) MediaSearch(query string) ([]mediasearch.SearchResult, error) {
-	return mediasearch.Search(a.cfg.MediaSearchURL, query)
+	return mediasearch.Search(a.cfg.MediaSearchURL, query, a.cfg.LihdlUser, a.cfg.LihdlPassword)
 }
 
 // --- Admin ---

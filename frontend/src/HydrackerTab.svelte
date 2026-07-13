@@ -52,7 +52,7 @@
   let langsAutoFilled = false
   let subsAutoFilled = false
   let qualityAutoFilled = false  // true tant que l'user n'a pas changé manuellement la qualité
-  let postUploadTypes = { nzb: false, torrent_admin: false, torrent_modo: true, torrent_prive: false, ddl: false }
+  let postUploadTypes = { nzb: false, torrent_admin: false, torrent_modo: false, torrent_prive: false, ddl: false }
   // Torrent ADMIN n'est visible que pour les admins (= ceux qui ont déverrouillé
   // la section Seedbox dans Réglages avec le mdp partagé).
   let adminAcknowledged = false
@@ -1927,41 +1927,7 @@
             <div class="post-field">
               <div class="post-field-label">Uploader via</div>
               <div class="upload-pills">
-                {#if hasTorrentAdminPerm}
-                  <button type="button"
-                    class="upload-pill"
-                    class:active={postUploadTypes.torrent_admin}
-                    data-color="gold"
-                    title="Workflow team-shared : NextCloud + qBittorrent ADMIN"
-                    on:click={() => {
-                      const v = !postUploadTypes.torrent_admin
-                      postUploadTypes = { ...postUploadTypes, torrent_admin: v, torrent_modo: v?false:postUploadTypes.torrent_modo, torrent_prive: v?false:postUploadTypes.torrent_prive }
-                    }}>
-                    <span class="pill-icon">👑</span><span class="pill-label">Torrent ADMIN</span>
-                  </button>
-                {/if}
-                <button type="button"
-                  class="upload-pill"
-                  class:active={postUploadTypes.torrent_modo}
-                  data-color="silver"
-                  title="Workflow team modo : FTP MOD + qBit shared"
-                  on:click={() => {
-                    const v = !postUploadTypes.torrent_modo
-                    postUploadTypes = { ...postUploadTypes, torrent_modo: v, torrent_admin: v?false:postUploadTypes.torrent_admin, torrent_prive: v?false:postUploadTypes.torrent_prive }
-                  }}>
-                  <span class="pill-icon">👥</span><span class="pill-label">Torrent MODO</span>
-                </button>
-                <button type="button"
-                  class="upload-pill"
-                  class:active={postUploadTypes.torrent_prive}
-                  data-color="blue"
-                  title="Workflow perso : TON FTP + TA seedbox (saisis dans Réglages)"
-                  on:click={() => {
-                    const v = !postUploadTypes.torrent_prive
-                    postUploadTypes = { ...postUploadTypes, torrent_prive: v, torrent_admin: v?false:postUploadTypes.torrent_admin, torrent_modo: v?false:postUploadTypes.torrent_modo }
-                  }}>
-                  <span class="pill-icon">🏠</span><span class="pill-label">Torrent Privé</span>
-                </button>
+                <!-- Torrent ADMIN/MODO/Privé retirés : Hydracker ne fait plus de torrent -->
                 <button type="button"
                   class="upload-pill"
                   class:active={postUploadTypes.nzb}

@@ -33,7 +33,8 @@ var (
 
 // Search interroge le endpoint de recherche configuré pour trouver un film/série.
 // searchURL doit se terminer par ?query= ou similaire — query sera concaténée après.
-func Search(searchURL, query string) ([]SearchResult, error) {
+// user + password : Basic Auth optionnel (laisser vides si l'endpoint est public).
+func Search(searchURL, query, user, password string) ([]SearchResult, error) {
 	// Si URL non configurée, renvoie liste vide sans erreur pour que le
 	// caller puisse fallback sur TMDB direct sans log d'erreur parasite.
 	if searchURL == "" {
@@ -44,6 +45,9 @@ func Search(searchURL, query string) ([]SearchResult, error) {
 
 	req, _ := http.NewRequest("GET", u, nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15")
+	if user != "" {
+		req.SetBasicAuth(user, password)
+	}
 
 	c := &http.Client{Timeout: 15 * time.Second}
 	resp, err := c.Do(req)

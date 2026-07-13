@@ -1,13 +1,8 @@
-// Package tmdb : client pour proxytmdb (https://tmdb.uklm.xyz) — un proxy
-// qui cache TMDB + fusionne les notes IMDb + JustWatch providers, sans
-// nécessiter de clé API côté client.
+// Package tmdb : client pour l'API TMDB officielle (api.themoviedb.org/3).
+// L'ancien proxy tmdb.uklm.xyz est mort et retiré.
 //
-// Endpoints utilisés :
-//   - GET /api?t=search&q=<title> [year/SxxExx requis dans la query]
-//   - GET /api?t=movie&q=<tmdb_id>  → JSON TMDB standard
-//   - GET /api?t=tv&q=<tmdb_id>     → JSON TMDB standard (sériés)
-//   - GET /api?t=imdb&q=<imdb_id>   → lookup IMDb → fiche TMDB
-//   - GET /api?t=providers&type=movie|tv&q=<tmdb_id>
+// Auth : query param ?api_key=<v3_api_key> sur chaque requête.
+// Récupérer la clé sur themoviedb.org → Settings → API.
 package tmdb
 
 import (
@@ -21,29 +16,42 @@ import (
 	"time"
 )
 
-const defaultBase = "https://tmdb.uklm.xyz"
+const defaultBase = "https://api.themoviedb.org/3"
 
 type Client struct {
 	base       string
+	apiKey     string
 	httpClient *http.Client
 }
 
-// NewClient garde la signature compatible avec l'ancien code (apiKey ignoré).
-func NewClient(_ string) *Client {
-	return &Client{base: defaultBase + "/api", httpClient: &http.Client{Timeout: 15 * time.Second}}
+// NewClient : client TMDB officiel avec clé API v3.
+func NewClient(apiKey string) *Client {
+	return &Client{
+		base:       defaultBase,
+		apiKey:     strings.TrimSpace(apiKey),
+		httpClient: &http.Client{Timeout: 15 * time.Second},
+	}
 }
 
-// NewClientWithBase permet de pointer vers un autre proxy TMDB (custom par user).
+// NewClientWithBase : override la base URL (utile si l'user veut un proxy
+// custom compatible TMDB v3). Signature gardée pour rétrocompat des callers ;
+// l'apiKey vient de cfg.TMDBApiKey côté app.go.
 func NewClientWithBase(baseURL string) *Client {
-	if baseURL == "" {
+	if strings.TrimSpace(baseURL) == "" {
 		baseURL = defaultBase
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
-	// Si l'user a donné l'URL racine, on ajoute /api
-	if !strings.HasSuffix(baseURL, "/api") {
-		baseURL += "/api"
+	return &Client{
+		base:       baseURL,
+		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
-	return &Client{base: baseURL, httpClient: &http.Client{Timeout: 15 * time.Second}}
+}
+
+// WithAPIKey : setter fluent pour attacher la clé après création
+// (utilisé par app.go quand la clé n'est pas dispo au moment de la construction).
+func (c *Client) WithAPIKey(apiKey string) *Client {
+	c.apiKey = strings.TrimSpace(apiKey)
+	return c
 }
 
 // Movie : structure compatible TMDB officiel + champs bonus du proxy
@@ -200,17 +208,24 @@ func (h searchHit) toMovie() Movie {
 	return m
 }
 
-// Search : hit /api?t=search. La query DOIT contenir une année (ex: "Tarzan 1999")
-// OU un pattern d'épisode (S01E01, NxN, etc.) sinon le proxy renvoie une erreur.
-func (c *Client) Search(query string) ([]Movie, error) {
+// doGet : GET sur l'API TMDB officielle avec ?api_key=... en query.
+func (c *Client) doGet(path string, extraParams url.Values) ([]byte, error) {
+	if c.apiKey == "" {
+		return nil, fmt.Errorf("clé API TMDB manquante (Réglages → TMDB)")
+	}
 	params := url.Values{}
-	params.Set("t", "search")
-	params.Set("q", query)
-	req, err := http.NewRequest("GET", c.base+"?"+params.Encode(), nil)
+	if extraParams != nil {
+		for k, v := range extraParams {
+			params[k] = v
+		}
+	}
+	params.Set("api_key", c.apiKey)
+	req, err := http.NewRequest("GET", c.base+path+"?"+params.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "GoPostTools/4.x")
+	req.Header.Set("User-Agent", "GoPostTools/6.x")
+	req.Header.Set("Accept", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -218,90 +233,85 @@ func (c *Client) Search(query string) ([]Movie, error) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("proxytmdb HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))
+		return nil, fmt.Errorf("tmdb HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))
+	}
+	return body, nil
+}
+
+// Search : /3/search/multi — retourne films + séries mixés.
+// L'API officielle n'exige pas d'année dans la query (contrairement à UKLM).
+func (c *Client) Search(query string) ([]Movie, error) {
+	params := url.Values{}
+	params.Set("query", query)
+	params.Set("include_adult", "false")
+	body, err := c.doGet("/search/multi", params)
+	if err != nil {
+		return nil, err
 	}
 	var resBody struct {
-		Results []searchHit `json:"results"`
-		Error   string      `json:"error"`
+		Results []Movie `json:"results"`
 	}
 	if err := json.Unmarshal(body, &resBody); err != nil {
-		return nil, fmt.Errorf("proxytmdb parse: %w", err)
+		return nil, fmt.Errorf("tmdb parse: %w", err)
 	}
-	if resBody.Error != "" {
-		return nil, fmt.Errorf("proxytmdb: %s", resBody.Error)
-	}
+	// Filtre les résultats de type "person" (media_type = person)
 	out := make([]Movie, 0, len(resBody.Results))
-	for _, h := range resBody.Results {
-		out = append(out, h.toMovie())
+	for _, m := range resBody.Results {
+		if m.MediaType == "person" {
+			continue
+		}
+		if m.MediaType == "" {
+			m.MediaType = "movie"
+		}
+		out = append(out, m)
 	}
 	return out, nil
 }
 
-// GetByID : récupère le détail TMDB d'un movie/tv. Le proxy renvoie le JSON
-// TMDB standard (compatible avec notre struct Movie sans adapter).
+// GetByID : /3/movie/{id} ou /3/tv/{id}.
 func (c *Client) GetByID(id int, mediaType string) (*Movie, error) {
-	if mediaType == "" {
-		mediaType = "movie"
-	}
 	if mediaType != "movie" && mediaType != "tv" {
 		mediaType = "movie"
 	}
-	params := url.Values{}
-	params.Set("t", mediaType)
-	params.Set("q", fmt.Sprintf("%d", id))
-	req, err := http.NewRequest("GET", c.base+"?"+params.Encode(), nil)
+	body, err := c.doGet(fmt.Sprintf("/%s/%d", mediaType, id), nil)
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("User-Agent", "GoPostTools/4.x")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("proxytmdb HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
 	var movie Movie
-	movie.MediaType = mediaType
 	if err := json.Unmarshal(body, &movie); err != nil {
 		return nil, err
 	}
+	movie.MediaType = mediaType
 	return &movie, nil
 }
 
-// GetByImdbID : lookup direct par IMDb ID (ex: "tt0120855") → fiche TMDB.
-// Bonus offert par proxytmdb pour matcher rapidement Hydracker ↔ TMDB
-// quand la fiche Hydracker a un imdb_id.
+// GetByImdbID : /3/find/{imdb_id}?external_source=imdb_id.
+// Réponse : {movie_results:[...], tv_results:[...]}.
 func (c *Client) GetByImdbID(imdbID string) (*Movie, error) {
 	params := url.Values{}
-	params.Set("t", "imdb")
-	params.Set("q", imdbID)
-	req, err := http.NewRequest("GET", c.base+"?"+params.Encode(), nil)
+	params.Set("external_source", "imdb_id")
+	body, err := c.doGet("/find/"+imdbID, params)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "GoPostTools/4.x")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
+	var wrap struct {
+		MovieResults []Movie `json:"movie_results"`
+		TVResults    []Movie `json:"tv_results"`
+	}
+	if err := json.Unmarshal(body, &wrap); err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("proxytmdb imdb HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))
+	if len(wrap.MovieResults) > 0 {
+		m := wrap.MovieResults[0]
+		m.MediaType = "movie"
+		return &m, nil
 	}
-	var movie Movie
-	if err := json.Unmarshal(body, &movie); err != nil {
-		return nil, err
+	if len(wrap.TVResults) > 0 {
+		m := wrap.TVResults[0]
+		m.MediaType = "tv"
+		return &m, nil
 	}
-	if movie.FirstAirDate != "" {
-		movie.MediaType = "tv"
-	} else {
-		movie.MediaType = "movie"
-	}
-	return &movie, nil
+	return nil, fmt.Errorf("aucun résultat TMDB pour IMDb %s", imdbID)
 }
 
 // Provider : un service de streaming (Netflix, Disney+, etc.).
@@ -320,29 +330,15 @@ type CountryProviders struct {
 	Free      []Provider `json:"free,omitempty"`
 }
 
-// GetProviders : où regarder un movie/tv en streaming, par pays.
+// GetProviders : /3/{movie|tv}/{id}/watch/providers.
 // Retourne map[country_code]CountryProviders. Pour la France, key = "FR".
 func (c *Client) GetProviders(tmdbID int, mediaType string) (map[string]CountryProviders, error) {
-	if mediaType == "" {
+	if mediaType != "movie" && mediaType != "tv" {
 		mediaType = "movie"
 	}
-	params := url.Values{}
-	params.Set("t", "providers")
-	params.Set("type", mediaType)
-	params.Set("q", fmt.Sprintf("%d", tmdbID))
-	req, err := http.NewRequest("GET", c.base+"?"+params.Encode(), nil)
+	body, err := c.doGet(fmt.Sprintf("/%s/%d/watch/providers", mediaType, tmdbID), nil)
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("User-Agent", "GoPostTools/4.x")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("proxytmdb providers HTTP %d", resp.StatusCode)
 	}
 	var resBody struct {
 		Results map[string]CountryProviders `json:"results"`
@@ -353,13 +349,16 @@ func (c *Client) GetProviders(tmdbID int, mediaType string) (map[string]CountryP
 	return resBody.Results, nil
 }
 
-// TestConnection : ping le serveur via /health (endpoint léger).
+// TestConnection : ping /3/authentication?api_key=... — valide la clé.
 func (c *Client) TestConnection() error {
-	req, err := http.NewRequest("GET", "https://tmdb.uklm.xyz/health", nil)
+	if c.apiKey == "" {
+		return fmt.Errorf("clé API TMDB manquante")
+	}
+	req, err := http.NewRequest("GET", c.base+"/authentication?api_key="+url.QueryEscape(c.apiKey), nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "GoPostTools/4.x")
+	req.Header.Set("User-Agent", "GoPostTools/6.x")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err

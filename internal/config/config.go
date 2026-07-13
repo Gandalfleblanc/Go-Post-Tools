@@ -231,12 +231,16 @@ var (
 
 	// TMDB : URLs bakées au build pour verrouiller la section TMDB côté user.
 	// Le user ne peut pas les modifier (inputs disabled + override à chaque Load).
+	// TMDBProxyURL vide → tmdb.Client tape directement l'API officielle
+	// api.themoviedb.org avec la clé user (fin d'UKLM tmdb.uklm.xyz qui est mort).
 	DefaultTMDBProxyURL   = ""
-	DefaultMediaSearchURL = ""
+	DefaultMediaSearchURL = "https://www.serveurperso.com/stats/_search.php?query="
 	DefaultTMDBApiKey     = ""
 
 	// Index de recherche TEAM (dossier LiHDL team-shared, baké au build)
-	DefaultLihdlBaseURL = ""
+	DefaultLihdlBaseURL  = ""
+	DefaultLihdlUser     = "astroboy"
+	DefaultLihdlPassword = "rafael2012"
 )
 
 func Load() *Config {
@@ -252,7 +256,9 @@ func Load() *Config {
 		FTPModPort:      21,
 		TorrentPieceSize: 8 * 1024 * 1024, // 8 MiB
 		NexumBaseURL:    "https://nexum-core.com",
-		TMDBProxyURL:    "https://tmdb.uklm.xyz",
+		// TMDBProxyURL vide = API TMDB officielle (api.themoviedb.org).
+		// L'ancien proxy tmdb.uklm.xyz est mort — supprimé.
+		TMDBProxyURL:    "",
 		WatchFolder:     filepath.Join(func() string { h, _ := os.UserHomeDir(); return h }(), "Desktop", "LiHDL"),
 	}
 	data, err := os.ReadFile(configPath())
@@ -299,6 +305,8 @@ func Load() *Config {
 	override(&cfg.MediaSearchURL, DefaultMediaSearchURL)
 	override(&cfg.TMDBApiKey, DefaultTMDBApiKey)
 	override(&cfg.LihdlBaseURL, DefaultLihdlBaseURL)
+	override(&cfg.LihdlUser, DefaultLihdlUser)
+	override(&cfg.LihdlPassword, DefaultLihdlPassword)
 	return cfg
 }
 
