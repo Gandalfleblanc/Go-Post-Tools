@@ -59,7 +59,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "6.3.1"
+const Version = "6.3.2"
 
 type App struct {
 	ctx         context.Context
@@ -1267,7 +1267,8 @@ func (a *App) ReseedPrepare(torrentPath string) (*ReseedPrepareResult, error) {
 		result.Size = info.Length
 	}
 	// Recherche TMDB (prend le 1er résultat ; pour reseed on ne propose pas de choix)
-	if results, err := mediasearch.Search(a.cfg.MediaSearchURL, info.Name, a.cfg.LihdlUser, a.cfg.LihdlPassword); err == nil && len(results) > 0 {
+	msURL, msUser, msPass := a.mediaSearchCreds()
+	if results, err := mediasearch.Search(msURL, info.Name, msUser, msPass); err == nil && len(results) > 0 {
 		result.Search = &results[0]
 		if results[0].TmdbID > 0 {
 			if fiche, err := a.client.GetTitleByTmdbID(results[0].TmdbID); err == nil {
@@ -1278,9 +1279,30 @@ func (a *App) ReseedPrepare(torrentPath string) (*ReseedPrepareResult, error) {
 	return result, nil
 }
 
+// mediaSearchCreds : URL + user + password serveurperso. Fallback sur les
+// constantes bakées au build si le runtime cfg est vide (l'UI Réglages peut
+// écraser a.cfg avec des chaînes vides via SaveConfig — les creds team-shared
+// doivent rester disponibles quoiqu'il arrive).
+func (a *App) mediaSearchCreds() (url, user, pass string) {
+	url = strings.TrimSpace(a.cfg.MediaSearchURL)
+	if url == "" {
+		url = config.DefaultMediaSearchURL
+	}
+	user = strings.TrimSpace(a.cfg.LihdlUser)
+	if user == "" {
+		user = config.DefaultLihdlUser
+	}
+	pass = a.cfg.LihdlPassword
+	if strings.TrimSpace(pass) == "" {
+		pass = config.DefaultLihdlPassword
+	}
+	return
+}
+
 // MediaSearch expose la recherche multi-résultats pour la modal de choix côté UI.
 func (a *App) MediaSearch(query string) ([]mediasearch.SearchResult, error) {
-	return mediasearch.Search(a.cfg.MediaSearchURL, query, a.cfg.LihdlUser, a.cfg.LihdlPassword)
+	url, user, pass := a.mediaSearchCreds()
+	return mediasearch.Search(url, query, user, pass)
 }
 
 // --- Admin ---
