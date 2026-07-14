@@ -24,7 +24,9 @@ type SearchResult struct {
 
 var (
 	// Chaque résultat est encapsulé dans un <span style="display: inline-block; margin: 10px; ...">
-	reResultBlock = regexp.MustCompile(`(?s)<span style="display: inline-block; margin: 10px;.*?</span></span>`)
+	// La fermeture peut être </span></span> (ancien) ou </div></span> (nouveau HTML
+	// où le contenu interne est un <div> au lieu d'un <span>). On accepte les deux.
+	reResultBlock = regexp.MustCompile(`(?s)<span style="display: inline-block; margin: 10px;.*?(?:</span>|</div>)</span>`)
 	reTmdbURL     = regexp.MustCompile(`themoviedb\.org/(movie|tv)/(\d+)`)
 	reTitleFR     = regexp.MustCompile(`(?s)FR\s*<b>([^<]+)</b>\s*(\d{4})`)
 	reTitleVO     = regexp.MustCompile(`(?s)VO\s*<b>([^<]+)</b>\s*(\d{4})`)
