@@ -59,7 +59,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "6.3.2"
+const Version = "6.3.3"
 
 type App struct {
 	ctx         context.Context
@@ -1279,24 +1279,12 @@ func (a *App) ReseedPrepare(torrentPath string) (*ReseedPrepareResult, error) {
 	return result, nil
 }
 
-// mediaSearchCreds : URL + user + password serveurperso. Fallback sur les
-// constantes bakées au build si le runtime cfg est vide (l'UI Réglages peut
-// écraser a.cfg avec des chaînes vides via SaveConfig — les creds team-shared
-// doivent rester disponibles quoiqu'il arrive).
+// mediaSearchCreds : URL + user + password serveurperso. Team-shared, forcés
+// aux constantes bakées au build (les valeurs runtime cfg peuvent être stale :
+// URL sans underscore d'une ancienne version, ou creds vidés par SaveConfig
+// depuis l'UI qui n'expose plus ces champs).
 func (a *App) mediaSearchCreds() (url, user, pass string) {
-	url = strings.TrimSpace(a.cfg.MediaSearchURL)
-	if url == "" {
-		url = config.DefaultMediaSearchURL
-	}
-	user = strings.TrimSpace(a.cfg.LihdlUser)
-	if user == "" {
-		user = config.DefaultLihdlUser
-	}
-	pass = a.cfg.LihdlPassword
-	if strings.TrimSpace(pass) == "" {
-		pass = config.DefaultLihdlPassword
-	}
-	return
+	return config.DefaultMediaSearchURL, config.DefaultLihdlUser, config.DefaultLihdlPassword
 }
 
 // MediaSearch expose la recherche multi-résultats pour la modal de choix côté UI.
