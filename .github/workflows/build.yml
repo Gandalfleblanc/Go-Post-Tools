@@ -88,7 +88,6 @@ jobs:
             -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}' \
             -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}' \
             -X 'go-post-tools/internal/config.DefaultTMDBProxyURL=${TMDB_PROXY_URL}' \
-            -X 'go-post-tools/internal/config.DefaultMediaSearchURL=${MEDIA_SEARCH_URL}' \
             -X 'go-post-tools/internal/config.DefaultLihdlBaseURL=${LIHDL_BASE_URL}' \
             -X 'go-post-tools/internal/config.DefaultFTPHost=${FTP_HOST}' \
             -X 'go-post-tools/internal/config.DefaultFTPUser=${FTP_USER}' \
@@ -183,7 +182,6 @@ jobs:
             -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}' \
             -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}' \
             -X 'go-post-tools/internal/config.DefaultTMDBProxyURL=${TMDB_PROXY_URL}' \
-            -X 'go-post-tools/internal/config.DefaultMediaSearchURL=${MEDIA_SEARCH_URL}' \
             -X 'go-post-tools/internal/config.DefaultLihdlBaseURL=${LIHDL_BASE_URL}' \
             -X 'go-post-tools/internal/config.DefaultFTPHost=${FTP_HOST}' \
             -X 'go-post-tools/internal/config.DefaultFTPUser=${FTP_USER}' \
@@ -266,7 +264,6 @@ jobs:
             -X 'go-post-tools/internal/config.DefaultLihdlUnlockHash=${LIHDL_UNLOCK_HASH}' \
             -X 'go-post-tools/internal/config.DefaultHydrackerBaseURL=${HYDRACKER_URL}' \
             -X 'go-post-tools/internal/config.DefaultTMDBProxyURL=${TMDB_PROXY_URL}' \
-            -X 'go-post-tools/internal/config.DefaultMediaSearchURL=${MEDIA_SEARCH_URL}' \
             -X 'go-post-tools/internal/config.DefaultLihdlBaseURL=${LIHDL_BASE_URL}' \
             -X 'go-post-tools/internal/config.DefaultFTPHost=${FTP_HOST}' \
             -X 'go-post-tools/internal/config.DefaultFTPUser=${FTP_USER}' \
