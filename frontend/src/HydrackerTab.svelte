@@ -1943,9 +1943,6 @@
                   <span class="pill-icon">💾</span><span class="pill-label">DDL</span>
                 </button>
               </div>
-              <div style="margin-top:8px;font-size:11px;color:var(--text3);line-height:1.4">
-                💡 <b>Juste envoyer un .torrent ?</b> Glisse directement ton fichier <code>.torrent</code> dans l'app au lieu d'un <code>.mkv</code> — l'app le postera sur Hydracker sans FTP ni seedbox.
-              </div>
             </div>
 
             {#if postUploadTypes.ddl}

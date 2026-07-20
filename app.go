@@ -59,7 +59,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "6.3.4"
+const Version = "7.0.0"
 
 type App struct {
 	ctx         context.Context
@@ -926,12 +926,14 @@ func (a *App) TestUsenet(host string, port int) tester.Result {
 	return tester.TestUsenet(host, port)
 }
 
-// --- TMDB (API officielle api.themoviedb.org — proxy UKLM retiré) ---
+// --- TMDB (proxytmdb Elysium auto-hébergé) ---
 
-// tmdbClient : client TMDB avec la clé API user + éventuellement une base URL
-// custom (Réglages TMDB). Si aucun override, tape api.themoviedb.org/3.
+// tmdbClient : client TMDB pointant sur le proxy Elysium (baké). On IGNORE
+// cfg.TMDBProxyURL parce que les vieilles configs contiennent souvent
+// tmdb.uklm.xyz (mort) → causerait des HTML 404. Le proxy Elysium est
+// team-shared, aucune raison de laisser la valeur utilisateur gagner.
 func (a *App) tmdbClient() *tmdb.Client {
-	return tmdb.NewClientWithBase(a.cfg.TMDBProxyURL).WithAPIKey(a.cfg.TMDBApiKey)
+	return tmdb.NewClientWithBase("")
 }
 
 func (a *App) TMDBSearch(query string) ([]tmdb.Movie, error) {
@@ -1266,9 +1268,8 @@ func (a *App) ReseedPrepare(torrentPath string) (*ReseedPrepareResult, error) {
 		result.FirstFileName = info.Name
 		result.Size = info.Length
 	}
-	// Recherche TMDB (prend le 1er résultat ; pour reseed on ne propose pas de choix)
-	msURL, msUser, msPass := a.mediaSearchCreds()
-	if results, err := mediasearch.Search(msURL, info.Name, msUser, msPass); err == nil && len(results) > 0 {
+	// Recherche TMDB via le proxytmdb Elysium (prend le 1er résultat)
+	if results, err := a.MediaSearch(info.Name); err == nil && len(results) > 0 {
 		result.Search = &results[0]
 		if results[0].TmdbID > 0 {
 			if fiche, err := a.client.GetTitleByTmdbID(results[0].TmdbID); err == nil {
@@ -1279,18 +1280,44 @@ func (a *App) ReseedPrepare(torrentPath string) (*ReseedPrepareResult, error) {
 	return result, nil
 }
 
-// mediaSearchCreds : URL + user + password serveurperso. Team-shared, forcés
-// aux constantes bakées au build (les valeurs runtime cfg peuvent être stale :
-// URL sans underscore d'une ancienne version, ou creds vidés par SaveConfig
-// depuis l'UI qui n'expose plus ces champs).
-func (a *App) mediaSearchCreds() (url, user, pass string) {
-	return config.DefaultMediaSearchURL, config.DefaultLihdlUser, config.DefaultLihdlPassword
-}
-
-// MediaSearch expose la recherche multi-résultats pour la modal de choix côté UI.
+// MediaSearch : recherche via le proxytmdb Elysium. Convertit les tmdb.Movie
+// en mediasearch.SearchResult pour garder la même API frontend.
+// (Remplace la recherche serveurperso HTML historique.)
 func (a *App) MediaSearch(query string) ([]mediasearch.SearchResult, error) {
-	url, user, pass := a.mediaSearchCreds()
-	return mediasearch.Search(url, query, user, pass)
+	movies, err := a.tmdbClient().Search(query)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mediasearch.SearchResult, 0, len(movies))
+	for _, m := range movies {
+		title := m.Title
+		if title == "" {
+			title = m.Name
+		}
+		vo := m.OriginalTitle
+		if vo == "" {
+			vo = m.OriginalName
+		}
+		year := ""
+		if m.ReleaseDate != "" {
+			year = m.ReleaseDate[:4]
+		} else if m.FirstAirDate != "" {
+			year = m.FirstAirDate[:4]
+		}
+		poster := ""
+		if m.PosterPath != "" {
+			poster = "https://image.tmdb.org/t/p/w200" + m.PosterPath
+		}
+		out = append(out, mediasearch.SearchResult{
+			TmdbID:    m.ID,
+			MediaType: m.MediaType,
+			TitleFR:   title,
+			TitleVO:   vo,
+			Year:      year,
+			PosterURL: poster,
+		})
+	}
+	return out, nil
 }
 
 // --- Admin ---
