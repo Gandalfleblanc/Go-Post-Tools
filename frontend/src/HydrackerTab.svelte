@@ -3,7 +3,7 @@
   import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime.js'
   import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, HydrackerGetByIgdbID, IgdbSearch, IgdbGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostTorrentWorkflow, PostExistingTorrent, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetMetaLangs, GetMetaSubs, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, IsTorrentAdminAcknowledged } from '../wailsjs/go/main/App.js'
   import { addLog } from './logs.js'
-  import { LANGUAGES as HYD_LANGUAGES, SUBS as HYD_SUBS } from './hydrackerData.js'
+  import { LANGUAGES as HYD_LANGUAGES, SUBS as HYD_SUBS, QUALITIES as HYD_QUALITIES } from './hydrackerData.js'
 
   // --- State ---
   let dragOver = false
@@ -120,7 +120,15 @@
 
   onMount(async () => {
     try { adminAcknowledged = await IsTorrentAdminAcknowledged() } catch(e) { adminAcknowledged = false }
-    try { qualityOptions = await GetMetaQualities() || [] } catch(e) { console.error(e) }
+    try {
+      const apiQuals = await GetMetaQualities()
+      qualityOptions = apiQuals?.length ? apiQuals : HYD_QUALITIES
+      if (!apiQuals?.length) addLog('META', `qualités API vides — fallback statique (${HYD_QUALITIES.length})`)
+    } catch(e) {
+      console.error('GetMetaQualities:', e)
+      qualityOptions = HYD_QUALITIES
+      addLog('META', `qualités API KO (${e?.message || e}) — fallback statique (${HYD_QUALITIES.length})`)
+    }
     // Langues et sous-titres : on tente l'API Hydracker (/meta/langs + /meta/subs),
     // fallback sur la liste statique (hydrackerData.js) si l'API est indispo ou vide.
     try {
@@ -131,7 +139,7 @@
       const apiSubs = await GetMetaSubs()
       subOptions = apiSubs?.length ? apiSubs : HYD_SUBS
     } catch(e) { console.error('GetMetaSubs:', e); subOptions = HYD_SUBS }
-    addLog('META', `langues: ${langOptions.length} · sous-titres: ${subOptions.length}`)
+    addLog('META', `qualités: ${qualityOptions.length} · langues: ${langOptions.length} · sous-titres: ${subOptions.length}`)
     EventsOn('nzb:status',  s  => { nzbStatus = s })
     // Cross-post Elysium (silencieux si token vide)
     EventsOn('elysium:log', msg => addLog('ELYSIUM', msg))
