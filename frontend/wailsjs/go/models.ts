@@ -55,6 +55,66 @@ export namespace api {
 		    return a;
 		}
 	}
+	export class AdminNzbItem {
+	    id: number;
+	    title_id: number;
+	    name: string;
+	    author: string;
+	    qualite: number;
+	    saison: number;
+	    episode: number;
+	    taille: number;
+	    total_parts: number;
+	    created_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AdminNzbItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title_id = source["title_id"];
+	        this.name = source["name"];
+	        this.author = source["author"];
+	        this.qualite = source["qualite"];
+	        this.saison = source["saison"];
+	        this.episode = source["episode"];
+	        this.taille = source["taille"];
+	        this.total_parts = source["total_parts"];
+	        this.created_at = source["created_at"];
+	    }
+	}
+	export class AdminNzbsResponse {
+	    pagination: struct { CurrentPage int "json:\"current_page\""; NextPage *int "json:\"next_page\""; Total int "json:\"total,omitempty\""; Data []api.;
+	
+	    static createFrom(source: any = {}) {
+	        return new AdminNzbsResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pagination = this.convertValues(source["pagination"], Object);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class AdminTorrentsResponse {
 	    pagination: struct { CurrentPage int "json:\"current_page\""; LastPage int "json:\"last_page,omitempty\""; Total int "json:\"total,omitempty\""; Data []api.;
 	
@@ -933,6 +993,7 @@ export namespace config {
 	    alldebrid_api_key: string;
 	    igdb_client_id: string;
 	    igdb_client_secret: string;
+	    elysium_api_token: string;
 	    usenet_host: string;
 	    usenet_port: number;
 	    usenet_ssl: boolean;
@@ -1017,6 +1078,7 @@ export namespace config {
 	        this.alldebrid_api_key = source["alldebrid_api_key"];
 	        this.igdb_client_id = source["igdb_client_id"];
 	        this.igdb_client_secret = source["igdb_client_secret"];
+	        this.elysium_api_token = source["elysium_api_token"];
 	        this.usenet_host = source["usenet_host"];
 	        this.usenet_port = source["usenet_port"];
 	        this.usenet_ssl = source["usenet_ssl"];

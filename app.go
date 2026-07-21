@@ -33,6 +33,7 @@ import (
 	"go-post-tools/internal/history"
 	"go-post-tools/internal/lihdl"
 	"go-post-tools/internal/alldebrid"
+	"go-post-tools/internal/elysium"
 	"go-post-tools/internal/igdb"
 	"go-post-tools/internal/nexum"
 	"go-post-tools/internal/nyuu"
@@ -59,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "7.0.0"
+const Version = "8.0.0"
 
 type App struct {
 	ctx         context.Context
@@ -2839,6 +2840,12 @@ func (a *App) ListMyTorrents(username string, page int) (*api.AdminTorrentsRespo
 	return a.client.ListAdminTorrents(username, page)
 }
 
+// ListMyNzbs retourne les NZB du user courant.
+func (a *App) ListMyNzbs(username string, page int) (*api.AdminNzbsResponse, error) {
+	a.resetCancellation()
+	return a.client.ListAdminNzbs(username, page)
+}
+
 // DeleteMyLien — DELETE sur /liens/{id}.
 func (a *App) DeleteMyLien(id int) error {
 	a.resetCancellation()
@@ -3071,6 +3078,94 @@ func (a *App) IgdbGetByID(igdbID int) (*igdb.Game, error) {
 func (a *App) HydrackerGetByIgdbID(igdbID int) (*api.PartialTitle, error) {
 	a.resetCancellation()
 	return a.client.GetTitleByIgdbID(igdbID)
+}
+
+// --- Elysium (site DDL/NZB warez, cross-post depuis un post Hydracker) ---
+
+// TestElysium : ping /api/v1/me pour valider le token bearer.
+func (a *App) TestElysium(token string) (string, error) {
+	if token == "" {
+		return "", fmt.Errorf("token Elysium manquant")
+	}
+	c := elysium.NewClient(token)
+	u, err := c.Me()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("✓ %s (role: %s)", u.Name, u.Role), nil
+}
+
+// crossPostElysium : après un post Hydracker réussi, tente un cross-post sur
+// Elysium (site DDL/NZB warez). Silencieux si le token n'est pas configuré.
+// Ne retourne PAS d'erreur si Elysium échoue — juste des logs, pour ne pas
+// casser le workflow principal Hydracker.
+//   - hydrackerTitleID : titleID sur Hydracker (pour lookup tmdb_id via /titles/{id})
+//   - qualite : ID qualité Hydracker (converti en nom string pour Elysium)
+//   - ddlURL : URL 1Fichier (vide = pas de DDL cross-post)
+//   - nzbPath : chemin local du .nzb (vide = pas de NZB cross-post)
+func (a *App) crossPostElysium(hydrackerTitleID, qualite int, langues, subs []string, sizeBytes int64, fileName, nfo, ddlURL, nzbPath string) {
+	token := strings.TrimSpace(a.cfg.ElysiumApiToken)
+	if token == "" {
+		return
+	}
+	log := func(msg string) { wailsruntime.EventsEmit(a.ctx, "elysium:log", msg) }
+	emitStatus := func(status, msg string) {
+		wailsruntime.EventsEmit(a.ctx, "elysium:status", map[string]interface{}{"status": status, "msg": msg})
+	}
+	emitStatus("start", "Cross-post Elysium…")
+
+	// 1. Lookup fiche Hydracker → tmdb_id + type (movie/series/game)
+	hydFiche, err := a.client.GetTitle(hydrackerTitleID, 0, 0, false)
+	if err != nil || hydFiche == nil || hydFiche.TmdbID == 0 {
+		emitStatus("skip", "Cross-post Elysium skippé (Hydracker fiche sans tmdb_id)")
+		log(fmt.Sprintf("Elysium skip : Hydracker fiche #%d sans tmdb_id (err=%v)", hydrackerTitleID, err))
+		return
+	}
+
+	// 2. Lookup title côté Elysium par tmdb_id
+	c := elysium.NewClient(token)
+	elyTitle, err := c.GetTitleByTmdbID(hydFiche.TmdbID)
+	if err != nil {
+		emitStatus("error", fmt.Sprintf("Cross-post Elysium : lookup title échoué — %s", err.Error()))
+		log(fmt.Sprintf("Elysium lookup tmdb_id=%d : %s", hydFiche.TmdbID, err))
+		return
+	}
+	if elyTitle == nil {
+		emitStatus("skip", fmt.Sprintf("Cross-post Elysium skippé (aucun title pour tmdb_id=%d)", hydFiche.TmdbID))
+		log(fmt.Sprintf("Elysium : aucun title pour tmdb_id=%d — la fiche n'existe pas sur Elysium", hydFiche.TmdbID))
+		return
+	}
+
+	// 3. Upload
+	payload := elysium.UploadPayload{
+		TitleID:     elyTitle.ID,
+		CategoryID:  elysium.CategoryFromMediaType(hydFiche.Type),
+		SizeBytes:   sizeBytes,
+		FileName:    strings.TrimSuffix(fileName, filepath.Ext(fileName)),
+		Quality:     a.qualiteName(qualite),
+		Languages:   langues,
+		Subtitles:   subs,
+		Description: nfo,
+		DDLURL:      ddlURL,
+		NZBFilePath: nzbPath,
+	}
+	emitStatus("uploading", fmt.Sprintf("Upload sur Elysium (title #%d)…", elyTitle.ID))
+	log(fmt.Sprintf("Elysium upload : title=%d (%s) cat=%d qual=%q langs=%v", elyTitle.ID, elyTitle.Title, payload.CategoryID, payload.Quality, langues))
+	res, err := c.Upload(payload)
+	if err != nil {
+		emitStatus("error", fmt.Sprintf("Cross-post Elysium échoué — %s", err.Error()))
+		log(fmt.Sprintf("Elysium upload err : %s", err))
+		return
+	}
+	parts := []string{}
+	if res.Nzb != nil {
+		parts = append(parts, fmt.Sprintf("NZB #%d (%s)", res.Nzb.ID, res.Nzb.Status))
+	}
+	if res.Ddl != nil {
+		parts = append(parts, fmt.Sprintf("DDL #%d (%s)", res.Ddl.ID, res.Ddl.Status))
+	}
+	emitStatus("ok", "✓ Cross-post Elysium : "+strings.Join(parts, " + "))
+	log("Elysium ✓ " + strings.Join(parts, " + "))
 }
 
 // AllDebridUnlock : débride un lien hoster en URL directe via AllDebrid.
@@ -4328,7 +4423,7 @@ type NzbWorkflowResult struct {
 	HydrackerID int    `json:"hydracker_id"`
 }
 
-func (a *App) PostNzbWorkflow(titleID, qualite int, langues, subs []string, mkvPath, nfo string, saison, episode int, fullSaison bool) (*NzbWorkflowResult, error) {
+func (a *App) PostNzbWorkflow(titleID, qualite int, langues, subs []string, mkvPath, nfo string, saison, episode int, fullSaison, postHydracker, postElysium bool) (*NzbWorkflowResult, error) {
 	a.resetCancellation()
 	// Validation config — retourne des messages explicites
 	if a.cfg.UsenetHost == "" {
@@ -4418,33 +4513,46 @@ func (a *App) PostNzbWorkflow(titleID, qualite int, langues, subs []string, mkvP
 	if a.isCancelled() {
 		return nil, fmt.Errorf("annulé par l'utilisateur")
 	}
-	// 5. Upload NZB sur Hydracker
-	wailsruntime.EventsEmit(a.ctx, "nzb:status", "Upload NZB sur Hydracker…")
-	uploaded, err := a.client.UploadNzb(titleID, qualite, langues, subs, result.NZBPath, nfo, saison, episode, fullSaison)
-	if err != nil {
-		return nil, fmt.Errorf("upload nzb: %w", err)
+	// 5. Upload NZB sur Hydracker (skippable via postHydracker=false)
+	var hydrackerNzbID int
+	if postHydracker {
+		wailsruntime.EventsEmit(a.ctx, "nzb:status", "Upload NZB sur Hydracker…")
+		uploaded, err := a.client.UploadNzb(titleID, qualite, langues, subs, result.NZBPath, nfo, saison, episode, fullSaison)
+		if err != nil {
+			return nil, fmt.Errorf("upload nzb: %w", err)
+		}
+		hydrackerNzbID = uploaded.Nzb.ID
+		wailsruntime.EventsEmit(a.ctx, "nzb:status", "Terminé")
+		wailsruntime.EventsEmit(a.ctx, "nzb:result", map[string]interface{}{
+			"ok":      true,
+			"message": fmt.Sprintf("NZB #%d posté avec succès", uploaded.Nzb.ID),
+		})
+		a.recordHistory(history.Entry{
+			Type:        "nzb",
+			TitleID:     titleID,
+			TitleName:   a.titleName(titleID),
+			Saison:      saison,
+			Episode:     episode,
+			Qualite:     qualite,
+			QualiteName: a.qualiteName(qualite),
+			HydrackerID: uploaded.Nzb.ID,
+			Filename:    filepath.Base(mkvPath),
+			Status:      "ok",
+		})
+	} else {
+		wailsruntime.EventsEmit(a.ctx, "nzb:status", "Post Hydracker skippé (case décochée)")
 	}
 
-	wailsruntime.EventsEmit(a.ctx, "nzb:status", "Terminé")
-	wailsruntime.EventsEmit(a.ctx, "nzb:result", map[string]interface{}{
-		"ok":      true,
-		"message": fmt.Sprintf("NZB #%d posté avec succès", uploaded.Nzb.ID),
-	})
-	a.recordHistory(history.Entry{
-		Type:        "nzb",
-		TitleID:     titleID,
-		TitleName:   a.titleName(titleID),
-		Saison:      saison,
-		Episode:     episode,
-		Qualite:     qualite,
-		QualiteName: a.qualiteName(qualite),
-		HydrackerID: uploaded.Nzb.ID,
-		Filename:    filepath.Base(mkvPath),
-		Status:      "ok",
-	})
+	// Cross-post Elysium (skippable via postElysium=false ; silencieux si token vide)
+	if postElysium {
+		if info, _ := os.Stat(mkvPath); info != nil {
+			go a.crossPostElysium(titleID, qualite, langues, subs, info.Size(), filepath.Base(mkvPath), nfo, "", result.NZBPath)
+		}
+	}
+
 	return &NzbWorkflowResult{
 		NZBPath:     result.NZBPath,
-		HydrackerID: uploaded.Nzb.ID,
+		HydrackerID: hydrackerNzbID,
 	}, nil
 }
 
@@ -4455,7 +4563,7 @@ type DDLWorkflowResult struct {
 	HydrackerID int      `json:"hydracker_id"`
 }
 
-func (a *App) PostDDLWorkflow(titleID, qualite int, langues, subs []string, mkvPath, nfo string, use1Fichier, useSendCm bool, saison, episode int, fullSaison bool) (*DDLWorkflowResult, error) {
+func (a *App) PostDDLWorkflow(titleID, qualite int, langues, subs []string, mkvPath, nfo string, use1Fichier, useSendCm bool, saison, episode int, fullSaison, postHydracker, postElysium bool) (*DDLWorkflowResult, error) {
 	a.resetCancellation()
 	if mkvPath == "" {
 		return nil, fmt.Errorf("chemin MKV manquant")
@@ -4589,10 +4697,16 @@ func (a *App) PostDDLWorkflow(titleID, qualite int, langues, subs []string, mkvP
 	}
 
 	// Post tous les liens sur Hydracker (skipper les hosts skippés/sans URL)
+	// Skippable entièrement via postHydracker=false (upload fait, mais pas de POST).
 	var links []string
 	var lastHydrackerID int
 	for host, r := range results {
 		if r.skipped || r.url == "" {
+			continue
+		}
+		links = append(links, r.url)
+		if !postHydracker {
+			logEvent(fmt.Sprintf("%s : URL récupérée ✓ (post Hydracker skippé)", host))
 			continue
 		}
 		logEvent(fmt.Sprintf("%s : post du lien sur Hydracker…", host))
@@ -4603,7 +4717,6 @@ func (a *App) PostDDLWorkflow(titleID, qualite int, langues, subs []string, mkvP
 			return nil, fmt.Errorf("hydracker %s: %w", strings.ToLower(host), err)
 		}
 		wailsruntime.EventsEmit(a.ctx, "ddl:posting", map[string]interface{}{"host": host, "posting": false, "posted": true, "id": uploaded.Lien().ID})
-		links = append(links, r.url)
 		lastHydrackerID = uploaded.Lien().ID
 		epSuffix := ""
 		if saison > 0 || episode > 0 {
@@ -4630,6 +4743,17 @@ func (a *App) PostDDLWorkflow(titleID, qualite int, langues, subs []string, mkvP
 		Links:       strings.Join(links, "\n"),
 		Status:      "ok",
 	})
+
+	// Cross-post Elysium : uniquement l'URL 1Fichier (Elysium n'accepte pas
+	// Send.now). Skippable via postElysium=false ; silencieux si token vide.
+	if postElysium {
+		if r, ok := results["1Fichier"]; ok && r.url != "" && !r.skipped {
+			if info, _ := os.Stat(mkvPath); info != nil {
+				go a.crossPostElysium(titleID, qualite, langues, subs, info.Size(), filename, nfo, r.url, "")
+			}
+		}
+	}
+
 	return &DDLWorkflowResult{
 		Links:       links,
 		HydrackerID: lastHydrackerID,

@@ -270,6 +270,10 @@ export function ListMyLiens(arg1, arg2) {
   return window['go']['main']['App']['ListMyLiens'](arg1, arg2);
 }
 
+export function ListMyNzbs(arg1, arg2) {
+  return window['go']['main']['App']['ListMyNzbs'](arg1, arg2);
+}
+
 export function ListMyTorrents(arg1, arg2) {
   return window['go']['main']['App']['ListMyTorrents'](arg1, arg2);
 }
@@ -314,8 +318,8 @@ export function ParseFilename(arg1) {
   return window['go']['main']['App']['ParseFilename'](arg1);
 }
 
-export function PostDDLWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11) {
-  return window['go']['main']['App']['PostDDLWorkflow'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
+export function PostDDLWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13) {
+  return window['go']['main']['App']['PostDDLWorkflow'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13);
 }
 
 export function PostExistingTorrent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
@@ -330,8 +334,8 @@ export function PostNzb(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
   return window['go']['main']['App']['PostNzb'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
 }
 
-export function PostNzbWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
-  return window['go']['main']['App']['PostNzbWorkflow'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+export function PostNzbWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11) {
+  return window['go']['main']['App']['PostNzbWorkflow'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
 }
 
 export function PostTorrent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
@@ -432,6 +436,10 @@ export function TMDBSearch(arg1) {
 
 export function TestAllDebrid(arg1) {
   return window['go']['main']['App']['TestAllDebrid'](arg1);
+}
+
+export function TestElysium(arg1) {
+  return window['go']['main']['App']['TestElysium'](arg1);
 }
 
 export function TestFTP(arg1, arg2, arg3, arg4) {

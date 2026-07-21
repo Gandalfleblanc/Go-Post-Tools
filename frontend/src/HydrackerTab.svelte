@@ -21,6 +21,10 @@
   let tmdbSearchId = ''
   let tmdbSearchType = 'movie'  // 'movie' | 'tv' | 'game' — toggle pour la recherche manuelle
   let igdbResults = []          // résultats recherche IGDB (mode Jeu)
+  let elysiumStatus = null      // {status: 'start'|'uploading'|'ok'|'error'|'skip', msg}
+  // Toggles cross-post : par défaut on poste sur Hydracker (comportement historique)
+  // et sur Elysium si le token est configuré.
+  let postTargets = { hydracker: true, elysium: true }
   $: gameMode = tmdbSearchType === 'game'
   let tmdbSearchLoading = false
 
@@ -129,6 +133,15 @@
     } catch(e) { console.error('GetMetaSubs:', e); subOptions = HYD_SUBS }
     addLog('META', `langues: ${langOptions.length} · sous-titres: ${subOptions.length}`)
     EventsOn('nzb:status',  s  => { nzbStatus = s })
+    // Cross-post Elysium (silencieux si token vide)
+    EventsOn('elysium:log', msg => addLog('ELYSIUM', msg))
+    EventsOn('elysium:status', s => {
+      elysiumStatus = s
+      if (s?.status === 'ok' || s?.status === 'error' || s?.status === 'skip') {
+        // Auto-hide après 8s
+        setTimeout(() => { if (elysiumStatus === s) elysiumStatus = null }, 8000)
+      }
+    })
     EventsOn('nzb:parpar',  p  => { if (p.percent !== undefined) nzbParparPct = p.percent })
     EventsOn('nzb:nyuu',    p  => {
       if (p.percent   !== undefined) nzbNyuuPct      = p.percent
@@ -1386,7 +1399,7 @@
       else tasks.push(
         withRetry(
           'NZB',
-          () => PostNzbWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postSeason, postEpisode, postFullSaison),
+          () => PostNzbWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postSeason, postEpisode, postFullSaison, postTargets.hydracker, postTargets.elysium),
           r => !!r?.nzb_path,
         )
           .then(r => successes.push(`NZB #${r.hydracker_id} ajouté`))
@@ -1398,7 +1411,7 @@
       else tasks.push(
         withRetry(
           'DDL',
-          () => PostDDLWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postDdlHosts.onefichier, postDdlHosts.sendcm, postSeason, postEpisode, postFullSaison),
+          () => PostDDLWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postDdlHosts.onefichier, postDdlHosts.sendcm, postSeason, postEpisode, postFullSaison, postTargets.hydracker, postTargets.elysium),
           r => !!(r?.links?.length),
         )
           .then(r => {
@@ -1943,6 +1956,36 @@
                   <span class="pill-icon">💾</span><span class="pill-label">DDL</span>
                 </button>
               </div>
+            </div>
+
+            <div class="post-field">
+              <div class="post-field-label">Poster sur</div>
+              <div class="upload-pills">
+                <button type="button"
+                  class="upload-pill"
+                  class:active={postTargets.hydracker}
+                  data-color="blue"
+                  title="Poster sur Hydracker"
+                  on:click={() => postTargets = { ...postTargets, hydracker: !postTargets.hydracker }}>
+                  <span class="pill-icon">🎬</span><span class="pill-label">Hydracker</span>
+                </button>
+                <button type="button"
+                  class="upload-pill"
+                  class:active={postTargets.elysium}
+                  data-color="gold"
+                  title="Cross-post Elysium (nécessite un token dans Réglages)"
+                  on:click={() => postTargets = { ...postTargets, elysium: !postTargets.elysium }}>
+                  <span class="pill-icon">🔶</span><span class="pill-label">Elysium</span>
+                </button>
+              </div>
+              {#if elysiumStatus}
+                <div style="margin-top:6px;padding:6px 10px;font-size:11px;border-radius:6px;
+                            color:{elysiumStatus.status==='ok'?'#7ef0c0':(elysiumStatus.status==='error'?'#ff9585':'var(--text2)')};
+                            background:{elysiumStatus.status==='ok'?'rgba(126,240,192,0.08)':(elysiumStatus.status==='error'?'rgba(255,149,133,0.08)':'rgba(255,255,255,0.03)')};
+                            border:1px solid {elysiumStatus.status==='ok'?'rgba(126,240,192,0.3)':(elysiumStatus.status==='error'?'rgba(255,149,133,0.3)':'var(--border)')}">
+                  {elysiumStatus.msg}
+                </div>
+              {/if}
             </div>
 
             {#if postUploadTypes.ddl}

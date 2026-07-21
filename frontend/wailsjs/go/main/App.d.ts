@@ -145,6 +145,8 @@ export function ListCheckTorrents(arg1:boolean):Promise<Array<main.CheckTorrentE
 
 export function ListMyLiens(arg1:string,arg2:number):Promise<api.AdminLiensResponse>;
 
+export function ListMyNzbs(arg1:string,arg2:number):Promise<api.AdminNzbsResponse>;
+
 export function ListMyTorrents(arg1:string,arg2:number):Promise<api.AdminTorrentsResponse>;
 
 export function ListReseedRequests(arg1:string,arg2:number,arg3:number,arg4:number):Promise<api.ReseedRequestsResponse>;
@@ -167,7 +169,7 @@ export function OpenHydrackerAdmin():Promise<void>;
 
 export function ParseFilename(arg1:string):Promise<parser.FileInfo>;
 
-export function PostDDLWorkflow(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:boolean,arg8:boolean,arg9:number,arg10:number,arg11:boolean):Promise<main.DDLWorkflowResult>;
+export function PostDDLWorkflow(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:boolean,arg8:boolean,arg9:number,arg10:number,arg11:boolean,arg12:boolean,arg13:boolean):Promise<main.DDLWorkflowResult>;
 
 export function PostExistingTorrent(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<main.TorrentWorkflowResult>;
 
@@ -175,7 +177,7 @@ export function PostLien(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<s
 
 export function PostNzb(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<api.UploadNzbResult>;
 
-export function PostNzbWorkflow(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<main.NzbWorkflowResult>;
+export function PostNzbWorkflow(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean,arg10:boolean,arg11:boolean):Promise<main.NzbWorkflowResult>;
 
 export function PostTorrent(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<api.UploadTorrentResult>;
 
@@ -226,6 +228,8 @@ export function TMDBGetProviders(arg1:number,arg2:string):Promise<Record<string,
 export function TMDBSearch(arg1:string):Promise<Array<tmdb.Movie>>;
 
 export function TestAllDebrid(arg1:string):Promise<string>;
+
+export function TestElysium(arg1:string):Promise<string>;
 
 export function TestFTP(arg1:string,arg2:number,arg3:string,arg4:string):Promise<tester.Result>;
 

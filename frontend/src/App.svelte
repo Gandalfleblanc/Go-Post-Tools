@@ -6,17 +6,16 @@
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
   import loginLogo from './assets/login-logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, LoginUser, Logout, GetCurrentUser, TryAutoLogin, HashPassword, GetTeamConfig, BuildTeamJSON, FetchHydrackerAvatar, ChangeMyPassword, GetNzbFilenames, DeleteSeedboxByHash, MediaSearch, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, HydrackerGetLienByID, HydrackerGetLienDetailByID, GetDDLFilenameByLienID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, GetSeedboxNexumIndex, DebugNexumMatch, TestNexum, TestSFTP, TestAllDebrid, TestIgdb, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, LoginUser, Logout, GetCurrentUser, TryAutoLogin, HashPassword, GetTeamConfig, BuildTeamJSON, FetchHydrackerAvatar, ChangeMyPassword, GetNzbFilenames, DeleteSeedboxByHash, MediaSearch, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, HydrackerGetLienByID, HydrackerGetLienDetailByID, GetDDLFilenameByLienID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, ListMyNzbs, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, GetSeedboxNexumIndex, DebugNexumMatch, TestNexum, TestSFTP, TestAllDebrid, TestIgdb, TestElysium, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
 
   // --- Tabs (réorganisés par workflow, 8 onglets principaux) ---
   const TABS = [
-    { id: 'hydracker', label: '🎬 Hydracker' },
-    { id: 'fiches',    label: '🎞 Fiches' },
-    // 'check' + 'reseed' retirés — flow torrent supprimé
+    { id: 'hydracker', label: '🚀 Publier' },
+    // 'fiches', 'check', 'reseed' retirés — flow torrent + browsing supprimés
     { id: 'myuploads', label: '📤 Mes uploads' },
     { id: 'history',   label: '📚 Historique' },
     { id: 'logs',      label: '🔬 Logs' },           // fusion : Journal + API
-    { id: 'manager',   label: '👥 Manager' },
+    // 'manager' retiré : plus d'auth = plus de gestion utilisateurs
     { id: 'settings',  label: '⚙️ Réglages' },
   ]
   // Sous-onglets des tabs fusionnées
@@ -30,9 +29,9 @@
   }
   let activeTab = 'hydracker'
 
-  // --- Auth team (login pseudo + bcrypt) ---
-  // authState : 'login' | 'ok'
-  let authState = 'login'
+  // --- Auth retirée (2026-07-21) : plus de login/password. L'identité vient
+  // du token Hydracker (pour "Mes uploads" filter). Sans token → mode anonyme.
+  let authState = 'ok'
   let loginPseudo = ''
   let loginPassword = ''
   let loginError = ''
@@ -315,15 +314,8 @@
   // Les permissions par rôle sont maintenant définies dans team.json
   // (section "roles") et l'app reçoit la liste `tabs` via LoginUser.
   // → Éditable via l'onglet 👥 Manager (admin).
-  $: visibleTabs = TABS.filter(t => {
-    if (TABS_OWNER_ONLY[t.id]) {
-      return TABS_OWNER_ONLY[t.id].includes(myUsername)
-    }
-    if (TABS_ROLE_ONLY[t.id]) {
-      return TABS_ROLE_ONLY[t.id].includes(myRole)
-    }
-    return myTabs.includes(t.id)
-  })
+  // Auth retirée : tous les onglets sont visibles (plus de rôle/permissions).
+  $: visibleTabs = TABS
 
   // --- Config ---
   let cfg = {
@@ -338,6 +330,7 @@
     alldebrid_api_key: '',
     igdb_client_id: '',
     igdb_client_secret: '',
+    elysium_api_token: '',
     usenet_host: '', usenet_port: 119, usenet_ssl: false,
     usenet_user: '', usenet_password: '', usenet_connections: 20,
     usenet_group: 'alt.binaries.test',
@@ -1295,7 +1288,7 @@
 
 // --- Mes uploads (admin CRUD sur tes propres items) ---
   // myUsername vient de l'auth team (résolu via /user-profile/me)
-  let myTab = 'torrents'                   // 'torrents' | 'liens'
+  let myTab = 'liens'                      // 'liens' | 'nzbs' (torrents retirés)
   let myItems = []                         // []Lien ou []TorrentItem
   let myLoading = false
   let myError = ''
@@ -1312,14 +1305,17 @@
     myError = ''
     myItems = []
     try {
-      if (myTab === 'torrents') {
-        const r = await ListMyTorrents(myUsername, myPage)
-        myItems = r?.pagination?.data || []
-        myTotalPages = r?.pagination?.last_page || 1
-      } else if (myTab === 'liens') {
+      if (myTab === 'liens') {
         const r = await ListMyLiens(myUsername, myPage)
         myItems = r?.pagination?.data || []
         myTotalPages = r?.pagination?.last_page || 1
+      } else if (myTab === 'nzbs') {
+        const r = await ListMyNzbs(myUsername, myPage)
+        myItems = r?.pagination?.data || []
+        // AdminNzbsResponse n'a pas last_page — on utilise next_page + total pour estimer
+        const total = r?.pagination?.total || 0
+        const perPage = myItems.length || 20
+        myTotalPages = total > 0 ? Math.ceil(total / perPage) : (r?.pagination?.next_page ? myPage + 1 : myPage)
       }
     } catch(e) {
       myError = String(e?.message || e)
@@ -1376,10 +1372,10 @@
     }
     const id = deletingItem.id
     try {
-      if (myTab === 'torrents') {
-        await DeleteMyTorrent(id)
-      } else if (myTab === 'liens') {
+      if (myTab === 'liens') {
         await DeleteMyLien(id)
+      } else if (myTab === 'nzbs') {
+        await DeleteMyNzb(id)
       }
       addLog('MY', `✓ Supprimé ${myTab.slice(0,-1)} #${id}`)
       try { Notify('🗑 Supprimé', `${myTab.slice(0,-1)} #${id}`) } catch(e) {}
@@ -1711,29 +1707,16 @@
     } catch {}
     try { appVersion = await GetVersion() } catch {}
     try { updateInfo = await CheckForUpdate() } catch {}
-    // 1) Session mémoire (hot reload)
+    // Identité : on interroge Hydracker via son token bearer pour récupérer le
+    // pseudo (sert au filtre "Mes uploads"). Si pas de token / pas de réponse,
+    // myUsername reste vide → "Mes uploads" affiche tous les uploads.
     try {
-      const me = await GetCurrentUser()
-      if (me && me.role) {
-        applyAuth(me)
-        authState = 'ok'
+      const me = await GetUserProfile('me')
+      if (me && me.name) {
+        myUsername = me.name
         fetchAvatar()
       }
     } catch {}
-    // 2) Si pas de session mémoire, tente l'auto-login depuis session.json (24h)
-    if (authState !== 'ok') {
-      try {
-        const auto = await TryAutoLogin()
-        if (auto && auto.role) {
-          applyAuth(auto)
-          authState = 'ok'
-          fetchAvatar()
-        }
-      } catch (e) {
-        // Erreur silencieuse : team.json injoignable ou session expirée → écran de login normal
-        console.warn('Auto-login échoué :', e)
-      }
-    }
     checkLihdlPasswordStatus()
     checkSeedboxPasswordStatus()
     try { hydrackerURLManaged = await IsHydrackerURLManaged() } catch {}
@@ -1941,6 +1924,17 @@
     </button>
     <div class="brand">
       <img src={logo} alt="" class="brand-logo" />
+      <!-- Logo Elysium inline SVG, même largeur que Hydracker (78px) -->
+      <svg class="brand-logo-elysium" viewBox="0 0 78 78" xmlns="http://www.w3.org/2000/svg" title="Cross-post Elysium">
+        <defs>
+          <linearGradient id="elyGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ff9a3c"/>
+            <stop offset="1" stop-color="#e6631a"/>
+          </linearGradient>
+        </defs>
+        <rect x="18" y="18" width="42" height="42" rx="4" fill="url(#elyGrad)" transform="rotate(45 39 39)"/>
+        <text x="39" y="72" text-anchor="middle" fill="#ffffff" font-family="-apple-system,Helvetica Neue,sans-serif" font-size="10" font-weight="700" letter-spacing="1.5">ELYSIUM</text>
+      </svg>
       {#if !sidebarCollapsed}
         <div class="logo">GO Post Tools</div>
         {#if appVersion}<div class="brand-version">v{appVersion}</div>{/if}
@@ -1948,24 +1942,10 @@
       {/if}
     </div>
 
-    <!-- Carte user (pseudo + rôle) -->
-    {#if myUsername}
-      <div class="user-card" class:compact={sidebarCollapsed}>
-        {#if myAvatar}
-          <img class="user-avatar" src={myAvatar} alt={myUsername} style="border-color:{myColor || 'transparent'}"
-            on:error={(e) => { myAvatar = '' }} />
-        {:else}
-          <div class="user-avatar user-avatar-initial" style="background:linear-gradient(135deg, {(myColor||'#60a5fa')}55, {(myColor||'#60a5fa')}22);color:{myColor || '#60a5fa'};border-color:{myColor || 'transparent'}">{myUsername.charAt(0).toUpperCase()}</div>
-        {/if}
-        {#if !sidebarCollapsed}
-          <div class="user-info">
-            <div class="user-name">{myUsername}</div>
-            <div class="user-role" style="color:{myColor || '#60a5fa'}">
-              <span style="font-size:14px">{myBadge || '🔵'}</span>
-              {myTitle || myRole || 'User'}
-            </div>
-          </div>
-        {/if}
+    <!-- Carte user retirée : plus d'auth (identité via token Hydracker) -->
+    {#if myUsername && !sidebarCollapsed}
+      <div style="text-align:center;font-size:11px;color:var(--text3);margin-bottom:8px">
+        Connecté : <b style="color:var(--text2)">{myUsername}</b>
       </div>
     {/if}
 
@@ -1988,9 +1968,7 @@
           {#if !sidebarCollapsed}<span>{updateCheckMsg || 'Vérifier maj'}</span>{/if}
         </button>
       {/if}
-      <button class="btn-logout" on:click={doLogout} title="Se déconnecter">
-        {#if sidebarCollapsed}🚪{:else}🚪 Se déconnecter{/if}
-      </button>
+      <!-- Bouton logout retiré : plus d'auth -->
     </div>
   </aside>
 
@@ -2536,8 +2514,8 @@
             <span style="color:var(--text3);font-size:11px">user: <b>{myUsername}</b></span>
           </div>
           <div class="field" style="display:flex;gap:6px;flex-wrap:wrap">
-            <button class="btn-test" class:active-chip={myTab === 'torrents'} on:click={() => { myTab = 'torrents'; myPage = 1; loadMyUploads() }}>📦 Torrents</button>
             <button class="btn-test" class:active-chip={myTab === 'liens'} on:click={() => { myTab = 'liens'; myPage = 1; loadMyUploads() }}>🔗 DDL</button>
+            <button class="btn-test" class:active-chip={myTab === 'nzbs'} on:click={() => { myTab = 'nzbs'; myPage = 1; loadMyUploads() }}>📰 NZB</button>
             <button class="btn-test" on:click={loadMyUploads} disabled={myLoading}>🔄 Rafraîchir</button>
           </div>
         </div>
@@ -2709,10 +2687,9 @@
       <div class="tab-content">
         <h2>📚 Historique</h2>
         <div class="hist-stats">
-          <span class="hist-stat">Total <b>{histStats.total}</b></span>
+          <span class="hist-stat">Total <b>{(histStats.nzb || 0) + (histStats.ddl || 0)}</b></span>
           <span class="hist-stat ok">OK <b>{histStats.ok}</b></span>
           <span class="hist-stat err">Erreurs <b>{histStats.error}</b></span>
-          <span class="hist-stat">Torrent <b>{histStats.torrent}</b></span>
           <span class="hist-stat">NZB <b>{histStats.nzb}</b></span>
           <span class="hist-stat">DDL <b>{histStats.ddl}</b></span>
         </div>
@@ -2720,7 +2697,6 @@
           <input class="hist-search" type="text" placeholder="🔍 Recherche (titre, fichier, lien…)" bind:value={histQuery} on:input={loadHistory} />
           <div class="hist-type-btns">
             <button class:active={histFilter === ''} on:click={() => { histFilter = ''; loadHistory() }}>Tous</button>
-            <button class:active={histFilter === 'torrent'} on:click={() => { histFilter = 'torrent'; loadHistory() }}>🧲 Torrent</button>
             <button class:active={histFilter === 'nzb'} on:click={() => { histFilter = 'nzb'; loadHistory() }}>📰 NZB</button>
             <button class:active={histFilter === 'ddl'} on:click={() => { histFilter = 'ddl'; loadHistory() }}>🔗 DDL</button>
           </div>
@@ -2731,7 +2707,7 @@
           <div class="hist-empty">Aucune entrée. Les posts s'ajoutent automatiquement ici.</div>
         {:else}
           <div class="hist-list">
-            {#each histEntries as e}
+            {#each histEntries.filter(e => e.type !== 'torrent') as e}
               <div class="hist-row" class:err={e.status === 'error'}>
                 <div class="hist-col-date">{formatDate(e.timestamp)}</div>
                 <div class="hist-col-type hist-type-{e.type}">{e.type.toUpperCase()}</div>
@@ -3710,50 +3686,6 @@
             </div>
           {/if}
 
-          <!-- ===== Mon mot de passe ===== -->
-          <div style="font-size:11px;color:var(--text3);margin:4px 0 8px;text-transform:uppercase;letter-spacing:0.5px">🔐 Mon compte</div>
-          <div class="section section-locked">
-            <div class="section-header">
-              <span>🔒 Changer mon mot de passe (verrouillé team)</span>
-            </div>
-            <div style="color:var(--text3);font-size:12px;line-height:1.5;margin-bottom:10px">
-              Génère un nouveau hash pour ton compte <b>{myUsername}</b> et produit un <code>team.json</code> complet à coller sur GitHub.
-              Les autres users conservent leur mdp actuel.
-            </div>
-            <div class="field">
-              <label>Nouveau mot de passe</label>
-              <input type="password" value={changePwdValue} disabled readonly placeholder="••••••••" />
-            </div>
-            <div class="field">
-              <label>Confirmer</label>
-              <input type="password" value={changePwdConfirm} disabled readonly placeholder="••••••••" />
-            </div>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
-              <button class="btn-save" disabled>
-                🔒 Générer le team.json
-              </button>
-              {#if changePwdValue && changePwdConfirm && changePwdValue !== changePwdConfirm}
-                <span style="color:#ff9585;font-size:12px">⚠ Les mots de passe ne correspondent pas</span>
-              {/if}
-              {#if changePwdError}
-                <span style="color:#ff9585;font-size:12px">⚠ {changePwdError}</span>
-              {/if}
-              {#if changePwdSuccess}
-                <span style="color:#7ef0c0;font-size:12px">✅ Copié — colle sur GitHub</span>
-              {/if}
-            </div>
-            {#if changePwdOutput}
-              <div style="margin-top:10px">
-                <label style="font-size:11px;color:var(--text3)">team.json complet à coller sur GitHub</label>
-                <textarea readonly rows="10" class="mgr-output">{changePwdOutput}</textarea>
-                <div style="margin-top:6px">
-                  <button class="btn-test" on:click={() => { navigator.clipboard.writeText(changePwdOutput); changePwdSuccess = true }}>📋 Recopier</button>
-                  <button class="btn-test" on:click={() => OpenBrowser('https://github.com/Gandalfleblanc/Go-Post-Tools/edit/main/team.json')}>→ Ouvrir team.json sur GitHub</button>
-                </div>
-              </div>
-            {/if}
-          </div>
-
           <!-- ===== Clés API ===== -->
           <div style="font-size:11px;color:var(--text3);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">🔑 Clés API</div>
 
@@ -3868,23 +3800,6 @@
 
           <div class="section">
             <div class="section-header">
-              <span>AllDebrid</span>
-              <button class="btn-test" on:click={() => runTest('alldebrid', async () => ({ ok: true, message: await TestAllDebrid(cfg.alldebrid_api_key) }))}>
-                {#if testLoading.alldebrid}…{:else}Tester{/if}
-              </button>
-            </div>
-            {#if testResults.alldebrid}
-              <div class="test-result" class:ok={testResults.alldebrid.ok}>{testResults.alldebrid.message}</div>
-            {/if}
-            <div class="field">
-              <label>Clé API AllDebrid</label>
-              <input type="password" bind:value={cfg.alldebrid_api_key} placeholder="apikey" />
-              <div class="field-hint">Débride les liens DDL (Uptobox, Rapidgator, etc.) en URL directe haute vitesse — fallback quand Hydracker ne fournit pas de directDL 1Fichier. Récupère ta clé sur alldebrid.com → Mon compte → API.</div>
-            </div>
-          </div>
-
-          <div class="section">
-            <div class="section-header">
               <span>IGDB (Jeux vidéo)</span>
               <button class="btn-test" on:click={() => runTest('igdb', async () => ({ ok: true, message: await TestIgdb(cfg.igdb_client_id, cfg.igdb_client_secret) }))}>
                 {#if testLoading.igdb}…{:else}Tester{/if}
@@ -3901,6 +3816,23 @@
               <label>Twitch Client Secret</label>
               <input type="password" bind:value={cfg.igdb_client_secret} placeholder="client secret" />
               <div class="field-hint">Active la recherche de jeux vidéo (toggle 🎮 Jeu dans l'onglet Hydracker). Crée une app sur console.twitch.tv → Applications → Enregistrer (gratuit), puis colle le Client ID + Secret.</div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <span>Elysium (cross-post)</span>
+              <button class="btn-test" on:click={() => runTest('elysium', async () => ({ ok: true, message: await TestElysium(cfg.elysium_api_token) }))}>
+                {#if testLoading.elysium}…{:else}Tester{/if}
+              </button>
+            </div>
+            {#if testResults.elysium}
+              <div class="test-result" class:ok={testResults.elysium.ok}>{testResults.elysium.message}</div>
+            {/if}
+            <div class="field">
+              <label>Token API Elysium</label>
+              <input type="password" bind:value={cfg.elysium_api_token} placeholder="els_..." />
+              <div class="field-hint">Après un post Hydracker réussi, cross-post automatique sur Elysium (URL 1Fichier + fichier NZB). Send.now non transmis. Génère ton token sur <a href="https://elysium-les5zamis.com/account-settings" target="_blank" style="color:var(--accent)">elysium-les5zamis.com/account-settings</a> section API tokens. Vide = pas de cross-post.</div>
             </div>
           </div>
 
@@ -4316,6 +4248,13 @@
     user-select: none;
     -webkit-user-drag: none;
   }
+  .brand-logo-elysium {
+    width: 78px; height: 78px;
+    filter: drop-shadow(0 0 14px rgba(255, 140, 40, 0.45));
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .sidebar.collapsed .brand-logo-elysium { width: 36px; height: 36px; }
   .logo {
     font-size: 12px; font-weight: 700;
     letter-spacing: 2.4px;

@@ -32,6 +32,11 @@ type Config struct {
 	IgdbClientID     string `json:"igdb_client_id"`
 	IgdbClientSecret string `json:"igdb_client_secret"`
 
+	// Elysium — cross-post NZB + DDL 1Fichier vers un second tracker.
+	// Chaque uploader génère sa clé sur elysium-les5zamis.com/account-settings
+	// (section API tokens). Vide → pas de cross-post.
+	ElysiumApiToken string `json:"elysium_api_token"`
+
 	// Usenet
 	UsenetHost     string `json:"usenet_host"`
 	UsenetPort     int    `json:"usenet_port"`
