@@ -121,6 +121,50 @@ func (c *Client) getTitleByExternal(param, value string) (*Title, error) {
 	return &resp2.Data[0], nil
 }
 
+// ImportTitle : POST /api/v1/titles/import — crée (ou récupère) un Title
+// Elysium depuis un external_id (tmdb_id pour movie/tv, igdb_id pour game,
+// deezer_id pour music, isbn pour ebook). Fallback quand GetTitleByTmdbID
+// renvoie nil : la fiche n'existe pas encore sur Elysium, on la fait importer
+// automatiquement au lieu de skip le cross-post.
+func (c *Client) ImportTitle(mediaType string, externalID int) (*Title, error) {
+	if c.token == "" {
+		return nil, fmt.Errorf("token Elysium manquant")
+	}
+	t := strings.ToLower(strings.TrimSpace(mediaType))
+	switch t {
+	case "tv", "series":
+		t = "tv"
+	case "game":
+		t = "game"
+	case "music":
+		t = "music"
+	case "ebook":
+		t = "ebook"
+	default:
+		t = "movie"
+	}
+	body, _ := json.Marshal(map[string]any{"type": t, "external_id": externalID})
+	req, _ := http.NewRequest("POST", c.base+"/api/v1/titles/import", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "GoPostTools/8.x")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		return nil, fmt.Errorf("elysium /titles/import HTTP %d: %s", resp.StatusCode, truncate(string(respBody), 300))
+	}
+	var out Title
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("parse /titles/import: %w", err)
+	}
+	return &out, nil
+}
+
 // UploadPayload : entrée de Upload — décrit ce qui va être posté sur Elysium.
 type UploadPayload struct {
 	TitleID     int      // Elysium title id (via GetTitleByTmdbID/IgdbID)

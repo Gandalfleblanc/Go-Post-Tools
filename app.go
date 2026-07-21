@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "8.0.0"
+const Version = "8.0.1"
 
 type App struct {
 	ctx         context.Context
@@ -3131,9 +3131,21 @@ func (a *App) crossPostElysium(hydrackerTitleID, qualite int, langues, subs []st
 		return
 	}
 	if elyTitle == nil {
-		emitStatus("skip", fmt.Sprintf("Cross-post Elysium skippé (aucun title pour tmdb_id=%d)", hydFiche.TmdbID))
-		log(fmt.Sprintf("Elysium : aucun title pour tmdb_id=%d — la fiche n'existe pas sur Elysium", hydFiche.TmdbID))
-		return
+		// Fiche absente d'Elysium → import auto depuis TMDB via /api/v1/titles/import
+		mediaType := hydFiche.Type
+		if mediaType == "series" {
+			mediaType = "tv"
+		}
+		emitStatus("importing", fmt.Sprintf("Import fiche Elysium (tmdb_id=%d)…", hydFiche.TmdbID))
+		log(fmt.Sprintf("Elysium : fiche tmdb_id=%d absente, import auto (type=%s)…", hydFiche.TmdbID, mediaType))
+		imported, ierr := c.ImportTitle(mediaType, hydFiche.TmdbID)
+		if ierr != nil {
+			emitStatus("error", fmt.Sprintf("Cross-post Elysium : import fiche échoué — %s", ierr.Error()))
+			log(fmt.Sprintf("Elysium import tmdb_id=%d : %s", hydFiche.TmdbID, ierr))
+			return
+		}
+		elyTitle = imported
+		log(fmt.Sprintf("Elysium ✓ fiche importée : #%d %s (%d)", elyTitle.ID, elyTitle.Title, elyTitle.Year))
 	}
 
 	// 3. Upload
@@ -4443,9 +4455,18 @@ func (a *App) PostNzbWorkflow(titleID, qualite int, langues, subs []string, mkvP
 		return nil, fmt.Errorf("chemin du fichier MKV manquant — utilisez le bouton Parcourir")
 	}
 
-	// Pré-flight dedup NZB
-	if existingID, existingName := a.findReleaseDuplicateNzb(titleID, qualite, langues, saison, episode); existingID > 0 {
-		return nil, fmt.Errorf("doublon NZB Hydracker #%d (%s) avec mêmes qualité+langues+saison+épisode — post annulé", existingID, existingName)
+	// Pré-flight dedup NZB : ne concerne que Hydracker. On abort UNIQUEMENT si
+	// Hydracker est la seule cible ; sinon on skip Hydracker et on continue
+	// pour cross-poster sur Elysium (l'anti-doublon Hydracker n'a rien à voir
+	// avec Elysium).
+	if postHydracker {
+		if existingID, existingName := a.findReleaseDuplicateNzb(titleID, qualite, langues, saison, episode); existingID > 0 {
+			if !postElysium {
+				return nil, fmt.Errorf("doublon NZB Hydracker #%d (%s) avec mêmes qualité+langues+saison+épisode — post annulé", existingID, existingName)
+			}
+			wailsruntime.EventsEmit(a.ctx, "nzb:status", fmt.Sprintf("Doublon Hydracker #%d — Hydracker skippé, cross-post Elysium continué", existingID))
+			postHydracker = false
+		}
 	}
 
 	srcInfo, statErr := os.Stat(mkvPath)
