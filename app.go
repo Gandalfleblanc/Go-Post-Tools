@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "8.0.2"
+const Version = "8.0.3"
 
 type App struct {
 	ctx         context.Context
@@ -3095,6 +3095,18 @@ func (a *App) TestElysium(token string) (string, error) {
 	return fmt.Sprintf("✓ %s (role: %s)", u.Name, u.Role), nil
 }
 
+// nfoForElysium : convertit le NFO HTML (wrappé <pre>…</pre> + entités
+// échappées pour Hydracker) en texte brut pour Elysium.
+func nfoForElysium(nfo string) string {
+	s := strings.TrimSpace(nfo)
+	s = strings.TrimPrefix(s, "<pre>")
+	s = strings.TrimSuffix(s, "</pre>")
+	s = strings.ReplaceAll(s, "&lt;", "<")
+	s = strings.ReplaceAll(s, "&gt;", ">")
+	s = strings.ReplaceAll(s, "&amp;", "&")
+	return s
+}
+
 // crossPostElysium : après un post Hydracker réussi, tente un cross-post sur
 // Elysium (site DDL/NZB warez). Silencieux si le token n'est pas configuré.
 // Ne retourne PAS d'erreur si Elysium échoue — juste des logs, pour ne pas
@@ -3148,7 +3160,10 @@ func (a *App) crossPostElysium(hydrackerTitleID, qualite int, langues, subs []st
 		log(fmt.Sprintf("Elysium ✓ fiche importée : #%d %s (%d)", elyTitle.ID, elyTitle.Title, elyTitle.Year))
 	}
 
-	// 3. Upload
+	// 3. Upload — le NFO arrive du front wrappé en <pre>…</pre> avec entités
+	// HTML échappées (Hydracker rend le NFO en HTML). Elysium rend le NFO en
+	// texte brut → il faut dé-wrapper et dé-échapper avant l'envoi, sinon les
+	// balises <pre> et &amp;/&lt;/&gt; s'affichent en clair.
 	payload := elysium.UploadPayload{
 		TitleID:     elyTitle.ID,
 		CategoryID:  elysium.CategoryFromMediaType(hydFiche.Type),
@@ -3157,7 +3172,7 @@ func (a *App) crossPostElysium(hydrackerTitleID, qualite int, langues, subs []st
 		Quality:     a.qualiteName(qualite),
 		Languages:   langues,
 		Subtitles:   subs,
-		Description: nfo,
+		Description: nfoForElysium(nfo),
 		DDLURL:      ddlURL,
 		NZBFilePath: nzbPath,
 	}

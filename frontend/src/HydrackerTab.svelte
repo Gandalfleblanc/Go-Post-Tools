@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime.js'
-  import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, HydrackerGetByIgdbID, IgdbSearch, IgdbGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostTorrentWorkflow, PostExistingTorrent, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetMetaLangs, GetMetaSubs, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, IsTorrentAdminAcknowledged } from '../wailsjs/go/main/App.js'
+  import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, HydrackerGetByIgdbID, IgdbSearch, IgdbGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostTorrentWorkflow, PostExistingTorrent, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetMetaLangs, GetMetaSubs, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, IsTorrentAdminAcknowledged, GetVersion } from '../wailsjs/go/main/App.js'
   import { addLog } from './logs.js'
   import { LANGUAGES as HYD_LANGUAGES, SUBS as HYD_SUBS, QUALITIES as HYD_QUALITIES } from './hydrackerData.js'
 
@@ -115,11 +115,13 @@
 
   // Meta depuis l'API Hydracker
   let qualityOptions = []  // [{id, name}]
+  let appVersion = ''      // rempli au onMount via GetVersion()
   let langOptions = []     // [{id, name}]
   let subOptions = []      // [{id, name}] — liste spécifique aux sous-titres
 
   onMount(async () => {
     try { adminAcknowledged = await IsTorrentAdminAcknowledged() } catch(e) { adminAcknowledged = false }
+    try { appVersion = await GetVersion() } catch(e) { appVersion = '' }
     try {
       const apiQuals = await GetMetaQualities()
       qualityOptions = apiQuals?.length ? apiQuals : HYD_QUALITIES
@@ -1317,15 +1319,15 @@
       }
     }
 
-    if (selectedTMDB?.id || selectedHydracker?.id) {
+    if (selectedTMDB?.id) {
       section('RÉFÉRENCES')
-      if (selectedTMDB?.id) pad('TMDB',      `#${selectedTMDB.id}`)
-      if (selectedHydracker?.id) pad('Hydracker', `#${selectedHydracker.id}`)
+      pad('TMDB', `#${selectedTMDB.id}`)
     }
 
     lines.push('')
     lines.push('─'.repeat(W))
-    lines.push(`  Hydracker · ${new Date().toLocaleDateString('fr-FR')}`)
+    const sig = appVersion ? `GO POST TOOLS v${appVersion}` : 'GO POST TOOLS'
+    lines.push(`  ${sig} · ${new Date().toLocaleDateString('fr-FR')}`)
     return lines.join('\n')
   }
   // Le NFO effectif : manuel si l'user en a saisi un, sinon généré auto.
