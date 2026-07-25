@@ -91,6 +91,27 @@ func Run(ctx context.Context, cfg *config.Config, inputPath string, onProgress f
 		threads = 8
 	}
 
+	// Auto-scale de la slice size pour éviter les crashs parpar sur gros REMUX :
+	// la spec PAR2 plafonne à 65 535 slices/set. Au-delà de ~32 768 slices (moitié
+	// de la limite, marge de sécurité), parpar plante fréquemment (OOM, exit 1).
+	// Cible pratique : ~4000 slices, aligné sur 4 KB pour la perf disque.
+	var totalSize int64
+	for _, p := range inputs {
+		if info, err := os.Stat(p); err == nil {
+			totalSize += info.Size()
+		}
+	}
+	const maxSlices = 32768
+	const targetSlices = 4000
+	if totalSize > 0 && totalSize/int64(sliceSize) > maxSlices {
+		newSlice := totalSize / targetSlices
+		if r := newSlice % 4096; r != 0 {
+			newSlice += 4096 - r
+		}
+		onProgress(Progress{Error: fmt.Sprintf("slice size auto-ajustée: %d B → %d B (input=%.1f GB, cible ~%d slices)", sliceSize, newSlice, float64(totalSize)/1e9, targetSlices)})
+		sliceSize = int(newSlice)
+	}
+
 	args := []string{
 		"-s", strconv.Itoa(sliceSize) + "B",
 		"-r", fmt.Sprintf("%.0f%%", redundancy),
@@ -111,28 +132,44 @@ func Run(ctx context.Context, cfg *config.Config, inputPath string, onProgress f
 		return fmt.Errorf("démarrage parpar: %w", err)
 	}
 
-	parseProgress(stderr, onProgress)
+	errLines := parseProgress(stderr, onProgress)
 
 	if err := cmd.Wait(); err != nil {
-		onProgress(Progress{Done: true, Error: err.Error()})
-		return fmt.Errorf("parpar: %w", err)
+		tail := lastLines(errLines, 20)
+		msg := strings.Join(tail, "\n")
+		onProgress(Progress{Done: true, Error: err.Error() + "\n" + msg})
+		return fmt.Errorf("parpar: %w\n%s", err, msg)
 	}
 
 	onProgress(Progress{Percent: 100, Done: true})
 	return nil
 }
 
-func parseProgress(r io.Reader, onProgress func(Progress)) {
+func lastLines(lines []string, n int) []string {
+	if len(lines) <= n {
+		return lines
+	}
+	return lines[len(lines)-n:]
+}
+
+func parseProgress(r io.Reader, onProgress func(Progress)) []string {
 	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	scanner.Split(scanLines)
+	var lines []string
 	for scanner.Scan() {
 		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		lines = append(lines, line)
 		if m := percentRegex.FindStringSubmatch(line); len(m) >= 2 {
 			if pct, err := strconv.ParseFloat(m[1], 64); err == nil {
 				onProgress(Progress{Percent: pct})
 			}
 		}
 	}
+	return lines
 }
 
 func scanLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
