@@ -56,6 +56,7 @@
   let langsAutoFilled = false
   let subsAutoFilled = false
   let qualityAutoFilled = false  // true tant que l'user n'a pas changé manuellement la qualité
+  let queueQualityHint = 0       // qualité sticky dans une queue série (l'user corrige sur EP1, tous les épisodes suivants héritent)
   let postUploadTypes = { nzb: false, torrent_admin: false, torrent_modo: false, torrent_prive: false, ddl: false }
   // Torrent ADMIN n'est visible que pour les admins (= ceux qui ont déverrouillé
   // la section Seedbox dans Réglages avec le mdp partagé).
@@ -378,6 +379,7 @@
     queueProcessing = false
     queueTMDBHint = 0
     queueHydrackerHint = { wrongTmdbId: 0, correctHydrackerId: 0 }
+    queueQualityHint = 0
     // Récap final cumulé
     if (queueResults.length > 1) {
       const okCount = queueResults.filter(r => r.ok).length
@@ -562,8 +564,11 @@
   let langSelectValue = null
   let subSelectValue = null
 
-  // Auto-remplissage réactif dès que API + fichier prêts
-  $: if (qualityOptions.length && file?.name && postQuality === 0) {
+  // Auto-remplissage réactif dès que API + fichier prêts.
+  // Guardé par queueQualityHint : si l'user a corrigé la qualité sur EP1
+  // d'une série, on ne re-détecte plus sur les épisodes suivants (elle est
+  // restaurée depuis le hint dans loadFileFromPath).
+  $: if (queueQualityHint === 0 && qualityOptions.length && file?.name && postQuality === 0) {
     const name = file.name.toLowerCase()
     const bitrate = parseInt(String(mediaInfo?.bitrate || '').replace(/[^0-9]/g, '')) || 0
     const isH265 = /\b(x265|h\.?265|hevc)\b/i.test(file.name)
@@ -636,7 +641,7 @@
   // nom du fichier, sans bitrate). Si WEB 1080p NON-x265 + bitrate ≤ 3000 kbps,
   // bascule sur WEB 1080p Light. Les x265 restent x265 (leur bitrate bas est
   // normal pour ce codec).
-  $: if (qualityOptions.length && file?.name && mediaInfo?.bitrate && qualityAutoFilled && postQuality > 0) {
+  $: if (queueQualityHint === 0 && qualityOptions.length && file?.name && mediaInfo?.bitrate && qualityAutoFilled && postQuality > 0) {
     const bitrate = parseInt(String(mediaInfo.bitrate).replace(/[^0-9]/g, '')) || 0
     const name = file.name.toLowerCase()
     const isWeb = /\bweb([-.]?(?:rip|dl))?\b/.test(name) || name.includes('.web.')
@@ -840,6 +845,9 @@
     langsAutoFilled = false
     subsAutoFilled = false
     qualityAutoFilled = false
+    // Sticky qualité série : restaure le choix manuel de l'user pour tous
+    // les épisodes suivants (fixée sur EP1, héritée sur EP2, EP3…).
+    if (queueQualityHint > 0) postQuality = queueQualityHint
 
     // Objet file synthétique pour afficher le nom
     file = { name: filename }
@@ -1885,7 +1893,10 @@
             <!-- Colonne gauche -->
             <div class="post-field">
               <label for="post-quality">Qualité</label>
-              <select id="post-quality" bind:value={postQuality} on:change={() => qualityAutoFilled = false}>
+              <select id="post-quality" bind:value={postQuality} on:change={() => {
+                qualityAutoFilled = false
+                if (queue.length > 0 || queueProcessing) queueQualityHint = postQuality
+              }}>
                 <option value={0}>-- Choisir --</option>
                 {#each qualityOptions as q}
                   <option value={q.id}>{q.name}</option>
