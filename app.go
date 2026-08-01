@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "8.0.6"
+const Version = "8.0.7"
 
 type App struct {
 	ctx         context.Context
@@ -3115,7 +3115,7 @@ func nfoForElysium(nfo string) string {
 //   - qualite : ID qualité Hydracker (converti en nom string pour Elysium)
 //   - ddlURL : URL 1Fichier (vide = pas de DDL cross-post)
 //   - nzbPath : chemin local du .nzb (vide = pas de NZB cross-post)
-func (a *App) crossPostElysium(hydrackerTitleID, qualite int, langues, subs []string, sizeBytes int64, fileName, nfo, ddlURL, nzbPath string) {
+func (a *App) crossPostElysium(hydrackerTitleID, qualite int, langues, subs []string, sizeBytes int64, fileName, nfo, ddlURL, nzbPath string, fallbackTmdbID int, fallbackMediaType string) {
 	token := strings.TrimSpace(a.cfg.ElysiumApiToken)
 	if token == "" {
 		return
@@ -3126,34 +3126,46 @@ func (a *App) crossPostElysium(hydrackerTitleID, qualite int, langues, subs []st
 	}
 	emitStatus("start", "Cross-post Elysium…")
 
-	// 1. Lookup fiche Hydracker → tmdb_id + type (movie/series/game)
-	hydFiche, err := a.client.GetTitle(hydrackerTitleID, 0, 0, false)
-	if err != nil || hydFiche == nil || hydFiche.TmdbID == 0 {
-		emitStatus("skip", "Cross-post Elysium skippé (Hydracker fiche sans tmdb_id)")
-		log(fmt.Sprintf("Elysium skip : Hydracker fiche #%d sans tmdb_id (err=%v)", hydrackerTitleID, err))
+	// 1. Lookup fiche Hydracker → tmdb_id + type. Beaucoup de fiches Hydracker
+	// n'ont pas de tmdb_id ni de type — on utilise alors le TMDB sélectionné
+	// par l'user dans l'app (transmis en fallback depuis le front).
+	tmdbID := 0
+	mediaType := ""
+	if hydFiche, err := a.client.GetTitle(hydrackerTitleID, 0, 0, false); err == nil && hydFiche != nil {
+		tmdbID = hydFiche.TmdbID
+		mediaType = hydFiche.Type
+	}
+	if tmdbID == 0 {
+		tmdbID = fallbackTmdbID
+	}
+	if mediaType == "" {
+		mediaType = fallbackMediaType
+	}
+	if tmdbID == 0 {
+		emitStatus("skip", "Cross-post Elysium skippé (aucun tmdb_id — fiche Hydracker orpheline ET pas de TMDB sélectionné dans l'app)")
+		log(fmt.Sprintf("Elysium skip : Hydracker fiche #%d sans tmdb_id + fallback vide", hydrackerTitleID))
 		return
+	}
+	if mediaType == "series" {
+		mediaType = "tv"
 	}
 
 	// 2. Lookup title côté Elysium par tmdb_id
 	c := elysium.NewClient(token)
-	elyTitle, err := c.GetTitleByTmdbID(hydFiche.TmdbID)
+	elyTitle, err := c.GetTitleByTmdbID(tmdbID)
 	if err != nil {
 		emitStatus("error", fmt.Sprintf("Cross-post Elysium : lookup title échoué — %s", err.Error()))
-		log(fmt.Sprintf("Elysium lookup tmdb_id=%d : %s", hydFiche.TmdbID, err))
+		log(fmt.Sprintf("Elysium lookup tmdb_id=%d : %s", tmdbID, err))
 		return
 	}
 	if elyTitle == nil {
 		// Fiche absente d'Elysium → import auto depuis TMDB via /api/v1/titles/import
-		mediaType := hydFiche.Type
-		if mediaType == "series" {
-			mediaType = "tv"
-		}
-		emitStatus("importing", fmt.Sprintf("Import fiche Elysium (tmdb_id=%d)…", hydFiche.TmdbID))
-		log(fmt.Sprintf("Elysium : fiche tmdb_id=%d absente, import auto (type=%s)…", hydFiche.TmdbID, mediaType))
-		imported, ierr := c.ImportTitle(mediaType, hydFiche.TmdbID)
+		emitStatus("importing", fmt.Sprintf("Import fiche Elysium (tmdb_id=%d)…", tmdbID))
+		log(fmt.Sprintf("Elysium : fiche tmdb_id=%d absente, import auto (type=%s)…", tmdbID, mediaType))
+		imported, ierr := c.ImportTitle(mediaType, tmdbID)
 		if ierr != nil {
 			emitStatus("error", fmt.Sprintf("Cross-post Elysium : import fiche échoué — %s", ierr.Error()))
-			log(fmt.Sprintf("Elysium import tmdb_id=%d : %s", hydFiche.TmdbID, ierr))
+			log(fmt.Sprintf("Elysium import tmdb_id=%d : %s", tmdbID, ierr))
 			return
 		}
 		elyTitle = imported
@@ -3166,7 +3178,7 @@ func (a *App) crossPostElysium(hydrackerTitleID, qualite int, langues, subs []st
 	// balises <pre> et &amp;/&lt;/&gt; s'affichent en clair.
 	payload := elysium.UploadPayload{
 		TitleID:     elyTitle.ID,
-		CategoryID:  elysium.CategoryFromMediaType(hydFiche.Type),
+		CategoryID:  elysium.CategoryFromMediaType(mediaType),
 		SizeBytes:   sizeBytes,
 		FileName:    strings.TrimSuffix(fileName, filepath.Ext(fileName)),
 		Quality:     a.qualiteName(qualite),
@@ -4450,7 +4462,7 @@ type NzbWorkflowResult struct {
 	HydrackerID int    `json:"hydracker_id"`
 }
 
-func (a *App) PostNzbWorkflow(titleID, qualite int, langues, subs []string, mkvPath, nfo string, saison, episode int, fullSaison, postHydracker, postElysium bool) (*NzbWorkflowResult, error) {
+func (a *App) PostNzbWorkflow(titleID, qualite int, langues, subs []string, mkvPath, nfo string, saison, episode int, fullSaison, postHydracker, postElysium bool, tmdbID int, mediaType string) (*NzbWorkflowResult, error) {
 	a.resetCancellation()
 	// Validation config — retourne des messages explicites
 	if a.cfg.UsenetHost == "" {
@@ -4582,7 +4594,7 @@ func (a *App) PostNzbWorkflow(titleID, qualite int, langues, subs []string, mkvP
 	// Cross-post Elysium (skippable via postElysium=false ; silencieux si token vide)
 	if postElysium {
 		if info, _ := os.Stat(mkvPath); info != nil {
-			go a.crossPostElysium(titleID, qualite, langues, subs, info.Size(), filepath.Base(mkvPath), nfo, "", result.NZBPath)
+			go a.crossPostElysium(titleID, qualite, langues, subs, info.Size(), filepath.Base(mkvPath), nfo, "", result.NZBPath, tmdbID, mediaType)
 		}
 	}
 
@@ -4599,7 +4611,7 @@ type DDLWorkflowResult struct {
 	HydrackerID int      `json:"hydracker_id"`
 }
 
-func (a *App) PostDDLWorkflow(titleID, qualite int, langues, subs []string, mkvPath, nfo string, use1Fichier, useSendCm bool, saison, episode int, fullSaison, postHydracker, postElysium bool) (*DDLWorkflowResult, error) {
+func (a *App) PostDDLWorkflow(titleID, qualite int, langues, subs []string, mkvPath, nfo string, use1Fichier, useSendCm bool, saison, episode int, fullSaison, postHydracker, postElysium bool, tmdbID int, mediaType string) (*DDLWorkflowResult, error) {
 	a.resetCancellation()
 	if mkvPath == "" {
 		return nil, fmt.Errorf("chemin MKV manquant")
@@ -4785,7 +4797,7 @@ func (a *App) PostDDLWorkflow(titleID, qualite int, langues, subs []string, mkvP
 	if postElysium {
 		if r, ok := results["1Fichier"]; ok && r.url != "" && !r.skipped {
 			if info, _ := os.Stat(mkvPath); info != nil {
-				go a.crossPostElysium(titleID, qualite, langues, subs, info.Size(), filename, nfo, r.url, "")
+				go a.crossPostElysium(titleID, qualite, langues, subs, info.Size(), filename, nfo, r.url, "", tmdbID, mediaType)
 			}
 		}
 	}

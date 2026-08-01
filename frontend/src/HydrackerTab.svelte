@@ -1417,7 +1417,7 @@
       else tasks.push(
         withRetry(
           'NZB',
-          () => PostNzbWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postSeason, postEpisode, postFullSaison, postTargets.hydracker, postTargets.elysium),
+          () => PostNzbWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postSeason, postEpisode, postFullSaison, postTargets.hydracker, postTargets.elysium, selectedTMDB?.id || 0, selectedTMDB?.media_type || ''),
           r => !!r?.nzb_path,
         )
           .then(r => successes.push(`NZB #${r.hydracker_id} ajouté`))
@@ -1429,7 +1429,7 @@
       else tasks.push(
         withRetry(
           'DDL',
-          () => PostDDLWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postDdlHosts.onefichier, postDdlHosts.sendcm, postSeason, postEpisode, postFullSaison, postTargets.hydracker, postTargets.elysium),
+          () => PostDDLWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postDdlHosts.onefichier, postDdlHosts.sendcm, postSeason, postEpisode, postFullSaison, postTargets.hydracker, postTargets.elysium, selectedTMDB?.id || 0, selectedTMDB?.media_type || ''),
           r => !!(r?.links?.length),
         )
           .then(r => {
