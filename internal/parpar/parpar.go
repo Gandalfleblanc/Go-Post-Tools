@@ -117,6 +117,7 @@ func Run(ctx context.Context, cfg *config.Config, inputPath string, onProgress f
 		"-r", fmt.Sprintf("%.0f%%", redundancy),
 		"-t", strconv.Itoa(threads),
 		"-o", outPath,
+		"--overwrite", // écrase les .par2 laissés par une run précédente (sinon EEXIST)
 		"--",
 	}
 	args = append(args, inputs...)
