@@ -169,7 +169,7 @@ export function OpenHydrackerAdmin():Promise<void>;
 
 export function ParseFilename(arg1:string):Promise<parser.FileInfo>;
 
-export function PostDDLWorkflow(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:boolean,arg8:boolean,arg9:number,arg10:number,arg11:boolean,arg12:boolean,arg13:boolean):Promise<main.DDLWorkflowResult>;
+export function PostDDLWorkflow(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:boolean,arg8:boolean,arg9:number,arg10:number,arg11:boolean,arg12:boolean,arg13:boolean,arg14:number,arg15:string):Promise<main.DDLWorkflowResult>;
 
 export function PostExistingTorrent(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<main.TorrentWorkflowResult>;
 
@@ -177,7 +177,7 @@ export function PostLien(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<s
 
 export function PostNzb(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<api.UploadNzbResult>;
 
-export function PostNzbWorkflow(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean,arg10:boolean,arg11:boolean):Promise<main.NzbWorkflowResult>;
+export function PostNzbWorkflow(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean,arg10:boolean,arg11:boolean,arg12:number,arg13:string):Promise<main.NzbWorkflowResult>;
 
 export function PostTorrent(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<api.UploadTorrentResult>;
 
