@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "8.1.0"
+const Version = "8.1.1"
 
 type App struct {
 	ctx         context.Context
@@ -89,30 +89,83 @@ type UpdateInfo struct {
 	URL       string `json:"url"`
 }
 
-// CheckForUpdate interroge GitHub Releases et compare avec la version locale.
-func (a *App) CheckForUpdate() (*UpdateInfo, error) {
-	info := &UpdateInfo{Current: Version}
-	req, _ := http.NewRequest("GET", "https://api.github.com/repos/Gandalfleblanc/Go-Post-Tools/releases/latest", nil)
+// releaseChannel dérive la lignée (channel) de release depuis la Version locale.
+// - "hyd"     : binaire sans Elysium (tags GitHub `hyd-vX.Y.Z`)
+// - "default" : binaire complet Elysium+Hydracker (tags GitHub `vX.Y.Z`)
+// Chaque lignée ne se propose que ses propres mises à jour.
+func releaseChannel() string {
+	if strings.HasPrefix(Version, "hyd-") {
+		return "hyd"
+	}
+	return "default"
+}
+
+// tagMatchesChannel : true si le tag GitHub appartient à la lignée demandée.
+func tagMatchesChannel(tag, channel string) bool {
+	if channel == "hyd" {
+		return strings.HasPrefix(tag, "hyd-v")
+	}
+	// default : v* SANS préfixe "hyd-"
+	return strings.HasPrefix(tag, "v") && !strings.HasPrefix(tag, "hyd-")
+}
+
+// stripTagPrefix normalise un tag en version simple (comparable à Version).
+// `v8.1.0` → `8.1.0` ; `hyd-v1.0.0` → `hyd-1.0.0`.
+func stripTagPrefix(tag string) string {
+	if strings.HasPrefix(tag, "hyd-v") {
+		return "hyd-" + strings.TrimPrefix(tag, "hyd-v")
+	}
+	return strings.TrimPrefix(tag, "v")
+}
+
+// fetchLatestForChannel interroge /releases et retourne le tag le plus récent
+// (celui du haut de la liste — GitHub trie par date de création DESC) qui
+// matche notre lignée. Retourne (tag, htmlURL, error).
+func fetchLatestForChannel(channel string) (string, string, error) {
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/Gandalfleblanc/Go-Post-Tools/releases?per_page=30", nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	c := &http.Client{Timeout: 10 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {
-		return info, err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return info, nil
+		return "", "", fmt.Errorf("GitHub /releases HTTP %d", resp.StatusCode)
 	}
-	var data struct {
+	var data []struct {
 		TagName string `json:"tag_name"`
 		HTMLURL string `json:"html_url"`
+		Draft   bool   `json:"draft"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", "", err
+	}
+	for _, r := range data {
+		if r.Draft {
+			continue
+		}
+		if tagMatchesChannel(r.TagName, channel) {
+			return r.TagName, r.HTMLURL, nil
+		}
+	}
+	return "", "", nil
+}
+
+// CheckForUpdate interroge GitHub Releases et compare avec la version locale.
+// Filtre par lignée (default/hyd) pour ne jamais proposer un cross-jump.
+func (a *App) CheckForUpdate() (*UpdateInfo, error) {
+	info := &UpdateInfo{Current: Version}
+	tag, htmlURL, err := fetchLatestForChannel(releaseChannel())
+	if err != nil {
 		return info, err
 	}
-	latest := strings.TrimPrefix(data.TagName, "v")
+	if tag == "" {
+		return info, nil
+	}
+	latest := stripTagPrefix(tag)
 	info.Latest = latest
-	info.URL = data.HTMLURL
+	info.URL = htmlURL
 	info.Available = latest != "" && latest != Version
 	return info, nil
 }
@@ -145,7 +198,9 @@ func (a *App) DownloadUpdate() (string, error) {
 	}
 
 	emit("meta", "Récupération de la release…", 0)
-	req, _ := http.NewRequest("GET", "https://api.github.com/repos/Gandalfleblanc/Go-Post-Tools/releases/latest", nil)
+	// Récupère la liste et filtre par lignée (default/hyd) pour éviter le
+	// cross-jump entre les 2 canaux (Elysium+Hydracker vs Hydracker seul).
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/Gandalfleblanc/Go-Post-Tools/releases?per_page=30", nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	c := &http.Client{Timeout: 15 * time.Second}
 	resp, err := c.Do(req)
@@ -154,16 +209,33 @@ func (a *App) DownloadUpdate() (string, error) {
 	}
 	defer resp.Body.Close()
 
-	var data struct {
+	var releases []struct {
 		TagName string `json:"tag_name"`
+		Draft   bool   `json:"draft"`
 		Assets  []struct {
 			Name               string `json:"name"`
 			BrowserDownloadURL string `json:"browser_download_url"`
 			Size               int64  `json:"size"`
 		} `json:"assets"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return "", err
+	}
+	channel := releaseChannel()
+	var data = releases[0] // placeholder pour compat avec les logs plus bas
+	found := false
+	for _, r := range releases {
+		if r.Draft {
+			continue
+		}
+		if tagMatchesChannel(r.TagName, channel) {
+			data = r
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", fmt.Errorf("aucune release trouvée pour la lignée %q", channel)
 	}
 	var url string
 	var total int64

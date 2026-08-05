@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', 'hyd-v*']
   workflow_dispatch:
 
 env:
