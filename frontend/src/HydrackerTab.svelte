@@ -1044,7 +1044,19 @@
           addLog('TMDB', `↺ fiche réutilisée depuis la queue (id ${queueTMDBHint})`)
           await selectTMDB(hinted)
         } else {
-          tmdbAmbiguous = true
+          // Pré-filtre "match exact du titre parsé" : si un SEUL résultat a un titre
+          // qui matche exactement le titre du fichier (normalisé), on auto-sélectionne
+          // — sinon on ouvre le modal comme avant. Évite de faire cliquer l'user quand
+          // c'est évident (ex : "Ted Lasso" vs "The Glass Box" / "The Class").
+          const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+          const target = norm(query)
+          const exact = tmdbResults.filter(r => norm(r.title || r.name) === target)
+          if (exact.length === 1) {
+            addLog('TMDB', `↺ match exact "${query}" — auto-sélection`)
+            await selectTMDB(exact[0])
+          } else {
+            tmdbAmbiguous = true
+          }
         }
       }
     } catch(e) { console.error(e) }
