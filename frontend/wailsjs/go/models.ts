@@ -1294,6 +1294,7 @@ export namespace elysium {
 	    type: string;
 	    tmdb_id: number;
 	    igdb_id: number;
+	    poster_url: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Title(source);
@@ -1307,6 +1308,7 @@ export namespace elysium {
 	        this.type = source["type"];
 	        this.tmdb_id = source["tmdb_id"];
 	        this.igdb_id = source["igdb_id"];
+	        this.poster_url = source["poster_url"];
 	    }
 	}
 

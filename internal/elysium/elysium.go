@@ -74,12 +74,13 @@ func (c *Client) Me() (*User, error) {
 // TitleLookup : cherche un title Elysium par tmdb_id.
 // Retourne l'id Elysium (title_id à utiliser dans /upload) ou 0 si inexistant.
 type Title struct {
-	ID      int    `json:"id"`
-	Title   string `json:"title"`
-	Year    int    `json:"year"`
-	Type    string `json:"type"`
-	TmdbID  int    `json:"tmdb_id"`
-	IgdbID  int    `json:"igdb_id"`
+	ID        int    `json:"id"`
+	Title     string `json:"title"`
+	Year      int    `json:"year"`
+	Type      string `json:"type"`
+	TmdbID    int    `json:"tmdb_id"`
+	IgdbID    int    `json:"igdb_id"`
+	PosterURL string `json:"poster_url"`
 }
 
 func (c *Client) GetTitleByTmdbID(tmdbID int) (*Title, error) {

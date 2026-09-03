@@ -17,6 +17,7 @@
       release_date: year ? `${year}-01-01` : '',
       tmdb_id: t.tmdb_id || 0,
       igdb_id: t.igdb_id || 0,
+      poster: t.poster_url || '', // URL absolue https://image.tmdb.org/t/p/w185/...
     }
   }
 
