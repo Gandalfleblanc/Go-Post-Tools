@@ -58,6 +58,14 @@ export function DeleteLien(arg1) {
   return window['go']['main']['App']['DeleteLien'](arg1);
 }
 
+export function DeleteMyElyDdl(arg1) {
+  return window['go']['main']['App']['DeleteMyElyDdl'](arg1);
+}
+
+export function DeleteMyElyNzb(arg1) {
+  return window['go']['main']['App']['DeleteMyElyNzb'](arg1);
+}
+
 export function DeleteMyLien(arg1) {
   return window['go']['main']['App']['DeleteMyLien'](arg1);
 }
@@ -92,6 +100,22 @@ export function DownloadToDownloads(arg1, arg2) {
 
 export function DownloadUpdate() {
   return window['go']['main']['App']['DownloadUpdate']();
+}
+
+export function ElysiumGetTitleByIgdbID(arg1) {
+  return window['go']['main']['App']['ElysiumGetTitleByIgdbID'](arg1);
+}
+
+export function ElysiumGetTitleByTmdbID(arg1) {
+  return window['go']['main']['App']['ElysiumGetTitleByTmdbID'](arg1);
+}
+
+export function ElysiumImportTitle(arg1, arg2) {
+  return window['go']['main']['App']['ElysiumImportTitle'](arg1, arg2);
+}
+
+export function ElysiumSearchTitles(arg1, arg2) {
+  return window['go']['main']['App']['ElysiumSearchTitles'](arg1, arg2);
 }
 
 export function FetchHydrackerAvatar() {
@@ -136,6 +160,10 @@ export function GetDDLFilenameByLienID(arg1) {
 
 export function GetEffectiveHydrackerURL() {
   return window['go']['main']['App']['GetEffectiveHydrackerURL']();
+}
+
+export function GetElysiumMeta() {
+  return window['go']['main']['App']['GetElysiumMeta']();
 }
 
 export function GetFileSize(arg1) {
@@ -266,6 +294,14 @@ export function ListCheckTorrents(arg1) {
   return window['go']['main']['App']['ListCheckTorrents'](arg1);
 }
 
+export function ListMyElyDdls(arg1) {
+  return window['go']['main']['App']['ListMyElyDdls'](arg1);
+}
+
+export function ListMyElyNzbs(arg1) {
+  return window['go']['main']['App']['ListMyElyNzbs'](arg1);
+}
+
 export function ListMyLiens(arg1, arg2) {
   return window['go']['main']['App']['ListMyLiens'](arg1, arg2);
 }
@@ -318,8 +354,8 @@ export function ParseFilename(arg1) {
   return window['go']['main']['App']['ParseFilename'](arg1);
 }
 
-export function PostDDLWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15) {
-  return window['go']['main']['App']['PostDDLWorkflow'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15);
+export function PostDDLWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
+  return window['go']['main']['App']['PostDDLWorkflow'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
 }
 
 export function PostExistingTorrent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
@@ -334,8 +370,8 @@ export function PostNzb(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
   return window['go']['main']['App']['PostNzb'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
 }
 
-export function PostNzbWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13) {
-  return window['go']['main']['App']['PostNzbWorkflow'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13);
+export function PostNzbWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['PostNzbWorkflow'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
 export function PostTorrent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {

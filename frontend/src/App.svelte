@@ -6,7 +6,7 @@
   import { logEntries, addLog, clearLogs } from './logs.js'
   import logo from './assets/logo.png'
   import loginLogo from './assets/login-logo.png'
-  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, LoginUser, Logout, GetCurrentUser, TryAutoLogin, HashPassword, GetTeamConfig, BuildTeamJSON, FetchHydrackerAvatar, ChangeMyPassword, GetNzbFilenames, DeleteSeedboxByHash, MediaSearch, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, HydrackerGetLienByID, HydrackerGetLienDetailByID, GetDDLFilenameByLienID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, ListMyNzbs, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, GetSeedboxNexumIndex, DebugNexumMatch, TestNexum, TestSFTP, TestAllDebrid, TestIgdb, TestElysium, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify } from '../wailsjs/go/main/App.js'
+  import { ListCheckTorrents, ReseedFromLihdl, ReseedPrepare, ReseedExecute, SelectAnyTorrentFile, SelectMkvFile, GetVersion, StartWatchFolder, StopWatchFolder, IsWatching, CheckForUpdate, OpenBrowser, HistoryList, HistoryDelete, HistoryStats, DownloadUpdate, HasLihdlSettingsPassword, SetLihdlSettingsPassword, VerifyLihdlSettingsPassword, ClearLihdlSettingsPassword, IsLihdlPasswordManaged, IsHydrackerURLManaged, GetEffectiveHydrackerURL, FindHydrackerSources, FicheGetContent, FicheGetNfo, GetDDLFilename, GetUploaderStats, LoginUser, Logout, GetCurrentUser, TryAutoLogin, HashPassword, GetTeamConfig, BuildTeamJSON, FetchHydrackerAvatar, ChangeMyPassword, GetNzbFilenames, DeleteSeedboxByHash, MediaSearch, HydrackerSearch, TMDBGetByImdbID, TMDBGetProviders, HydrackerGetByID, HydrackerGetByTmdbID, HydrackerGetLienByID, HydrackerGetLienDetailByID, GetDDLFilenameByLienID, DownloadToDownloads, AutoReseedFromHydracker, AutoReseedDDLFromHydracker, AutoReseedFullFromTorrent, ListReseedRequests, ListMyLiens, ListMyTorrents, ListMyNzbs, DeleteMyLien, DeleteMyTorrent, DeleteMyNzb, DeleteTorrentAndFTP, ListSeedboxHashes, GetNexumIndex, GetSeedboxNexumIndex, DebugNexumMatch, TestNexum, TestSFTP, TestAllDebrid, TestIgdb, TestElysium, UpdateMyLien, UpdateMyTorrent, GetMetaQualities, ListTitlesSorted, GetUserProfile, ParseFilename, Notify, GetElysiumMeta, ElysiumSearchTitles, ListMyElyNzbs, ListMyElyDdls, DeleteMyElyNzb, DeleteMyElyDdl } from '../wailsjs/go/main/App.js'
 
   // --- Tabs (réorganisés par workflow, 8 onglets principaux) ---
   const TABS = [
@@ -1300,22 +1300,44 @@
   let deleteConfirmInput = ''              // texte tapé par user pour confirmer
   let qualityOptions = []
 
+  // Adapte un UploadRef Elysium à la forme historique attendue par la UI
+  // (mêmes noms de champs que renvoyait ex-Hydracker).
+  function adaptElyUpload(u) {
+    return {
+      id: u.id,
+      name: u.file_name,
+      file_name: u.file_name,
+      taille: u.size_bytes,
+      size: u.size_bytes,
+      qualite_name: u.quality || '',
+      quality: u.quality || '',
+      langues_compact: (u.language || []).map(n => ({ id: 0, name: n })),
+      subs_compact:    (u.subtitles || []).map(n => ({ id: 0, name: n })),
+      author: u.uploader?.name || '',
+      created_at: u.created_at,
+      title: u.title,
+      tmdb_id: u.title?.tmdb_id || 0,
+    }
+  }
+
   async function loadMyUploads() {
     myLoading = true
     myError = ''
     myItems = []
     try {
+      // Pivot Elysium 2026-09-03 : Hydracker fermé. On source directement
+      // depuis /api/v1/nzbs?mine=1 et /api/v1/ddls?mine=1 (paginés).
+      let r
       if (myTab === 'liens') {
-        const r = await ListMyLiens(myUsername, myPage)
-        myItems = r?.pagination?.data || []
-        myTotalPages = r?.pagination?.last_page || 1
+        r = await ListMyElyDdls(myPage)
       } else if (myTab === 'nzbs') {
-        const r = await ListMyNzbs(myUsername, myPage)
-        myItems = r?.pagination?.data || []
-        // AdminNzbsResponse n'a pas last_page — on utilise next_page + total pour estimer
-        const total = r?.pagination?.total || 0
-        const perPage = myItems.length || 20
-        myTotalPages = total > 0 ? Math.ceil(total / perPage) : (r?.pagination?.next_page ? myPage + 1 : myPage)
+        r = await ListMyElyNzbs(myPage)
+      } else {
+        r = null
+      }
+      if (r) {
+        myItems = (r.data || []).map(adaptElyUpload)
+        myTotalPages = r.meta?.last_page || 1
       }
     } catch(e) {
       myError = String(e?.message || e)
@@ -1373,9 +1395,9 @@
     const id = deletingItem.id
     try {
       if (myTab === 'liens') {
-        await DeleteMyLien(id)
+        await DeleteMyElyDdl(id)
       } else if (myTab === 'nzbs') {
-        await DeleteMyNzb(id)
+        await DeleteMyElyNzb(id)
       }
       addLog('MY', `✓ Supprimé ${myTab.slice(0,-1)} #${id}`)
       try { Notify('🗑 Supprimé', `${myTab.slice(0,-1)} #${id}`) } catch(e) {}
@@ -1923,9 +1945,8 @@
       {sidebarCollapsed ? '›' : '‹'}
     </button>
     <div class="brand">
-      <img src={logo} alt="" class="brand-logo" />
-      <!-- Logo Elysium inline SVG, même largeur que Hydracker (78px) -->
-      <svg class="brand-logo-elysium" viewBox="0 0 78 78" xmlns="http://www.w3.org/2000/svg" title="Cross-post Elysium">
+      <!-- Pivot 2026-09-03 : Hydracker fermé, Elysium devient la cible unique. -->
+      <svg class="brand-logo-elysium" viewBox="0 0 78 78" xmlns="http://www.w3.org/2000/svg" title="Elysium">
         <defs>
           <linearGradient id="elyGrad" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0" stop-color="#ff9a3c"/>
@@ -3691,17 +3712,6 @@
 
           <div class="section section-locked">
             <div class="section-header">
-              <span>🔒 Hydracker (verrouillé team)</span>
-            </div>
-            <div class="field">
-              <label>URL de base</label>
-              <input type="password" value={cfg.hydracker_base_url} disabled readonly />
-              <div class="field-hint">URL définie au build — non modifiable. Token perso → carte "Hydracker" plus bas.</div>
-            </div>
-          </div>
-
-          <div class="section section-locked">
-            <div class="section-header">
               <span>🔒 TMDB (verrouillé team)</span>
               <button class="btn-test" on:click={() => runTest('tmdb', () => TestTMDB(''))}>
                 {#if testLoading.tmdb}…{:else}Tester{/if}
@@ -3746,23 +3756,6 @@
               <label>Clé API TMDB</label>
               <input type="password" bind:value={cfg.tmdb_api_key} placeholder="API key" />
               <div class="field-hint">Fallback si le proxy team est down. Récupère ta clé sur themoviedb.org → Settings → API.</div>
-            </div>
-          </div>
-
-          <div class="section">
-            <div class="section-header">
-              <span>Hydracker</span>
-              <button class="btn-test" on:click={() => runTest('hydracker', () => TestHydracker(cfg.hydracker_base_url, cfg.hydracker_token))}>
-                {#if testLoading.hydracker}…{:else}Tester{/if}
-              </button>
-            </div>
-            {#if testResults.hydracker}
-              <div class="test-result" class:ok={testResults.hydracker.ok}>{testResults.hydracker.message}</div>
-            {/if}
-            <div class="field">
-              <label>Token d'accès</label>
-              <input type="password" bind:value={cfg.hydracker_token} placeholder="Bearer token" />
-              <div class="field-hint">Chaque user met son propre token Hydracker (récupérable depuis ton profil Hydracker).</div>
             </div>
           </div>
 
@@ -3832,7 +3825,7 @@
             <div class="field">
               <label>Token API Elysium</label>
               <input type="password" bind:value={cfg.elysium_api_token} placeholder="els_..." />
-              <div class="field-hint">Après un post Hydracker réussi, cross-post automatique sur Elysium (URL 1Fichier + fichier NZB). Send.now non transmis. Génère ton token sur <a href="https://elysium-les5zamis.com/account-settings" target="_blank" style="color:var(--accent)">elysium-les5zamis.com/account-settings</a> section API tokens. Vide = pas de cross-post.</div>
+              <div class="field-hint">Cible unique des posts depuis le 2026-09-03 (Hydracker fermé). Génère ton token sur <a href="https://elysium-les5zamis.com/account-settings" target="_blank" style="color:var(--accent)">elysium-les5zamis.com/account-settings</a> section API tokens.</div>
             </div>
           </div>
 

@@ -1,7 +1,49 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime.js'
-  import { ParseFilename, TMDBSearch, TMDBGetByID, HydrackerSearch, HydrackerGetByTmdbID, HydrackerGetByID, HydrackerGetByIgdbID, IgdbSearch, IgdbGetByID, OpenBrowser, OpenHydrackerAdmin, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostTorrentWorkflow, PostExistingTorrent, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetMetaQualities, GetMetaLangs, GetMetaSubs, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, IsTorrentAdminAcknowledged, GetVersion } from '../wailsjs/go/main/App.js'
+  import { ParseFilename, TMDBSearch, TMDBGetByID, IgdbSearch, IgdbGetByID, OpenBrowser, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, GetVersion, GetElysiumMeta, ElysiumSearchTitles, ElysiumGetTitleByTmdbID, ElysiumGetTitleByIgdbID, ElysiumImportTitle } from '../wailsjs/go/main/App.js'
+
+  // Adapter Elysium Title → forme "PartialTitle Hydracker" attendue par le reste
+  // de la UI (variable historique `selectedHydracker`). L'app a pivoté sur Elysium
+  // le 2026-09-03 (Hydracker fermé) — les noms de variables restent inchangés
+  // pour minimiser la diff, avec Elysium comme source de vérité.
+  function adaptElyTitle(t) {
+    if (!t) return null
+    const year = t.year ? String(t.year) : ''
+    return {
+      id: t.id,
+      name: t.title,
+      type: t.type || 'movie',
+      release_date: year ? `${year}-01-01` : '',
+      tmdb_id: t.tmdb_id || 0,
+      igdb_id: t.igdb_id || 0,
+    }
+  }
+
+  async function HydrackerSearch(query) {
+    const results = await ElysiumSearchTitles(query || '', '') || []
+    return results.map(adaptElyTitle)
+  }
+  async function HydrackerGetByTmdbID(tmdbID) {
+    let t = await ElysiumGetTitleByTmdbID(tmdbID)
+    if (!t) {
+      // Fiche pas encore sur Elysium — import auto depuis TMDB.
+      try { t = await ElysiumImportTitle('', tmdbID) } catch (_) { t = null }
+    }
+    return adaptElyTitle(t)
+  }
+  async function HydrackerGetByIgdbID(igdbID) {
+    let t = await ElysiumGetTitleByIgdbID(igdbID)
+    if (!t) {
+      try { t = await ElysiumImportTitle('game', igdbID) } catch (_) { t = null }
+    }
+    return adaptElyTitle(t)
+  }
+  // HydrackerGetByID (recherche par ID Hydracker interne) n'a plus de sens
+  // post-pivot : on retombe sur un lookup TMDB puisque l'user tape un tmdb_id.
+  async function HydrackerGetByID(id) {
+    return HydrackerGetByTmdbID(id)
+  }
   import { addLog } from './logs.js'
   import { LANGUAGES as HYD_LANGUAGES, SUBS as HYD_SUBS, QUALITIES as HYD_QUALITIES } from './hydrackerData.js'
 
@@ -50,13 +92,13 @@
   let hydrackerManualLoading = false
 
   // Hydracker post fields
-  let postQuality = 0
+  let postQuality = ''  // nom de qualité Elysium (ex: "WEB 1080p (x265)")
   let postLanguages = []   // [{id, name}]
   let postSubs = []        // [{id, name}]
   let langsAutoFilled = false
   let subsAutoFilled = false
   let qualityAutoFilled = false  // true tant que l'user n'a pas changé manuellement la qualité
-  let queueQualityHint = 0       // qualité sticky dans une queue série (l'user corrige sur EP1, tous les épisodes suivants héritent)
+  let queueQualityHint = ''      // qualité sticky (nom Elysium) dans une queue série
   let postUploadTypes = { nzb: false, torrent_admin: false, torrent_modo: false, torrent_prive: false, ddl: false }
   // Torrent ADMIN n'est visible que pour les admins (= ceux qui ont déverrouillé
   // la section Seedbox dans Réglages avec le mdp partagé).
@@ -121,35 +163,38 @@
   let subOptions = []      // [{id, name}] — liste spécifique aux sous-titres
 
   onMount(async () => {
-    try { adminAcknowledged = await IsTorrentAdminAcknowledged() } catch(e) { adminAcknowledged = false }
+    adminAcknowledged = false
     try { appVersion = await GetVersion() } catch(e) { appVersion = '' }
+    // Chargement meta Elysium — remplacement direct des ex-appels
+    // GetMetaQualities/Langs/Subs (Hydracker fermé 2026-09-03).
+    // meta.qualities/languages/subtitles sont des map {key: label} → on les
+    // convertit en [{id, name}] avec id=name : Elysium indexe par NAME dans
+    // /upload, et cette égalité garde compatible tout le code historique qui
+    // stocke un « id » dans postQuality/postLanguages/postSubs.
+    const mapToOpts = m => Object.keys(m || {}).map(k => ({ id: k, name: k }))
     try {
-      const apiQuals = await GetMetaQualities()
-      qualityOptions = apiQuals?.length ? apiQuals : HYD_QUALITIES
-      if (!apiQuals?.length) addLog('META', `qualités API vides — fallback statique (${HYD_QUALITIES.length})`)
+      const meta = await GetElysiumMeta()
+      qualityOptions = mapToOpts(meta?.qualities)
+      langOptions    = mapToOpts(meta?.languages)
+      subOptions     = mapToOpts(meta?.subtitles)
+      if (!qualityOptions.length) qualityOptions = HYD_QUALITIES
+      if (!langOptions.length)    langOptions    = HYD_LANGUAGES
+      if (!subOptions.length)     subOptions     = HYD_SUBS
     } catch(e) {
-      console.error('GetMetaQualities:', e)
+      console.error('GetElysiumMeta:', e)
       qualityOptions = HYD_QUALITIES
-      addLog('META', `qualités API KO (${e?.message || e}) — fallback statique (${HYD_QUALITIES.length})`)
+      langOptions    = HYD_LANGUAGES
+      subOptions     = HYD_SUBS
+      addLog('META', `Elysium meta KO (${e?.message || e}) — fallback statique`)
     }
-    // Langues et sous-titres : on tente l'API Hydracker (/meta/langs + /meta/subs),
-    // fallback sur la liste statique (hydrackerData.js) si l'API est indispo ou vide.
-    try {
-      const apiLangs = await GetMetaLangs()
-      langOptions = apiLangs?.length ? apiLangs : HYD_LANGUAGES
-    } catch(e) { console.error('GetMetaLangs:', e); langOptions = HYD_LANGUAGES }
-    try {
-      const apiSubs = await GetMetaSubs()
-      subOptions = apiSubs?.length ? apiSubs : HYD_SUBS
-    } catch(e) { console.error('GetMetaSubs:', e); subOptions = HYD_SUBS }
     addLog('META', `qualités: ${qualityOptions.length} · langues: ${langOptions.length} · sous-titres: ${subOptions.length}`)
     EventsOn('nzb:status',  s  => { nzbStatus = s })
-    // Cross-post Elysium (silencieux si token vide)
+    // Feedback direct du workflow Elysium (retiré : plus de cross-post — on
+    // reçoit maintenant nzb:status / ddl:log directement).
     EventsOn('elysium:log', msg => addLog('ELYSIUM', msg))
     EventsOn('elysium:status', s => {
       elysiumStatus = s
       if (s?.status === 'ok' || s?.status === 'error' || s?.status === 'skip') {
-        // Auto-hide après 8s
         setTimeout(() => { if (elysiumStatus === s) elysiumStatus = null }, 8000)
       }
     })
@@ -221,7 +266,7 @@
   // partagé, App.svelte dispatch 'admin-unlocked' → on rafraîchit le flag
   // pour que la checkbox Torrent ADMIN apparaisse immédiatement.
   async function onAdminUnlocked() {
-    try { adminAcknowledged = await IsTorrentAdminAcknowledged() } catch(e) {}
+    adminAcknowledged = true  // torrents désactivés (pivot Elysium 2026-09-03)
   }
 
   // Raccourcis clavier globaux (hors champs texte)
@@ -379,7 +424,7 @@
     queueProcessing = false
     queueTMDBHint = 0
     queueHydrackerHint = { wrongTmdbId: 0, correctHydrackerId: 0 }
-    queueQualityHint = 0
+    queueQualityHint = ''
     // Récap final cumulé
     if (queueResults.length > 1) {
       const okCount = queueResults.filter(r => r.ok).length
@@ -568,7 +613,7 @@
   // Guardé par queueQualityHint : si l'user a corrigé la qualité sur EP1
   // d'une série, on ne re-détecte plus sur les épisodes suivants (elle est
   // restaurée depuis le hint dans loadFileFromPath).
-  $: if (queueQualityHint === 0 && qualityOptions.length && file?.name && postQuality === 0) {
+  $: if (!queueQualityHint && qualityOptions.length && file?.name && !postQuality) {
     const name = file.name.toLowerCase()
     const bitrate = parseInt(String(mediaInfo?.bitrate || '').replace(/[^0-9]/g, '')) || 0
     const isH265 = /\b(x265|h\.?265|hevc)\b/i.test(file.name)
@@ -586,51 +631,57 @@
     const is2160p = /\b2160p\b/i.test(file.name)
     const has1080pHDLight = /1080p[\s._-]*hdlight|hdlight[\s._-]*1080p/i.test(file.name)
 
+    // Fallbacks : après le pivot Elysium, qualityOptions.id = name (string),
+    // donc les anciens fallbacks numériques Hydracker (60, 50, 94, 4, 53) ne
+    // matchent plus rien. On les remplace par les noms Elysium équivalents.
+    const FB = {
+      ULTRA_HDLIGHT_X265: 'Ultra HDLight (x265)',
+      HDLIGHT_1080P:      'HDLight 1080p',
+      WEB_1080P_LIGHT:    'WEB 1080p Light',
+      WEB:                'WEB',
+      ULTRA_HD_X265:      'ULTRA HD (x265)',
+    }
     // Règles personnalisées (ordre de priorité)
     if (/-xander(\.(mkv|mp4))?$/i.test(file.name)) {
       // -XANDER → toujours ULTRA HDLight x265
-      qualID = findQual('ultra', 'hdlight', 'x265') || 60
+      qualID = findQual('ultra', 'hdlight', 'x265') || FB.ULTRA_HDLIGHT_X265
     } else if (is4KLight || (is2160p && bitrate > 0 && bitrate < 8000)) {
       // 4KLight OU (2160p + bitrate<8000) → ULTRA HDLight
-      qualID = findQual('ultra', 'hdlight', 'x265') || 60
+      qualID = findQual('ultra', 'hdlight', 'x265') || FB.ULTRA_HDLIGHT_X265
     } else if (has1080pHDLight && isH265) {
       // 1080p.HDLight + H265 → HDLight 1080p x265 systématique
-      qualID = findQual('hdlight', '1080p', 'x265') || findQual('hdlight', 'x265') || 50
+      qualID = findQual('hdlight', '1080p', 'x265') || findQual('hdlight', 'x265') || FB.HDLIGHT_1080P
     } else if (is2160p && isH265 && !/\bremux\b/i.test(name)) {
-      // 2160p + H265 non-REMUX, PAS déjà pris par la règle 4KLight au-dessus
-      // (donc bitrate ≥ 8000 ou pas de "4klight" dans le nom) → ULTRA HD (x265) #53.
-      // Recherche stricte pour éviter de retomber sur Ultra HDLight (x265) #60.
+      // 2160p + H265 non-REMUX → ULTRA HD (x265). Recherche stricte pour
+      // éviter de retomber sur Ultra HDLight (x265).
       const o = qualityOptions.find(q => {
         const n = q.name.toLowerCase().replace(/[\s-]/g, '')
         return n.includes('ultrahd') && n.includes('x265') && !n.includes('light')
       })
-      qualID = o?.id || 53
+      qualID = o?.id || FB.ULTRA_HD_X265
     } else if (/\bweb([-.]?(?:rip|dl))?\b/.test(name) || name.includes('.web.')) {
       // WEB 1080p prioritaire si résolution présente (films ET séries)
       const is1080p = /\b1080p\b/i.test(file.name)
-      // Light : SEULEMENT pour WEB 1080p non-x265 avec bitrate ≤ 3000.
-      // Les x265 restent WEB 1080p x265 quel que soit leur bitrate (l'encodage
-      // x265 a déjà un bitrate naturellement bas, c'est attendu).
       const isLight = !isH265 && bitrate > 0 && bitrate <= 3000
       if (isLight) {
-        qualID = findQual('web', '1080p', 'light') || findQual('webrip', '1080p', 'light') || 94
+        qualID = findQual('web', '1080p', 'light') || findQual('webrip', '1080p', 'light') || FB.WEB_1080P_LIGHT
       } else {
         if (isH265) qualID = findQual('web', '1080p', 'x265') || findQual('webrip', '1080p', 'x265') || findQual('web', 'x265') || findQual('webrip', 'x265')
         if (!qualID && is1080p) qualID = findQual('web', '1080p') || findQual('webrip', '1080p')
-        if (!qualID) qualID = 4 // Fallback WEB générique
+        if (!qualID) qualID = FB.WEB
       }
     } else if (/\bremux\b/i.test(name)) {
-      // REMUX : rip BluRay intouché (x264 généralement, full bitrate). Doit être
-      // testé AVANT la règle BluRay (sinon le mot "BluRay" du filename match d'abord
-      // et REMUX retombe en BluRay simple si pas de x265).
+      // REMUX : rip BluRay intouché (x264 généralement, full bitrate). Doit
+      // être testé AVANT la règle BluRay (sinon le mot "BluRay" du filename
+      // match d'abord et REMUX retombe en BluRay simple si pas de x265).
       if (is2160p) qualID = findQual('remux', '2160p') || findQual('remux', '4k')
       if (!qualID) qualID = findQual('bluray', 'remux', '1080p') || findQual('remux', '1080p') || findQual('bluray', 'remux') || findQual('remux')
     } else if (/\bblu-?ray\b/.test(name)) {
       if (isH265) qualID = findQual('bluray', 'x265')
-      if (!qualID && bitrate > 0 && bitrate <= 3000) qualID = 50 // HDLight 1080p
+      if (!qualID && bitrate > 0 && bitrate <= 3000) qualID = FB.HDLIGHT_1080P
     } else if (/hdlight/i.test(name)) {
       if (isH265) qualID = findQual('hdlight', 'x265')
-      if (!qualID) qualID = 50 // HDLight 1080p (fallback)
+      if (!qualID) qualID = FB.HDLIGHT_1080P
     }
 
     if (qualID) {
@@ -650,7 +701,7 @@
   // nom du fichier, sans bitrate). Si WEB 1080p NON-x265 + bitrate ≤ 3000 kbps,
   // bascule sur WEB 1080p Light. Les x265 restent x265 (leur bitrate bas est
   // normal pour ce codec).
-  $: if (queueQualityHint === 0 && qualityOptions.length && file?.name && mediaInfo?.bitrate && qualityAutoFilled && postQuality > 0) {
+  $: if (!queueQualityHint && qualityOptions.length && file?.name && mediaInfo?.bitrate && qualityAutoFilled && postQuality) {
     const bitrate = parseInt(String(mediaInfo.bitrate).replace(/[^0-9]/g, '')) || 0
     const name = file.name.toLowerCase()
     const isWeb = /\bweb([-.]?(?:rip|dl))?\b/.test(name) || name.includes('.web.')
@@ -843,7 +894,7 @@
     hydrackerPosterUrl = ''
     hydrackerNotFound = false
     hydrackerManualId = ''
-    postQuality = 0
+    postQuality = ''
     postLanguages = []
     postSubs = []
     postSeason = 0
@@ -856,7 +907,7 @@
     qualityAutoFilled = false
     // Sticky qualité série : restaure le choix manuel de l'user pour tous
     // les épisodes suivants (fixée sur EP1, héritée sur EP2, EP3…).
-    if (queueQualityHint > 0) postQuality = queueQualityHint
+    if (queueQualityHint) postQuality = queueQualityHint
 
     // Objet file synthétique pour afficher le nom
     file = { name: filename }
@@ -1374,11 +1425,15 @@
     ddlHosts = { '1Fichier': { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' }, 'Send.now': { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' } }
     torrentState = { stage: '', msg: '', ftpPct: 0, ftpSpeed: 0, createPct: 0, seedboxPct: 0, seedboxSpeed: 0 }
 
-    const titleID = selectedHydracker.id
-    const langIDs = postLanguages.filter(l => l.id > 0).map(l => l.name)
-    const subIDs  = postSubs.filter(s => s.id > 0).map(s => s.name)
-    // Le site Hydracker rend le NFO en HTML — on wrappe dans <pre> pour préserver
-    // les retours à la ligne et le formatage monospace.
+    // Pivot Elysium : les workflows Post{Nzb,DDL}Workflow prennent maintenant
+    // (tmdbID, mediaType, quality, langues, subs, mkvPath, nfo, ...).
+    const tmdbID    = selectedTMDB?.id || 0
+    const mediaType = selectedTMDB?.media_type || (selectedHydracker?.type || 'movie')
+    const qualityName = qualityOptions.find(q => q.id === postQuality || q.name === postQuality)?.name || ''
+    const langNames = postLanguages.map(l => l.name).filter(Boolean)
+    const subNames  = postSubs.map(s => s.name).filter(Boolean)
+    // Le NFO reste wrappé <pre>+entités échappées : le backend le dé-wrappe
+    // avant l'envoi à Elysium (nfoForElysium) — historique préservé.
     const nfoText = postNfoManual.trim() || generateNFO()
     const nfo     = nfoText ? `<pre>${nfoText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>` : ''
     const errors = []
@@ -1407,57 +1462,38 @@
       }
     }
 
-    // Étape 1 : Torrent d'abord (séquentiel)
-    // - Mode "existing" (depuis Reseed) : upload direct du .torrent à Hydracker (pas de FTP/seedbox)
-    // - Mode normal : ftpup + create + hydracker + seedbox (admin=ruTorrent OU modo=qBit)
-    const torrentActive = postUploadTypes.torrent_admin || postUploadTypes.torrent_modo || postUploadTypes.torrent_prive
-    const seedboxType = postUploadTypes.torrent_modo ? 'modo' : (postUploadTypes.torrent_prive ? 'prive' : 'admin')
-    if (torrentActive) {
-      // Pas de retry sur Torrent : un post torrent crée une entrée sur
-      // Hydracker, un retry causerait un 422 duplicate. Si un step foire
-      // (ex: seedbox refuse), on remonte l'erreur et l'user relance manuellement.
-      if (existingTorrentPath) {
-        try {
-          const r = await PostExistingTorrent(titleID, postQuality, langIDs, subIDs, existingTorrentPath, nfo, postSeason, postEpisode, postFullSaison)
-          if (!r?.hydracker_id) throw new Error('pas de hydracker_id dans la réponse')
-          successes.push(`Torrent #${r.hydracker_id} ajouté sur Hydracker (mode existant)`)
-        } catch(e) { errors.push(`Torrent : ${e}`) }
-      } else if (!mkvFilePath) errors.push('Torrent : chemin MKV introuvable')
-      else {
-        try {
-          const r = await PostTorrentWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postSeason, postEpisode, seedboxType, postFullSaison)
-          if (!r?.hydracker_id) throw new Error('pas de hydracker_id dans la réponse')
-          successes.push(`Torrent #${r.hydracker_id} ajouté + seedbox ${seedboxType.toUpperCase()} OK`)
-        } catch(e) { errors.push(`Torrent ${seedboxType.toUpperCase()} : ${e}`) }
-      }
-    }
+    // Torrents désactivés depuis le pivot Elysium (2026-09-03) — Elysium
+    // n'accepte que NZB + DDL 1Fichier. Les toggles torrent_admin/modo/prive
+    // sont ignorés silencieusement en attendant leur retrait complet de l'UI.
 
     const tasks = []
     if (postUploadTypes.nzb) {
       if (!mkvFilePath) errors.push('NZB : chemin du fichier introuvable — cliquez Parcourir')
+      else if (!tmdbID) errors.push('NZB : aucune fiche TMDB sélectionnée')
       else tasks.push(
         withRetry(
           'NZB',
-          () => PostNzbWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postSeason, postEpisode, postFullSaison, postTargets.hydracker, postTargets.elysium, selectedTMDB?.id || 0, selectedTMDB?.media_type || ''),
+          () => PostNzbWorkflow(tmdbID, mediaType, qualityName, langNames, subNames, mkvFilePath, nfo),
           r => !!r?.nzb_path,
         )
-          .then(r => successes.push(`NZB #${r.hydracker_id} ajouté`))
+          .then(r => successes.push(`NZB Elysium #${r.elysium_id} ajouté`))
           .catch(e => errors.push(`NZB : ${e}`))
       )
     }
     if (postUploadTypes.ddl) {
       if (!mkvFilePath) errors.push('DDL : chemin MKV introuvable')
+      else if (!tmdbID) errors.push('DDL : aucune fiche TMDB sélectionnée')
       else tasks.push(
         withRetry(
           'DDL',
-          () => PostDDLWorkflow(titleID, postQuality, langIDs, subIDs, mkvFilePath, nfo, postDdlHosts.onefichier, postDdlHosts.sendcm, postSeason, postEpisode, postFullSaison, postTargets.hydracker, postTargets.elysium, selectedTMDB?.id || 0, selectedTMDB?.media_type || ''),
+          () => PostDDLWorkflow(tmdbID, mediaType, qualityName, langNames, subNames, mkvFilePath, nfo, postDdlHosts.onefichier, postDdlHosts.sendcm),
           r => !!(r?.links?.length),
         )
           .then(r => {
             const fname = file?.name || ''
             const ep = (postSeason || postEpisode) ? ` S${String(postSeason).padStart(2,'0')}E${String(postEpisode).padStart(2,'0')}` : ''
             const linksStr = r.links.join(' · ')
-            successes.push(`DDL #${r.hydracker_id} ajouté (${r.links.length} lien${r.links.length > 1 ? 's' : ''}) — ${fname}${ep}\n${linksStr}`)
+            successes.push(`DDL Elysium #${r.elysium_id} ajouté (${r.links.length} lien${r.links.length > 1 ? 's' : ''}) — ${fname}${ep}\n${linksStr}`)
           })
           .catch(e => errors.push(`DDL : ${e}`))
       )
@@ -1684,11 +1720,7 @@
               {tmdbReloadLoading ? '…' : '🔄'}
             </button>
           </div>
-          <div class="hyd-create-hint" style="margin-top:8px">Puis créez-la sur Hydracker Admin avec cet ID TMDB :</div>
-          <button class="btn-open-admin" on:click={() => OpenHydrackerAdmin()}>
-            Ouvrir Hydracker Admin
-          </button>
-          <div class="hyd-create-hint" style="margin-top:10px">Après création, entrez l'ID de la fiche :</div>
+          <div class="hyd-create-hint" style="margin-top:10px">Elysium créera la fiche automatiquement au moment du post — ou entrez un ID TMDB pour la charger tout de suite :</div>
           <div class="hyd-type-toggle">
             <label class:active={hydrackerManualType === 'movie'}>
               <input type="radio" bind:group={hydrackerManualType} value="movie" /> 🎬 Film
@@ -1805,7 +1837,7 @@
           queueResults = []; queueDone = 0; queueTotal = 0
           file = null; fileInfo = null; selectedTMDB = null;
           selectedHydracker = null; mediaInfo = null; posterDataUrl = ''; hydrackerPosterUrl = '';
-          postQuality = 0; postLanguages = []; postSubs = [];
+          postQuality = ''; postLanguages = []; postSubs = [];
           postSeason = 0; postEpisode = 0; postFullSaison = false;
           mkvFilePath = ''; existingTorrentPath = ''; postResult = null;
         }}>↺ Réinitialiser</button>
@@ -1918,7 +1950,7 @@
                 qualityAutoFilled = false
                 if (queue.length > 0 || queueProcessing) queueQualityHint = postQuality
               }}>
-                <option value={0}>-- Choisir --</option>
+                <option value="">-- Choisir --</option>
                 {#each qualityOptions as q}
                   <option value={q.id}>{q.name}</option>
                 {/each}
@@ -1998,36 +2030,6 @@
                   <span class="pill-icon">💾</span><span class="pill-label">DDL</span>
                 </button>
               </div>
-            </div>
-
-            <div class="post-field">
-              <div class="post-field-label">Poster sur</div>
-              <div class="upload-pills">
-                <button type="button"
-                  class="upload-pill"
-                  class:active={postTargets.hydracker}
-                  data-color="blue"
-                  title="Poster sur Hydracker"
-                  on:click={() => postTargets = { ...postTargets, hydracker: !postTargets.hydracker }}>
-                  <span class="pill-icon">🎬</span><span class="pill-label">Hydracker</span>
-                </button>
-                <button type="button"
-                  class="upload-pill"
-                  class:active={postTargets.elysium}
-                  data-color="gold"
-                  title="Cross-post Elysium (nécessite un token dans Réglages)"
-                  on:click={() => postTargets = { ...postTargets, elysium: !postTargets.elysium }}>
-                  <span class="pill-icon">🔶</span><span class="pill-label">Elysium</span>
-                </button>
-              </div>
-              {#if elysiumStatus}
-                <div style="margin-top:6px;padding:6px 10px;font-size:11px;border-radius:6px;
-                            color:{elysiumStatus.status==='ok'?'#7ef0c0':(elysiumStatus.status==='error'?'#ff9585':'var(--text2)')};
-                            background:{elysiumStatus.status==='ok'?'rgba(126,240,192,0.08)':(elysiumStatus.status==='error'?'rgba(255,149,133,0.08)':'rgba(255,255,255,0.03)')};
-                            border:1px solid {elysiumStatus.status==='ok'?'rgba(126,240,192,0.3)':(elysiumStatus.status==='error'?'rgba(255,149,133,0.3)':'var(--border)')}">
-                  {elysiumStatus.msg}
-                </div>
-              {/if}
             </div>
 
             {#if postUploadTypes.ddl}

@@ -286,3 +286,169 @@ func truncate(s string, n int) string {
 	}
 	return s
 }
+
+// --- Helpers HTTP (mutualisation) ---
+
+func (c *Client) setStdHeaders(req *http.Request) {
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "GoPostTools/8.x")
+}
+
+// doJSON exécute la requête et unmarshal la réponse dans dst (si non nil).
+// Accepte 200 et 201 comme succès.
+func (c *Client) doJSON(req *http.Request, dst any) error {
+	if c.token == "" {
+		return fmt.Errorf("token Elysium manquant")
+	}
+	c.setStdHeaders(req)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		return fmt.Errorf("elysium %s HTTP %d: %s", req.URL.Path, resp.StatusCode, truncate(string(body), 300))
+	}
+	if dst == nil {
+		return nil
+	}
+	if err := json.Unmarshal(body, dst); err != nil {
+		return fmt.Errorf("parse %s: %w", req.URL.Path, err)
+	}
+	return nil
+}
+
+// --- Meta ---
+
+// Category : catégorie Elysium (Films, Séries, Jeux, Musique, Ebooks).
+type Category struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+// Meta : tables de référence renvoyées par GET /api/v1/meta.
+// Qualities/Languages/Subtitles sont des map[key]label (l'API renvoie souvent
+// key == label mais on garde la forme pour être robuste).
+type Meta struct {
+	Qualities     map[string]string   `json:"qualities"`
+	Languages     map[string]string   `json:"languages"`
+	Subtitles     map[string]string   `json:"subtitles"`
+	Categories    []Category          `json:"categories"`
+	Subcategories map[string][]string `json:"subcategories"`
+}
+
+// GetMeta : récupère les tables de référence pour peupler les dropdowns.
+func (c *Client) GetMeta() (*Meta, error) {
+	req, _ := http.NewRequest("GET", c.base+"/api/v1/meta", nil)
+	var out Meta
+	if err := c.doJSON(req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// --- Recherche fiches ---
+
+// SearchTitles : GET /api/v1/titles?q=&type= — pour la recherche par nom
+// (remplacement direct de l'ancien HydrackerSearch). mediaType optionnel :
+// "movie" / "tv" / "game". perPage : max 500, défaut 20.
+func (c *Client) SearchTitles(query, mediaType string, perPage int) ([]Title, error) {
+	params := url.Values{}
+	if query != "" {
+		params.Set("q", query)
+	}
+	if mediaType != "" {
+		params.Set("type", mediaType)
+	}
+	if perPage > 0 {
+		params.Set("per_page", strconv.Itoa(perPage))
+	}
+	req, _ := http.NewRequest("GET", c.base+"/api/v1/titles?"+params.Encode(), nil)
+	var resp struct {
+		Data []Title `json:"data"`
+	}
+	if err := c.doJSON(req, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Data, nil
+}
+
+// --- Mes uploads ---
+
+// UploadRef : NZB ou DDL renvoyé par /nzbs ou /ddls.
+// Structure commune volontairement réduite au strict utile pour la UI
+// « Mes uploads » (id, filename, taille, qualité, langues, date, fiche).
+type UploadRef struct {
+	ID         int      `json:"id"`
+	FileName   string   `json:"file_name"`
+	SizeBytes  int64    `json:"size_bytes"`
+	Quality    string   `json:"quality"`
+	Languages  []string `json:"language"`
+	Subtitles  []string `json:"subtitles"`
+	CreatedAt  string   `json:"created_at"`
+	Category   *Category `json:"category"`
+	Title      *struct {
+		ID     int    `json:"id"`
+		Title  string `json:"title"`
+		Year   int    `json:"year"`
+		Type   string `json:"type"`
+		TmdbID int    `json:"tmdb_id"`
+	} `json:"title"`
+}
+
+// Paginated : enveloppe standard des réponses paginées Elysium.
+type Paginated[T any] struct {
+	Data []T `json:"data"`
+	Meta struct {
+		CurrentPage int `json:"current_page"`
+		LastPage    int `json:"last_page"`
+		PerPage     int `json:"per_page"`
+		Total       int `json:"total"`
+	} `json:"meta"`
+}
+
+// ListMyNzbs : GET /api/v1/nzbs?mine=1 — liste paginée des NZBs postés par
+// le user courant.
+func (c *Client) ListMyNzbs(page, perPage int) (*Paginated[UploadRef], error) {
+	return c.listMineUploads("nzbs", page, perPage)
+}
+
+// ListMyDdls : GET /api/v1/ddls?mine=1 — liste paginée des DDLs postés par
+// le user courant.
+func (c *Client) ListMyDdls(page, perPage int) (*Paginated[UploadRef], error) {
+	return c.listMineUploads("ddls", page, perPage)
+}
+
+func (c *Client) listMineUploads(kind string, page, perPage int) (*Paginated[UploadRef], error) {
+	params := url.Values{}
+	params.Set("mine", "1")
+	if page > 0 {
+		params.Set("page", strconv.Itoa(page))
+	}
+	if perPage > 0 {
+		params.Set("per_page", strconv.Itoa(perPage))
+	}
+	req, _ := http.NewRequest("GET", c.base+"/api/v1/"+kind+"?"+params.Encode(), nil)
+	var out Paginated[UploadRef]
+	if err := c.doJSON(req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeleteNzb : DELETE /api/v1/nzbs/{id} — supprime un NZB (uploader du NZB
+// ou admin/modo requis côté serveur).
+func (c *Client) DeleteNzb(id int) error {
+	req, _ := http.NewRequest("DELETE", fmt.Sprintf("%s/api/v1/nzbs/%d", c.base, id), nil)
+	return c.doJSON(req, nil)
+}
+
+// DeleteDdl : DELETE /api/v1/ddls/{id} — supprime un DDL (uploader du DDL
+// ou admin/modo requis côté serveur).
+func (c *Client) DeleteDdl(id int) error {
+	req, _ := http.NewRequest("DELETE", fmt.Sprintf("%s/api/v1/ddls/%d", c.base, id), nil)
+	return c.doJSON(req, nil)
+}

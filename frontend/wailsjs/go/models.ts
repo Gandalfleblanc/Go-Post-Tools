@@ -1151,6 +1151,167 @@ export namespace config {
 
 }
 
+export namespace elysium {
+	
+	export class Category {
+	    id: number;
+	    name: string;
+	    slug: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Category(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	    }
+	}
+	export class Meta {
+	    qualities: Record<string, string>;
+	    languages: Record<string, string>;
+	    subtitles: Record<string, string>;
+	    categories: Category[];
+	    subcategories: Record<string, Array<string>>;
+	
+	    static createFrom(source: any = {}) {
+	        return new Meta(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.qualities = source["qualities"];
+	        this.languages = source["languages"];
+	        this.subtitles = source["subtitles"];
+	        this.categories = this.convertValues(source["categories"], Category);
+	        this.subcategories = source["subcategories"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class UploadRef {
+	    id: number;
+	    file_name: string;
+	    size_bytes: number;
+	    quality: string;
+	    language: string[];
+	    subtitles: string[];
+	    created_at: string;
+	    category?: Category;
+	    // Go type: struct { ID int "json:\"id\""; Title string "json:\"title\""; Year int "json:\"year\""; Type string "json:\"type\""; TmdbID int "json:\"tmdb_id\"" }
+	    title?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new UploadRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.file_name = source["file_name"];
+	        this.size_bytes = source["size_bytes"];
+	        this.quality = source["quality"];
+	        this.language = source["language"];
+	        this.subtitles = source["subtitles"];
+	        this.created_at = source["created_at"];
+	        this.category = this.convertValues(source["category"], Category);
+	        this.title = this.convertValues(source["title"], Object);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Paginated_go_post_tools_internal_elysium_UploadRef_ {
+	    data: UploadRef[];
+	    // Go type: struct { CurrentPage int "json:\"current_page\""; LastPage int "json:\"last_page\""; PerPage int "json:\"per_page\""; Total int "json:\"total\"" }
+	    meta: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Paginated_go_post_tools_internal_elysium_UploadRef_(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.data = this.convertValues(source["data"], UploadRef);
+	        this.meta = this.convertValues(source["meta"], Object);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Title {
+	    id: number;
+	    title: string;
+	    year: number;
+	    type: string;
+	    tmdb_id: number;
+	    igdb_id: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Title(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.year = source["year"];
+	        this.type = source["type"];
+	        this.tmdb_id = source["tmdb_id"];
+	        this.igdb_id = source["igdb_id"];
+	    }
+	}
+
+}
+
 export namespace history {
 	
 	export class Entry {
@@ -1416,7 +1577,7 @@ export namespace main {
 	}
 	export class DDLWorkflowResult {
 	    links: string[];
-	    hydracker_id: number;
+	    elysium_id: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new DDLWorkflowResult(source);
@@ -1425,7 +1586,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.links = source["links"];
-	        this.hydracker_id = source["hydracker_id"];
+	        this.elysium_id = source["elysium_id"];
 	    }
 	}
 	export class DeleteTorrentResult {
@@ -1568,7 +1729,7 @@ export namespace main {
 	}
 	export class NzbWorkflowResult {
 	    nzb_path: string;
-	    hydracker_id: number;
+	    elysium_id: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new NzbWorkflowResult(source);
@@ -1577,7 +1738,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.nzb_path = source["nzb_path"];
-	        this.hydracker_id = source["hydracker_id"];
+	        this.elysium_id = source["elysium_id"];
 	    }
 	}
 	export class ReseedPrepareResult {
