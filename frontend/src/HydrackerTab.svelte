@@ -173,19 +173,24 @@
     // /upload, et cette égalité garde compatible tout le code historique qui
     // stocke un « id » dans postQuality/postLanguages/postSubs.
     const mapToOpts = m => Object.keys(m || {}).map(k => ({ id: k, name: k }))
+    // Fallback : mappe {id:int, name:string} → {id:name, name:name}. La UI
+    // (bind:value, options) travaille désormais entièrement par NAME depuis le
+    // pivot Elysium ; les vieux ids INT du fallback statique casseraient la
+    // sélection auto (postQuality est un string).
+    const staticToKeyed = arr => (arr || []).map(o => ({ id: o.name, name: o.name }))
     try {
       const meta = await GetElysiumMeta()
       qualityOptions = mapToOpts(meta?.qualities)
       langOptions    = mapToOpts(meta?.languages)
       subOptions     = mapToOpts(meta?.subtitles)
-      if (!qualityOptions.length) qualityOptions = HYD_QUALITIES
-      if (!langOptions.length)    langOptions    = HYD_LANGUAGES
-      if (!subOptions.length)     subOptions     = HYD_SUBS
+      if (!qualityOptions.length) qualityOptions = staticToKeyed(HYD_QUALITIES)
+      if (!langOptions.length)    langOptions    = staticToKeyed(HYD_LANGUAGES)
+      if (!subOptions.length)     subOptions     = staticToKeyed(HYD_SUBS)
     } catch(e) {
       console.error('GetElysiumMeta:', e)
-      qualityOptions = HYD_QUALITIES
-      langOptions    = HYD_LANGUAGES
-      subOptions     = HYD_SUBS
+      qualityOptions = staticToKeyed(HYD_QUALITIES)
+      langOptions    = staticToKeyed(HYD_LANGUAGES)
+      subOptions     = staticToKeyed(HYD_SUBS)
       addLog('META', `Elysium meta KO (${e?.message || e}) — fallback statique`)
     }
     addLog('META', `qualités: ${qualityOptions.length} · langues: ${langOptions.length} · sous-titres: ${subOptions.length}`)
@@ -688,6 +693,10 @@
     if (qualID) {
       postQuality = qualID
       qualityAutoFilled = true
+      // Sanity check : l'option auto-choisie doit exister dans le dropdown,
+      // sinon le select apparaît vide. Log pour diagnostic.
+      const known = qualityOptions.some(o => o.id === qualID || o.name === qualID)
+      if (!known) addLog('AUTO', `⚠ qualité auto "${qualID}" absente de qualityOptions (${qualityOptions.length} entrées)`)
     } else if (fileInfo?.quality) {
       // Fallback : détection classique par le parser
       const qual = fileInfo.quality.toLowerCase()
