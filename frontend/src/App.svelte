@@ -3777,22 +3777,6 @@
 
           <div class="section">
             <div class="section-header">
-              <span>Send.now</span>
-              <button class="btn-test" on:click={() => runTest('sendcm', () => TestSendCm(cfg.sendcm_api_key))}>
-                {#if testLoading.sendcm}…{:else}Tester{/if}
-              </button>
-            </div>
-            {#if testResults.sendcm}
-              <div class="test-result" class:ok={testResults.sendcm.ok}>{testResults.sendcm.message}</div>
-            {/if}
-            <div class="field">
-              <label>Clé API Send.now</label>
-              <input type="password" bind:value={cfg.sendcm_api_key} placeholder="API key" />
-            </div>
-          </div>
-
-          <div class="section">
-            <div class="section-header">
               <span>IGDB (Jeux vidéo)</span>
               <button class="btn-test" on:click={() => runTest('igdb', async () => ({ ok: true, message: await TestIgdb(cfg.igdb_client_id, cfg.igdb_client_secret) }))}>
                 {#if testLoading.igdb}…{:else}Tester{/if}

@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "9.0.1"
+const Version = "9.0.2"
 
 type App struct {
 	ctx         context.Context
@@ -4625,23 +4625,16 @@ type DDLWorkflowResult struct {
 	ElysiumID int      `json:"elysium_id"`
 }
 
-// PostDDLWorkflow : upload 1F (+ Send.now optionnel) puis poste l'URL 1F
-// sur Elysium. Send.now n'est PAS envoyé à Elysium (l'API n'accepte que
-// 1fichier.com) — on garde juste l'URL Send.now dans les liens de retour
-// pour l'historique local.
-func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, subs []string, mkvPath, nfo string, use1Fichier, useSendCm bool) (*DDLWorkflowResult, error) {
+// PostDDLWorkflow : upload 1Fichier puis poste l'URL sur Elysium.
+// Send.now retiré définitivement le 2026-09-04 (Elysium n'a jamais accepté
+// que 1fichier.com, aucun intérêt à maintenir un second host).
+func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, subs []string, mkvPath, nfo string) (*DDLWorkflowResult, error) {
 	a.resetCancellation()
 	if mkvPath == "" {
 		return nil, fmt.Errorf("chemin MKV manquant")
 	}
-	if !use1Fichier && !useSendCm {
-		return nil, fmt.Errorf("aucun host sélectionné (1Fichier et Send.now décochés)")
-	}
-	if use1Fichier && a.cfg.OneFichierApiKey == "" && !useSendCm {
+	if a.cfg.OneFichierApiKey == "" {
 		return nil, fmt.Errorf("clé 1Fichier manquante — renseignez les Settings")
-	}
-	if useSendCm && a.cfg.SendCmApiKey == "" && !use1Fichier {
-		return nil, fmt.Errorf("clé Send.now manquante — renseignez les Settings")
 	}
 
 	filename := filepath.Base(mkvPath)
@@ -4664,13 +4657,7 @@ func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, su
 		}
 	}
 
-	type uploadResult struct {
-		url     string
-		err     error
-		skipped bool // host annulé individuellement par l'utilisateur
-	}
-
-	// registerHostCancel stocke la CancelFunc du host pour que CancelDDLHost puisse l'appeler.
+	// Enregistre la CancelFunc du host pour que CancelDDLHost puisse l'appeler.
 	registerHostCancel := func(host string, cancel context.CancelFunc) {
 		a.hostMu.Lock()
 		a.hostCancels[host] = cancel
@@ -4682,104 +4669,29 @@ func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, su
 		a.hostMu.Unlock()
 	}
 
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	results := map[string]uploadResult{}
-
-	if use1Fichier && a.cfg.OneFichierApiKey != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			hostCtx, hostCancel := context.WithCancel(a.workContext())
-			registerHostCancel("1Fichier", hostCancel)
-			defer unregisterHostCancel("1Fichier")
-			defer hostCancel()
-			logEvent("1Fichier : connexion au serveur…")
-			res, err := uploader.UploadOneFichier(hostCtx, a.cfg.OneFichierApiKey, mkvPath, func(p uploader.UploadProgress) {
-				emitProgress("1Fichier", p)
-			})
-			emitDone("1Fichier", err)
-			mu.Lock()
-			switch {
-			case err == nil:
-				results["1Fichier"] = uploadResult{url: res.URL}
-				logEvent("1Fichier : upload terminé ✓")
-			case hostCtx.Err() != nil && a.workContext().Err() == nil:
-				results["1Fichier"] = uploadResult{skipped: true}
-				logEvent("1Fichier : skippé par l'utilisateur")
-			default:
-				results["1Fichier"] = uploadResult{err: err}
-				logEvent(fmt.Sprintf("1Fichier : erreur — %s", err.Error()))
-			}
-			mu.Unlock()
-		}()
-	}
-
-	if useSendCm && a.cfg.SendCmApiKey != "" {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			hostCtx, hostCancel := context.WithCancel(a.workContext())
-			registerHostCancel("Send.now", hostCancel)
-			defer unregisterHostCancel("Send.now")
-			defer hostCancel()
-			logEvent("Send.now : connexion au serveur…")
-			res, err := uploader.UploadSendCm(hostCtx, a.cfg.SendCmApiKey, mkvPath, func(p uploader.UploadProgress) {
-				emitProgress("Send.now", p)
-			})
-			emitDone("Send.now", err)
-			mu.Lock()
-			switch {
-			case err == nil:
-				results["Send.now"] = uploadResult{url: res.URL}
-				logEvent("Send.now : upload terminé ✓")
-			case hostCtx.Err() != nil && a.workContext().Err() == nil:
-				results["Send.now"] = uploadResult{skipped: true}
-				logEvent("Send.now : skippé par l'utilisateur")
-			default:
-				results["Send.now"] = uploadResult{err: err}
-				logEvent(fmt.Sprintf("Send.now : erreur — %s", err.Error()))
-			}
-			mu.Unlock()
-		}()
-	}
-
-	wg.Wait()
-
-	// Vérifier les erreurs (on ignore les skipped — ils ne sont pas considérés comme erreur)
-	anyOK := false
-	for host, r := range results {
-		if r.skipped {
-			continue
+	// Upload 1Fichier — plus de parallélisme (Send.now retiré).
+	hostCtx, hostCancel := context.WithCancel(a.workContext())
+	registerHostCancel("1Fichier", hostCancel)
+	defer unregisterHostCancel("1Fichier")
+	defer hostCancel()
+	logEvent("1Fichier : connexion au serveur…")
+	res, err := uploader.UploadOneFichier(hostCtx, a.cfg.OneFichierApiKey, mkvPath, func(p uploader.UploadProgress) {
+		emitProgress("1Fichier", p)
+	})
+	emitDone("1Fichier", err)
+	if err != nil {
+		if hostCtx.Err() != nil && a.workContext().Err() == nil {
+			logEvent("1Fichier : skippé par l'utilisateur")
+			return nil, fmt.Errorf("1fichier : skippé par l'utilisateur")
 		}
-		if r.err != nil {
-			// Si TOUS les hosts sont en erreur ou skipped, on échoue. Sinon on continue.
-			return nil, fmt.Errorf("%s: %w", strings.ToLower(host), r.err)
-		}
-		anyOK = true
+		logEvent(fmt.Sprintf("1Fichier : erreur — %s", err.Error()))
+		return nil, fmt.Errorf("1fichier: %w", err)
 	}
-	if !anyOK {
-		return nil, fmt.Errorf("tous les hosts ont été skippés ou ont échoué")
-	}
+	logEvent("1Fichier : upload terminé ✓")
 
-	// Collecte des liens et post Elysium — Elysium n'accepte QUE 1Fichier,
-	// donc seul le lien 1F est envoyé ; Send.now est gardé en local pour
-	// l'historique / le NFO.
-	var links []string
 	var elysiumID int
-	var oneFichierURL string
-	for host, r := range results {
-		if r.skipped || r.url == "" {
-			continue
-		}
-		links = append(links, r.url)
-		if host == "1Fichier" {
-			oneFichierURL = r.url
-		}
-	}
-	if oneFichierURL == "" {
-		return nil, fmt.Errorf("aucune URL 1Fichier disponible — Elysium n'accepte pas Send.now seul")
-	}
+	oneFichierURL := res.URL
+	links := []string{oneFichierURL}
 	logEvent("1Fichier : post du lien sur Elysium…")
 	wailsruntime.EventsEmit(a.ctx, "ddl:posting", map[string]interface{}{"host": "1Fichier", "posting": true})
 	up, err := a.uploadToElysium(tmdbID, mediaType, quality, langues, subs, mkvPath, nfo, "", oneFichierURL)

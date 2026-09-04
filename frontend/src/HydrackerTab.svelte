@@ -112,7 +112,7 @@
     return Array.isArray(perms) && perms.includes('torrent_admin')
   })()
 
-  let postDdlHosts = { onefichier: true, sendcm: true }
+  // Send.now retiré 2026-09-04 : Elysium n'accepte que 1Fichier, unique host DDL.
   let postSeason = 0
   let postEpisode = 0
   let postFullSaison = false  // toggle "Saison complète" — désactive le numéro d'épisode
@@ -151,10 +151,9 @@
     seedboxPct: 0, seedboxSpeed: 0,
   }
 
-  // Progression DDL — une entrée par hôte
+  // Progression DDL — 1Fichier seul depuis 2026-09-04.
   let ddlHosts = {
     '1Fichier': { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' },
-    'Send.now':  { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' },
   }
 
   // Meta depuis l'API Hydracker
@@ -222,10 +221,7 @@
     EventsOn('ddl:host-skipped', host => {
       if (!host) return
       ddlHosts = { ...ddlHosts, [host]: { ...ddlHosts[host], skipped: true, active: false, error: 'skippé par utilisateur' } }
-      // Désactive ce host pour les épisodes suivants de la queue
-      if (host === '1Fichier') postDdlHosts = { ...postDdlHosts, onefichier: false }
-      else if (host === 'Send.now') postDdlHosts = { ...postDdlHosts, sendcm: false }
-      addLog('DDL', `⏭ ${host} skippé — désactivé pour la suite de la queue`)
+      addLog('DDL', `⏭ ${host} skippé`)
     })
     EventsOn('torrent:status', p => {
       torrentState = { ...torrentState, stage: p.stage || '', msg: p.msg || '' }
@@ -1432,7 +1428,7 @@
     postLoading = true
     postResult = null
     nzbStatus = ''; nzbParparPct = 0; nzbNyuuPct = 0; nzbNyuuSpeed = ''; nzbNyuuETA = ''; nzbNyuuArticles = ''
-    ddlHosts = { '1Fichier': { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' }, 'Send.now': { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' } }
+    ddlHosts = { '1Fichier': { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' } }
     torrentState = { stage: '', msg: '', ftpPct: 0, ftpSpeed: 0, createPct: 0, seedboxPct: 0, seedboxSpeed: 0 }
 
     // Pivot Elysium : les workflows Post{Nzb,DDL}Workflow prennent maintenant
@@ -1496,7 +1492,7 @@
       else tasks.push(
         withRetry(
           'DDL',
-          () => PostDDLWorkflow(tmdbID, mediaType, qualityName, langNames, subNames, mkvFilePath, nfo, postDdlHosts.onefichier, postDdlHosts.sendcm),
+          () => PostDDLWorkflow(tmdbID, mediaType, qualityName, langNames, subNames, mkvFilePath, nfo),
           r => !!(r?.links?.length),
         )
           .then(r => {
@@ -1526,7 +1522,6 @@
     nzbStatus = ''; nzbParparPct = 0; nzbNyuuPct = 0; nzbNyuuSpeed = ''; nzbNyuuETA = ''; nzbNyuuArticles = ''
     ddlHosts = {
       '1Fichier': { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' },
-      'Send.now': { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' },
     }
     torrentState = { stage: '', msg: '', ftpPct: 0, ftpSpeed: 0, createPct: 0, seedboxPct: 0, seedboxSpeed: 0 }
   }
@@ -2042,21 +2037,7 @@
               </div>
             </div>
 
-            {#if postUploadTypes.ddl}
-              <div class="post-field">
-                <div class="post-field-label">Hosts DDL</div>
-                <div class="upload-pills">
-                  <button type="button" class="upload-pill" class:active={postDdlHosts.onefichier} data-color="green"
-                    on:click={() => postDdlHosts = { ...postDdlHosts, onefichier: !postDdlHosts.onefichier }}>
-                    <span class="pill-icon">📦</span><span class="pill-label">1Fichier</span>
-                  </button>
-                  <button type="button" class="upload-pill" class:active={postDdlHosts.sendcm} data-color="green"
-                    on:click={() => postDdlHosts = { ...postDdlHosts, sendcm: !postDdlHosts.sendcm }}>
-                    <span class="pill-icon">📦</span><span class="pill-label">Send.now</span>
-                  </button>
-                </div>
-              </div>
-            {:else}<div></div>{/if}
+            <div></div><!-- Send.now retiré 2026-09-04 : 1Fichier unique host DDL -->
           </div><!-- /.post-grid -->
 
           <!-- Ancre pour auto-scroll vers les barres de progression -->
@@ -2255,12 +2236,7 @@
                     if (postUploadTypes.torrent_admin) parts.push('Torrent ADMIN')
                     if (postUploadTypes.torrent_modo) parts.push('Torrent MODO')
                     if (postUploadTypes.nzb) parts.push('NZB')
-                    if (postUploadTypes.ddl) {
-                      const hosts = []
-                      if (postDdlHosts.onefichier) hosts.push('1Fichier')
-                      if (postDdlHosts.sendcm) hosts.push('Send.now')
-                      parts.push(hosts.length ? `DDL (${hosts.join(' + ')})` : 'DDL')
-                    }
+                    if (postUploadTypes.ddl) parts.push('DDL (1Fichier)')
                     return parts.join(' + ') || '—'
                   })()}
                 </span>

@@ -188,7 +188,7 @@ export function OpenHydrackerAdmin():Promise<void>;
 
 export function ParseFilename(arg1:string):Promise<parser.FileInfo>;
 
-export function PostDDLWorkflow(arg1:number,arg2:string,arg3:string,arg4:Array<string>,arg5:Array<string>,arg6:string,arg7:string,arg8:boolean,arg9:boolean):Promise<main.DDLWorkflowResult>;
+export function PostDDLWorkflow(arg1:number,arg2:string,arg3:string,arg4:Array<string>,arg5:Array<string>,arg6:string,arg7:string):Promise<main.DDLWorkflowResult>;
 
 export function PostExistingTorrent(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<main.TorrentWorkflowResult>;
 
