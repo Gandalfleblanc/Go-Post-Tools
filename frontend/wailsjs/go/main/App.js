@@ -106,8 +106,8 @@ export function ElysiumGetTitleByIgdbID(arg1) {
   return window['go']['main']['App']['ElysiumGetTitleByIgdbID'](arg1);
 }
 
-export function ElysiumGetTitleByTmdbID(arg1) {
-  return window['go']['main']['App']['ElysiumGetTitleByTmdbID'](arg1);
+export function ElysiumGetTitleByTmdbID(arg1, arg2) {
+  return window['go']['main']['App']['ElysiumGetTitleByTmdbID'](arg1, arg2);
 }
 
 export function ElysiumImportTitle(arg1, arg2) {

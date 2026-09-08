@@ -1959,7 +1959,7 @@
       {#if !sidebarCollapsed}
         <div class="logo">GO Post Tools</div>
         {#if appVersion}<div class="brand-version">v{appVersion}</div>{/if}
-        <div class="brand-author">By GANDALF</div>
+        <div class="brand-author">By ASTROBOY</div>
       {/if}
     </div>
 

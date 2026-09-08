@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "9.0.2"
+const Version = "9.0.3"
 
 type App struct {
 	ctx         context.Context
@@ -3107,14 +3107,16 @@ func (a *App) ElysiumSearchTitles(query, mediaType string) ([]elysium.Title, err
 	return c.SearchTitles(query, mediaType, 20)
 }
 
-// ElysiumGetTitleByTmdbID : lookup direct par tmdb_id. Retourne nil si la
-// fiche n'existe pas encore côté Elysium (utiliser ElysiumImportTitle ensuite).
-func (a *App) ElysiumGetTitleByTmdbID(tmdbID int) (*elysium.Title, error) {
+// ElysiumGetTitleByTmdbID : lookup direct par tmdb_id + mediaType (indispensable
+// pour désambiguïser — TMDB réutilise le même id entre movie et tv, ex : 615 =
+// « La Passion du Christ » film ET « Futurama » série). Retourne nil si la
+// fiche n'existe pas encore côté Elysium.
+func (a *App) ElysiumGetTitleByTmdbID(tmdbID int, mediaType string) (*elysium.Title, error) {
 	c, err := a.elysiumClient()
 	if err != nil {
 		return nil, err
 	}
-	return c.GetTitleByTmdbID(tmdbID)
+	return c.GetTitleByTmdbID(tmdbID, mediaType)
 }
 
 // ElysiumGetTitleByIgdbID : lookup direct par igdb_id (mode jeu).
@@ -3194,7 +3196,7 @@ func nfoForElysium(nfo string) string {
 // au tmdbID. Retourne le title + category_id calculé depuis mediaType.
 // mediaType : movie|tv|series|game (game utilise l'igdb_id, pas géré ici).
 func (a *App) resolveElysiumTitle(c *elysium.Client, tmdbID int, mediaType string) (*elysium.Title, int, error) {
-	t, err := c.GetTitleByTmdbID(tmdbID)
+	t, err := c.GetTitleByTmdbID(tmdbID, mediaType)
 	if err != nil {
 		return nil, 0, fmt.Errorf("lookup fiche Elysium tmdb_id=%d : %w", tmdbID, err)
 	}

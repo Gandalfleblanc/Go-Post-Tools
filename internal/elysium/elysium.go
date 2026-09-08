@@ -83,20 +83,39 @@ type Title struct {
 	PosterURL string `json:"poster_url"`
 }
 
-func (c *Client) GetTitleByTmdbID(tmdbID int) (*Title, error) {
-	return c.getTitleByExternal("tmdb_id", strconv.Itoa(tmdbID))
+// GetTitleByTmdbID : lookup par tmdb_id. mediaType (movie|tv|series|"")
+// DOIT être fourni pour désambiguïser — TMDB réutilise le même id entre
+// namespaces movie et tv (ex : id 615 = « La Passion du Christ » film ET
+// « Futurama » série). Sans type, on récupère le mauvais title.
+func (c *Client) GetTitleByTmdbID(tmdbID int, mediaType string) (*Title, error) {
+	t := normalizeType(mediaType)
+	return c.getTitleByExternal("tmdb_id", strconv.Itoa(tmdbID), t)
 }
 
 func (c *Client) GetTitleByIgdbID(igdbID int) (*Title, error) {
-	return c.getTitleByExternal("igdb_id", strconv.Itoa(igdbID))
+	return c.getTitleByExternal("igdb_id", strconv.Itoa(igdbID), "")
 }
 
-func (c *Client) getTitleByExternal(param, value string) (*Title, error) {
+// normalizeType : movie|tv|series|game|music|ebook|"" → forme attendue par
+// l'API Elysium (tmdb_type). "series" et "tv" convergent vers "tv" ; "" =
+// pas de filtre.
+func normalizeType(mediaType string) string {
+	t := strings.ToLower(strings.TrimSpace(mediaType))
+	if t == "series" {
+		return "tv"
+	}
+	return t
+}
+
+func (c *Client) getTitleByExternal(param, value, mediaType string) (*Title, error) {
 	if c.token == "" {
 		return nil, fmt.Errorf("token Elysium manquant")
 	}
 	params := url.Values{}
 	params.Set(param, value)
+	if mediaType != "" {
+		params.Set("type", mediaType)
+	}
 	req, _ := http.NewRequest("GET", c.base+"/api/v1/titles?"+params.Encode(), nil)
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/json")

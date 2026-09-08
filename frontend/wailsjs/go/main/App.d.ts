@@ -64,7 +64,7 @@ export function DownloadUpdate():Promise<string>;
 
 export function ElysiumGetTitleByIgdbID(arg1:number):Promise<elysium.Title>;
 
-export function ElysiumGetTitleByTmdbID(arg1:number):Promise<elysium.Title>;
+export function ElysiumGetTitleByTmdbID(arg1:number,arg2:string):Promise<elysium.Title>;
 
 export function ElysiumImportTitle(arg1:string,arg2:number):Promise<elysium.Title>;
 

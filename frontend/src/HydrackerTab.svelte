@@ -25,11 +25,14 @@
     const results = await ElysiumSearchTitles(query || '', '') || []
     return results.map(adaptElyTitle)
   }
-  async function HydrackerGetByTmdbID(tmdbID) {
-    let t = await ElysiumGetTitleByTmdbID(tmdbID)
+  // mediaType est CRITIQUE pour désambiguïser tmdb_id : TMDB réutilise le même
+  // id entre movie et tv (ex 615 = Passion du Christ film ET Futurama série).
+  async function HydrackerGetByTmdbID(tmdbID, mediaType = '') {
+    const mt = mediaType || selectedTMDB?.media_type || ''
+    let t = await ElysiumGetTitleByTmdbID(tmdbID, mt)
     if (!t) {
       // Fiche pas encore sur Elysium — import auto depuis TMDB.
-      try { t = await ElysiumImportTitle('', tmdbID) } catch (_) { t = null }
+      try { t = await ElysiumImportTitle(mt, tmdbID) } catch (_) { t = null }
     }
     return adaptElyTitle(t)
   }
@@ -1241,14 +1244,10 @@
         // les films), et seulement si l'auto-detect TMDB tombe sur le même
         // mauvais tmdb_id que celui qui a déclenché la correction manuelle.
         // → Évite de contaminer une queue de films distincts.
-        const isSeriesEpisode = movie.media_type === 'tv' || /\bS\d{1,2}E\d{1,3}\b/i.test(file?.name || '')
-        let found = null
-        if (isSeriesEpisode && queueHydrackerHint.correctHydrackerId && queueHydrackerHint.wrongTmdbId === movie.id) {
-          try { found = await HydrackerGetByID(queueHydrackerHint.correctHydrackerId) } catch(e) {}
-        }
-        if (!found) {
-          found = await HydrackerGetByTmdbID(movie.id)
-        }
+        // Post-pivot Elysium : queueHydrackerHint est obsolète (stockait un
+        // Hydracker fiche id, plus utilisable). On tape direct par tmdb_id +
+        // mediaType (les 2 sont nécessaires — voir HydrackerGetByTmdbID).
+        const found = await HydrackerGetByTmdbID(movie.id, movie.media_type || '')
         if (found) {
           // Si la fiche trouvée pointe vers un tmdb_id différent (ex: queue
           // batch série mal détectée → Lawn & Order au lieu de Law & Order),
@@ -1542,14 +1541,23 @@
     addLog('QUEUE', '■ Stop — tout arrêté, queue vidée')
   }
 
-  // --- Hydracker ---
+  // --- Recherche fiche Elysium (ex « Recherche Hydracker », renommée
+  // post-pivot 2026-09-04). Hérite du toggle Film/Série/Jeu du bloc TMDB
+  // à gauche pour filtrer par type ('' = tous).
   async function searchHydracker() {
-    if (!hydrackerSearchQuery.trim()) return
+    const q = hydrackerSearchQuery.trim()
+    if (!q) return
     hydrackerSearchLoading = true
     try {
-      hydrackerResults = await HydrackerSearch(hydrackerSearchQuery) || []
+      const mt = tmdbSearchType === 'game' ? '' : tmdbSearchType  // 'movie' | 'tv' | ''
+      const results = await ElysiumSearchTitles(q, mt) || []
+      hydrackerResults = results.map(adaptElyTitle).filter(Boolean)
       hydrackerSearchCache = [...hydrackerResults]
-    } catch(e) { console.error(e) }
+      addLog('ELYSIUM', `Recherche "${q}" (${mt || 'tous'}) : ${hydrackerResults.length} résultat(s)`)
+    } catch(e) {
+      console.error(e)
+      addLog('ELYSIUM', `✗ Recherche : ${e?.message || e}`)
+    }
     hydrackerSearchLoading = false
   }
 
@@ -1776,7 +1784,7 @@
             <!-- Pistes détectées : confirmation visuelle Title → mapping Hydracker -->
             {#if (mediaInfo.audios?.length || mediaInfo.subTracks?.length)}
               <div class="mi-block tracks-block">
-                <div class="tracks-header">🎯 Pistes détectées (mapping auto Hydracker)</div>
+                <div class="tracks-header">🎯 Pistes détectées (mapping auto Elysium)</div>
                 {#each (mediaInfo.audios || []) as a, i}
                   {@const m = mapAudioTrackByTitle(a)}
                   <div class="track-row">
@@ -1917,9 +1925,9 @@
         </div>
 
         <div class="search-section">
-          <div class="search-label">🌊 Recherche Hydracker</div>
+          <div class="search-label">🔶 Recherche Elysium</div>
           <div class="search-row">
-            <input type="text" class="hyd-search-input" bind:value={hydrackerSearchQuery} placeholder="Nom sur Hydracker (⌘K)"
+            <input type="text" class="hyd-search-input" bind:value={hydrackerSearchQuery} placeholder="Nom sur Elysium (⌘K)"
               on:keydown={e => e.key === 'Enter' && searchHydracker()} />
             <button class="btn-search" on:click={searchHydracker} disabled={hydrackerSearchLoading}>
               {hydrackerSearchLoading ? '…' : 'Chercher'}
@@ -2188,7 +2196,7 @@
         <div class="recap-box" class:open={recapOpen}>
           <button type="button" class="recap-title" on:click={() => recapOpen = !recapOpen}>
             <span class="mi-chevron">{recapOpen ? '▾' : '▸'}</span>
-            📋 Récapitulatif du post Hydracker
+            📋 Récapitulatif du post Elysium
           </button>
           {#if recapOpen}
             <div class="recap-body">
@@ -2205,7 +2213,7 @@
                 <span class="recap-val recap-id">{selectedTMDB.id} <span class="recap-type">{selectedTMDB.media_type || 'movie'}</span></span>
               </div>
               <div class="recap-row">
-                <span class="recap-key">Fiche Hydracker</span>
+                <span class="recap-key">Fiche Elysium</span>
                 <span class="recap-val">{selectedHydracker ? selectedHydracker.name + ' (#' + (selectedHydracker.id || '?') + ')' : '— non sélectionnée'}</span>
               </div>
               <div class="recap-row">
