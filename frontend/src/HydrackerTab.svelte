@@ -2066,7 +2066,7 @@
                       {:else if h.posted}
                         <span class="ddl-bar-status ok">✓ Posté sur Hydracker{#if h.hydrackerID} #{h.hydrackerID}{/if}</span>
                       {:else if h.posting}
-                        <span class="ddl-bar-status posting">⬆ Post Hydracker…</span>
+                        <span class="ddl-bar-status posting">⬆ Post Elysium…</span>
                       {:else if h.done}
                         <span class="ddl-bar-status ok">✓ Upload terminé</span>
                       {:else}
@@ -2126,7 +2126,7 @@
                 {#if ['post','post_done','download','download_done','seedbox','done'].includes(torrentState.stage)}
                   <div class="ddl-step">
                     <div class="ddl-step-label">
-                      <span>3. Post Hydracker</span>
+                      <span>3. Post Elysium</span>
                       <span class="ddl-bar-status {['post_done','download','download_done','seedbox','done'].includes(torrentState.stage) ? 'ok' : 'posting'}">
                         {['post_done','download','download_done','seedbox','done'].includes(torrentState.stage) ? '✓ Posté' : '⬆ Envoi…'}
                       </span>
