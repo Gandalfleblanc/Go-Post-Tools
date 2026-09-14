@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "9.0.4"
+const Version = "9.1.0"
 
 type App struct {
 	ctx         context.Context
@@ -3217,9 +3217,34 @@ func (a *App) resolveElysiumTitle(c *elysium.Client, tmdbID int, mediaType strin
 	return t, elysium.CategoryFromMediaType(mediaType), nil
 }
 
+// ensureSxxEyyInName : si le nom ne contient pas déjà SxxEyy (ni 1x02, ni
+// Saison XX Episode YY), on l'injecte en préfixe. Sinon on retourne tel quel.
+// Nécessaire pour qu'Elysium range la release dans la bonne saison de la fiche.
+func ensureSxxEyyInName(name string, saison, episode int) string {
+	if saison <= 0 || episode <= 0 {
+		return name
+	}
+	// Patterns reconnus par le ReleaseParser d'Elysium — si déjà présent, ne
+	// touche pas.
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)\bS\d{1,2}[\s._-]?E\d{1,4}\b`),
+		regexp.MustCompile(`\b\d{1,2}x\d{1,4}\b`),
+		regexp.MustCompile(`(?i)\bSaison[\s._-]?\d{1,2}[\s._-]?(?:Ep|Episode|E)[\s._-]?\d{1,4}\b`),
+	}
+	for _, p := range patterns {
+		if p.MatchString(name) {
+			return name
+		}
+	}
+	return fmt.Sprintf("S%02dE%02d %s", saison, episode, name)
+}
+
 // uploadToElysium : envoie NZB et/ou DDL sur Elysium — helper commun aux
 // deux workflows (Post{Nzb,DDL}Workflow).
-func (a *App) uploadToElysium(tmdbID int, mediaType, quality string, langues, subs []string, mkvPath, nfo, nzbPath, ddlURL string) (*elysium.UploadResult, error) {
+// saison/episode : injectés en préfixe SxxEyy dans le file_name si absents.
+// Elysium parse le file_name pour ranger la release dans « Saison XX » de la
+// fiche — sans SxxEyy, il tombe dans « Autres ».
+func (a *App) uploadToElysium(tmdbID int, mediaType, quality string, langues, subs []string, mkvPath, nfo, nzbPath, ddlURL string, saison, episode int) (*elysium.UploadResult, error) {
 	c, err := a.elysiumClient()
 	if err != nil {
 		return nil, err
@@ -3232,11 +3257,22 @@ func (a *App) uploadToElysium(tmdbID int, mediaType, quality string, langues, su
 	if info, err := os.Stat(mkvPath); err == nil {
 		size = info.Size()
 	}
+	baseName := strings.TrimSuffix(filepath.Base(mkvPath), filepath.Ext(mkvPath))
+	fileName := ensureSxxEyyInName(baseName, saison, episode)
+	// nzbFileName : le nom du .nzb uploadé sur Elysium est aussi utilisé par
+	// le ReleaseParser côté serveur (pas seulement file_name). Sans SxxEyy
+	// dedans, le NZB tombe dans « Autres ».
+	nzbFileName := ""
+	if nzbPath != "" {
+		nzbBase := strings.TrimSuffix(filepath.Base(nzbPath), filepath.Ext(nzbPath))
+		nzbFileName = ensureSxxEyyInName(nzbBase, saison, episode)
+	}
 	payload := elysium.UploadPayload{
 		TitleID:     t.ID,
 		CategoryID:  catID,
 		SizeBytes:   size,
-		FileName:    strings.TrimSuffix(filepath.Base(mkvPath), filepath.Ext(mkvPath)),
+		FileName:    fileName,
+		NzbFileName: nzbFileName,
 		Quality:     quality,
 		Languages:   langues,
 		Subtitles:   subs,
@@ -4498,7 +4534,7 @@ type NzbWorkflowResult struct {
 //   - tmdbID / mediaType : résolvent ou importent la fiche Elysium.
 //   - quality : nom exact TrackerMeta (ex "WEB 1080p (x265)").
 //   - langues / subs : noms TrackerMeta (envoyés tels quels).
-func (a *App) PostNzbWorkflow(tmdbID int, mediaType, quality string, langues, subs []string, mkvPath, nfo string) (*NzbWorkflowResult, error) {
+func (a *App) PostNzbWorkflow(tmdbID int, mediaType, quality string, langues, subs []string, mkvPath, nfo string, saison, episode int) (*NzbWorkflowResult, error) {
 	a.resetCancellation()
 	// Validation config — retourne des messages explicites
 	if a.cfg.UsenetHost == "" {
@@ -4590,7 +4626,7 @@ func (a *App) PostNzbWorkflow(tmdbID int, mediaType, quality string, langues, su
 	}
 	// 5. Upload NZB sur Elysium
 	wailsruntime.EventsEmit(a.ctx, "nzb:status", "Upload NZB sur Elysium…")
-	up, err := a.uploadToElysium(tmdbID, mediaType, quality, langues, subs, mkvPath, nfo, result.NZBPath, "")
+	up, err := a.uploadToElysium(tmdbID, mediaType, quality, langues, subs, mkvPath, nfo, result.NZBPath, "", saison, episode)
 	if err != nil {
 		return nil, fmt.Errorf("upload Elysium: %w", err)
 	}
@@ -4630,7 +4666,7 @@ type DDLWorkflowResult struct {
 // PostDDLWorkflow : upload 1Fichier puis poste l'URL sur Elysium.
 // Send.now retiré définitivement le 2026-09-04 (Elysium n'a jamais accepté
 // que 1fichier.com, aucun intérêt à maintenir un second host).
-func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, subs []string, mkvPath, nfo string) (*DDLWorkflowResult, error) {
+func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, subs []string, mkvPath, nfo string, saison, episode int) (*DDLWorkflowResult, error) {
 	a.resetCancellation()
 	if mkvPath == "" {
 		return nil, fmt.Errorf("chemin MKV manquant")
@@ -4691,12 +4727,25 @@ func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, su
 	}
 	logEvent("1Fichier : upload terminé ✓")
 
+	// Rangement 1F : bouge le fichier fraîchement uploadé dans le dossier
+	// « GO POST TOOLS » à la racine (créé si absent). Sans ça, l'user retrouve
+	// difficilement ses fichiers noyés dans la racine de son compte 1F.
+	if fid, ferr := uploader.EnsureOneFichierFolder(hostCtx, a.cfg.OneFichierApiKey, "GO POST TOOLS"); ferr == nil && fid > 0 {
+		if merr := uploader.MoveToOneFichierFolder(hostCtx, a.cfg.OneFichierApiKey, []string{res.URL}, fid); merr == nil {
+			logEvent(fmt.Sprintf("1Fichier : rangé dans « GO POST TOOLS » (id %d) ✓", fid))
+		} else {
+			logEvent(fmt.Sprintf("1Fichier : rangement dossier échoué — %s (fichier reste à la racine)", merr.Error()))
+		}
+	} else if ferr != nil {
+		logEvent(fmt.Sprintf("1Fichier : accès dossier échoué — %s (fichier reste à la racine)", ferr.Error()))
+	}
+
 	var elysiumID int
 	oneFichierURL := res.URL
 	links := []string{oneFichierURL}
 	logEvent("1Fichier : post du lien sur Elysium…")
 	wailsruntime.EventsEmit(a.ctx, "ddl:posting", map[string]interface{}{"host": "1Fichier", "posting": true})
-	up, err := a.uploadToElysium(tmdbID, mediaType, quality, langues, subs, mkvPath, nfo, "", oneFichierURL)
+	up, err := a.uploadToElysium(tmdbID, mediaType, quality, langues, subs, mkvPath, nfo, "", oneFichierURL, saison, episode)
 	if err != nil {
 		wailsruntime.EventsEmit(a.ctx, "ddl:posting", map[string]interface{}{"host": "1Fichier", "posting": false})
 		return nil, fmt.Errorf("elysium: %w", err)

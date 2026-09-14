@@ -197,6 +197,10 @@ type UploadPayload struct {
 	Description string   // NFO / description libre
 	DDLURL      string   // URL 1fichier.com (optionnel)
 	NZBFilePath string   // Chemin local du .nzb à uploader (optionnel)
+	NzbFileName string   // Nom logique du .nzb côté serveur (surcharge le
+	                     // nom du fichier envoyé en multipart). Utilisé par
+	                     // le ReleaseParser d'Elysium pour ranger la release
+	                     // dans la bonne saison — DOIT contenir SxxEyy.
 }
 
 type UploadResult struct {
@@ -230,6 +234,9 @@ func (c *Client) Upload(p UploadPayload) (*UploadResult, error) {
 	_ = w.WriteField("size_bytes", strconv.FormatInt(p.SizeBytes, 10))
 	if p.FileName != "" {
 		_ = w.WriteField("file_name", p.FileName)
+	}
+	if p.NzbFileName != "" {
+		_ = w.WriteField("nzb_file_name", p.NzbFileName)
 	}
 	if p.Quality != "" {
 		_ = w.WriteField("quality", p.Quality)
@@ -357,7 +364,7 @@ type Meta struct {
 	Languages     map[string]string   `json:"languages"`
 	Subtitles     map[string]string   `json:"subtitles"`
 	Categories    []Category          `json:"categories"`
-	Subcategories map[string][]string `json:"subcategories"`
+	Subcategories map[string]map[string]string `json:"subcategories"`
 }
 
 // GetMeta : récupère les tables de référence pour peupler les dropdowns.

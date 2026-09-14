@@ -1174,7 +1174,7 @@ export namespace elysium {
 	    languages: Record<string, string>;
 	    subtitles: Record<string, string>;
 	    categories: Category[];
-	    subcategories: Record<string, Array<string>>;
+	    subcategories: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
 	        return new Meta(source);

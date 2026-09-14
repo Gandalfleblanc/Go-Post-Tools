@@ -1,7 +1,9 @@
 package tester
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -115,10 +117,29 @@ func TestOneFichier(apiKey string) Result {
 		return fail(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == 200 {
-		return ok("Connecté à 1Fichier")
+	if resp.StatusCode != 200 {
+		return Result{false, fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}
-	return Result{false, fmt.Sprintf("HTTP %d", resp.StatusCode)}
+	// L'endpoint /account/info renvoie l'email + type d'abo. On les affiche
+	// pour permettre de repérer une clé partagée (plusieurs users voient le
+	// même email → tous les uploads atterrissent sur le même compte).
+	body, _ := io.ReadAll(resp.Body)
+	var info struct {
+		Email        string `json:"email"`
+		Subscription string `json:"offer"`
+		Status       string `json:"status"`
+	}
+	if err := json.Unmarshal(body, &info); err == nil && info.Email != "" {
+		abo := info.Subscription
+		if abo == "" {
+			abo = info.Status
+		}
+		if abo != "" {
+			return ok(fmt.Sprintf("Connecté 1F : %s (%s)", info.Email, abo))
+		}
+		return ok(fmt.Sprintf("Connecté 1F : %s", info.Email))
+	}
+	return ok("Connecté à 1Fichier")
 }
 
 func TestSendCm(apiKey string) Result {

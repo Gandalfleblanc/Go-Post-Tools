@@ -118,6 +118,11 @@
   // Send.now retiré 2026-09-04 : Elysium n'accepte que 1Fichier, unique host DDL.
   let postSeason = 0
   let postEpisode = 0
+  // Anchor de numérotation manuelle en queue (typique anime numéroté 001, 002…
+  // sans saison où l'user re-mappe : fichier ...062 → S02E01). Une fois posé,
+  // les fichiers suivants héritent : rawEp N > anchor.rawEp ⇒ postSeason =
+  // anchor.saison, postEpisode = anchor.episode + (N - anchor.rawEp).
+  let queueEpisodeAnchor = null  // { rawEp: int, saison: int, episode: int } | null
   let postFullSaison = false  // toggle "Saison complète" — désactive le numéro d'épisode
   let postNfoManual = ''      // NFO custom écrit par l'user (override la génération auto)
   let nfoEditMode = false     // true = textarea éditable, false = preview readonly
@@ -126,6 +131,7 @@
 
   // Fichiers sélectionnés pour l'upload
   let mkvFilePath = ''
+  let dropDebounce = null  // debounce le loadFileFromPath après OnFileDrop pour ordre garanti
   // Mode "torrent existant" (depuis Reseed) : on poste le .torrent tel quel à Hydracker
   // (pas de FTP, pas de seedbox, pas de regénération depuis MKV)
   let existingTorrentPath = ''
@@ -249,17 +255,20 @@
       const valid = paths.filter(p => /\.(mkv|mp4)$/i.test(p))
       addLog('QUEUE', `${valid.length} valide(s) (mkv/mp4)`)
       if (valid.length === 0) return
-      if (valid.length === 1 && queue.length === 0 && !queueProcessing && !file) {
-        loadFileFromPath(valid[0], null)
-      } else {
-        // Batch : insert tous d'abord (sans preview), puis UN seul loadFileFromPath
-        // sur queue[0] (l'épisode le plus petit après tri numérique). Évite la
-        // race condition de loadFileFromPath multiples concurrents.
-        valid.forEach(p => enqueueOnly(p))
-        if (queue.length >= 1 && mkvFilePath !== queue[0] && !queueProcessing) {
+      // TOUJOURS enqueueOnly d'abord (garantit sort numérique), puis charge
+      // la preview sur queue[0] APRÈS un debounce de 250ms. macOS peut
+      // dispatcher un drop de N fichiers en N events séparés dans un ordre
+      // arbitraire — sans debounce, la preview finit sur le mauvais épisode.
+      valid.forEach(p => enqueueOnly(p))
+      addLog('QUEUE', `DEBUG drop: valid=${valid.length}, queue.length=${queue.length}, queue[0]=${queue[0]?.split('/').pop().slice(0,40) || '?'}`)
+      clearTimeout(dropDebounce)
+      dropDebounce = setTimeout(() => {
+        const first = queue[0]?.split('/').pop().slice(0,40) || '?'
+        addLog('QUEUE', `DEBUG debounce fire: queue.length=${queue.length}, queue[0]=${first}, queueProcessing=${queueProcessing}`)
+        if (queue.length >= 1 && !queueProcessing) {
           loadFileFromPath(queue[0], null)
         }
-      }
+      }, 500)
     }, true)
     window.addEventListener('watch:newfile', onWatchNewFile)
     window.addEventListener('hydracker:preload-torrent', onPreloadTorrent)
@@ -357,10 +366,16 @@
   }
   function enqueue(path) {
     enqueueOnly(path)
-    // Preview : si rien n'est chargé, on affiche le 1er fichier de la queue triée
-    if (!file && queue.length >= 1 && !queueProcessing) {
-      loadFileFromPath(queue[0], null)
-    }
+    // Watch folder + drop OS peuvent envoyer les fichiers UN PAR UN dans un
+    // ordre arbitraire. On debounce le loadFileFromPath pour ne le lancer
+    // qu'une fois queue stable et triée. Sans ça, mkvFilePath restait sur le
+    // 1er fichier vu (ex : 010) au lieu du plus petit numériquement (001).
+    clearTimeout(dropDebounce)
+    dropDebounce = setTimeout(() => {
+      if (queue.length >= 1 && !queueProcessing) {
+        loadFileFromPath(queue[0], null)
+      }
+    }, 500)
   }
   function dequeueAt(idx) {
     queue = queue.filter((_, i) => i !== idx)
@@ -430,6 +445,7 @@
     queueTMDBHint = 0
     queueHydrackerHint = { wrongTmdbId: 0, correctHydrackerId: 0 }
     queueQualityHint = ''
+    queueEpisodeAnchor = null
     // Récap final cumulé
     if (queueResults.length > 1) {
       const okCount = queueResults.filter(r => r.ok).length
@@ -881,6 +897,7 @@
     const isFolder = !!opts.isFolder
     const isArchive = !!opts.isArchive
     const filename = name || path.split(/[\\/]/).pop()
+    addLog('LOAD', `→ ${filename.slice(0, 60)}`)
 
     // Mode Jeu : on a déjà choisi le jeu via la recherche IGDB. Le drop d'une
     // archive/ISO ne doit PAS relancer le parse + auto-detect TMDB (qui
@@ -926,6 +943,40 @@
     addLog('TMDB', `parse : title="${fileInfo?.title || ''}" year="${fileInfo?.year || ''}" S${fileInfo?.season || 0}E${fileInfo?.episode || 0}${isFolder ? ' (dossier saison)' : isArchive ? ' (archive saison)' : ''}`)
     if (fileInfo?.season) postSeason = fileInfo.season
     if (fileInfo?.episode && !isFolder && !isArchive) postEpisode = fileInfo.episode
+    // Fallback anime numéroté : parser Go cherche S01E01/1x01/Saison 01 mais
+    // pas « TITRE NNN ». Ex : « One Piece 010 MULTI … » → parser Go extrait
+    // title="One Piece 010" (pollué). On détecte le nombre en fin de titre
+    // parsé, on l'utilise comme épisode et on nettoie le titre pour que la
+    // recherche TMDB matche « One Piece » et pas « One Piece 010 ».
+    if (!postEpisode && !isFolder && !isArchive && fileInfo?.title) {
+      const m = fileInfo.title.match(/^(.+?)[\s._-]+(\d{1,4})$/)
+      if (m) {
+        const n = parseInt(m[2])
+        if (n > 0 && n < 1900) {
+          const cleanTitle = m[1].trim()
+          fileInfo = { ...fileInfo, title: cleanTitle, episode: n }
+          postEpisode = n
+          addLog('TMDB', `↺ anime numéroté détecté : titre="${cleanTitle}" ep=${n}`)
+        }
+      }
+    }
+    // Ancre de numérotation manuelle : si l'user a re-mappé un épisode précédent
+    // de la queue (ex : anime numéroté 062 → S02E01), on applique l'offset au
+    // fichier courant. Rétroactif ignoré (rawEp < anchor.rawEp).
+    if (queueEpisodeAnchor && !isFolder && !isArchive) {
+      const rawEp = fileInfo?.episode || 0
+      if (rawEp >= queueEpisodeAnchor.rawEp) {
+        postSeason = queueEpisodeAnchor.saison
+        postEpisode = queueEpisodeAnchor.episode + (rawEp - queueEpisodeAnchor.rawEp)
+        addLog('QUEUE', `↺ numérotation sticky : raw ${rawEp} → S${String(postSeason).padStart(2,'0')}E${String(postEpisode).padStart(2,'0')}`)
+      }
+    } else if (!isFolder && !isArchive && postSeason > 0 && postEpisode > 0 && (queue.length > 0 || queueProcessing)) {
+      // Auto-ancre : le 1er fichier de la queue arrive avec Saison + Épisode
+      // détectés (ex : « Saison 01 » + fallback anime 001). On mémorise pour
+      // que les épisodes suivants sans « Saison XX » dans le nom héritent.
+      queueEpisodeAnchor = { rawEp: postEpisode, saison: postSeason, episode: postEpisode }
+      addLog('QUEUE', `↺ ancre auto : raw ${postEpisode} → S${String(postSeason).padStart(2,'0')}E${String(postEpisode).padStart(2,'0')}`)
+    }
 
     // 2. MediaInfo via Go : pour un fichier direct, OU pour le 1er MKV du dossier (saison complète)
     if (path && !isArchive) {
@@ -1055,6 +1106,22 @@
   // --- TMDB ---
   async function autoSearchTMDB(query) {
     tmdbSearchLoading = true
+    // Shortcut queue : si on a un hint TMDB de l'épisode précédent, on skip
+    // la recherche (souvent en échec sur les animés numérotés type One Piece)
+    // et on force la fiche héritée. Évite le prompt manuel entre EP001/EP002.
+    if (queueTMDBHint && (queue.length > 0 || queueProcessing)) {
+      try {
+        const hintType = selectedTMDB?.media_type || (fileInfo?.episode ? 'tv' : 'movie')
+        const movie = await TMDBGetByID(queueTMDBHint, hintType)
+        if (movie) {
+          movie.media_type = hintType
+          addLog('TMDB', `↺ fiche héritée queue (tmdb #${queueTMDBHint} ${hintType})`)
+          await selectTMDB(movie)
+          tmdbSearchLoading = false
+          return
+        }
+      } catch (_) {}
+    }
     addLog('TMDB', `🔍 Recherche auto : "${query}"${fileInfo?.year ? ' (' + fileInfo.year + ')' : ''}`)
     try {
       // Recherche via mediasearch (plus fiable, inclut le tmdb_id directement)
@@ -1150,6 +1217,7 @@
         const all = await TMDBSearch(tmdbSearchQuery) || []
         // Filtre par type sélectionné (ignore les résultats sans media_type connu)
         tmdbResults = all.filter(r => !r.media_type || r.media_type === tmdbSearchType)
+        addLog('TMDB', `Recherche "${tmdbSearchQuery}" (${tmdbSearchType}) : ${all.length} brut → ${tmdbResults.length} après filtre`)
       }
       if (tmdbResults.length === 1) selectTMDB(tmdbResults[0])
       else if (tmdbResults.length > 1) tmdbAmbiguous = true
@@ -1478,7 +1546,7 @@
       else tasks.push(
         withRetry(
           'NZB',
-          () => PostNzbWorkflow(tmdbID, mediaType, qualityName, langNames, subNames, mkvFilePath, nfo),
+          () => PostNzbWorkflow(tmdbID, mediaType, qualityName, langNames, subNames, mkvFilePath, nfo, postSeason || 0, postEpisode || 0),
           r => !!r?.nzb_path,
         )
           .then(r => successes.push(`NZB Elysium #${r.elysium_id} ajouté`))
@@ -1491,7 +1559,7 @@
       else tasks.push(
         withRetry(
           'DDL',
-          () => PostDDLWorkflow(tmdbID, mediaType, qualityName, langNames, subNames, mkvFilePath, nfo),
+          () => PostDDLWorkflow(tmdbID, mediaType, qualityName, langNames, subNames, mkvFilePath, nfo, postSeason || 0, postEpisode || 0),
           r => !!(r?.links?.length),
         )
           .then(r => {
@@ -1541,25 +1609,101 @@
     addLog('QUEUE', '■ Stop — tout arrêté, queue vidée')
   }
 
-  // --- Recherche fiche Elysium (ex « Recherche Hydracker », renommée
-  // post-pivot 2026-09-04). Hérite du toggle Film/Série/Jeu du bloc TMDB
-  // à gauche pour filtrer par type ('' = tous).
-  async function searchHydracker() {
-    const q = hydrackerSearchQuery.trim()
+  // --- Recherche fiche UNIFIÉE (Elysium + TMDB) — un seul champ, un seul
+  // bouton, résultats mergés avec un badge « déjà sur Elysium » quand la
+  // fiche est déjà présente sur le site. Remplace les 2 blocs séparés
+  // depuis 2026-09-14.
+  let unifiedResults = []      // [{source, tmdb_id, media_type, title, year, poster_url, badge}]
+  let unifiedLoading = false
+
+  async function searchUnified() {
+    const q = tmdbSearchQuery.trim()
     if (!q) return
-    hydrackerSearchLoading = true
+    unifiedLoading = true
+    unifiedResults = []
+    hydrackerResults = []
+    tmdbResults = []
+    igdbResults = []
     try {
-      const mt = tmdbSearchType === 'game' ? '' : tmdbSearchType  // 'movie' | 'tv' | ''
-      const results = await ElysiumSearchTitles(q, mt) || []
-      hydrackerResults = results.map(adaptElyTitle).filter(Boolean)
-      hydrackerSearchCache = [...hydrackerResults]
-      addLog('ELYSIUM', `Recherche "${q}" (${mt || 'tous'}) : ${hydrackerResults.length} résultat(s)`)
-    } catch(e) {
+      // Mode Jeu = IGDB seul (Elysium n'a que des fiches IGDB internes déjà couvertes par sélection jeu ailleurs).
+      if (tmdbSearchType === 'game') {
+        igdbResults = await IgdbSearch(q) || []
+        addLog('IGDB', `Recherche "${q}" : ${igdbResults.length} jeu(x)`)
+        if (igdbResults.length === 1) await selectGame(igdbResults[0])
+        unifiedLoading = false
+        return
+      }
+      const mt = tmdbSearchType  // 'movie' | 'tv'
+      // Parallèle : Elysium (déjà présents) + TMDB (candidats à importer).
+      const [elyRaw, tmdbRaw] = await Promise.all([
+        ElysiumSearchTitles(q, mt).catch(() => []),
+        TMDBSearch(q).catch(() => []),
+      ])
+      const elyKey = new Set()
+      const merged = []
+      // 1. Elysium en premier (badge « déjà présente »)
+      for (const t of (elyRaw || [])) {
+        if (!t.tmdb_id) continue
+        const key = `${t.type || 'movie'}:${t.tmdb_id}`
+        elyKey.add(key)
+        merged.push({
+          source: 'elysium',
+          tmdb_id: t.tmdb_id,
+          media_type: t.type || 'movie',
+          title: t.title,
+          year: t.year || 0,
+          poster_url: t.poster_url || '',
+          badge: '✓ Elysium',
+        })
+      }
+      // 2. TMDB filtré par type, dédupliqué contre Elysium
+      for (const m of (tmdbRaw || [])) {
+        const kind = m.media_type || mt
+        if (kind !== mt) continue
+        const key = `${kind}:${m.id}`
+        if (elyKey.has(key)) continue
+        merged.push({
+          source: 'tmdb',
+          tmdb_id: m.id,
+          media_type: kind,
+          title: m.title || m.name || '',
+          year: parseInt((m.release_date || m.first_air_date || '').slice(0, 4)) || 0,
+          poster_url: m.poster_path ? `https://image.tmdb.org/t/p/w185${m.poster_path}` : '',
+          badge: 'TMDB',
+        })
+      }
+      unifiedResults = merged
+      addLog('SEARCH', `"${q}" (${mt}) : ${elyRaw?.length || 0} Elysium + ${tmdbRaw?.length || 0} TMDB → ${merged.length} résultats`)
+      // 1 seul résultat → sélection auto
+      if (merged.length === 1) await pickUnified(merged[0])
+    } catch (e) {
       console.error(e)
-      addLog('ELYSIUM', `✗ Recherche : ${e?.message || e}`)
+      addLog('SEARCH', `✗ ${e?.message || e}`)
     }
-    hydrackerSearchLoading = false
+    unifiedLoading = false
   }
+
+  // pickUnified : sélectionne un résultat unifié — construit un pseudo-movie
+  // TMDB et laisse selectTMDB faire la chaîne (poster + HydrackerGetByTmdbID
+  // qui, via l'adapter, tente Elysium puis import auto si besoin).
+  async function pickUnified(r) {
+    unifiedResults = []
+    const pseudoMovie = {
+      id: r.tmdb_id,
+      media_type: r.media_type,
+      title: r.title,
+      name: r.title,
+      release_date: r.year ? `${r.year}-01-01` : '',
+      first_air_date: r.year ? `${r.year}-01-01` : '',
+      poster_path: '',
+      _poster_full: r.poster_url,
+      _from_mediasearch: true,
+    }
+    await selectTMDB(pseudoMovie)
+  }
+
+  // Alias legacy pour compat (Cmd+K et autres callsites) — redirige vers unifié.
+  async function searchHydracker() { return searchUnified() }
 
   async function selectHydracker(title) {
     selectedHydracker = title
@@ -1893,24 +2037,36 @@
         </div>
       {/if}
 
-      <!-- Recherches TMDB + Hydracker côte à côte -->
-      <div class="searches-row">
+      <!-- Recherche fiche UNIFIÉE : Elysium (déjà présentes) + TMDB (à importer)
+           dans un seul champ. Remplace les 2 blocs séparés depuis 2026-09-14. -->
+      <div class="searches-row" style="grid-template-columns: 1fr">
         <div class="search-section">
-          <div class="search-label">🔍 Recherche {gameMode ? 'IGDB (Jeux)' : 'TMDB'}</div>
+          <div class="search-label">🔍 Recherche fiche</div>
           <div class="search-row">
             <div class="tmdb-type-toggle">
-              <button type="button" class:active={tmdbSearchType === 'movie'} on:click={() => tmdbSearchType = 'movie'}>🎬 Film</button>
-              <button type="button" class:active={tmdbSearchType === 'tv'} on:click={() => tmdbSearchType = 'tv'}>📺 Série</button>
-              <button type="button" class:active={tmdbSearchType === 'game'} on:click={() => tmdbSearchType = 'game'}>🎮 Jeu</button>
+              <button type="button" class:active={tmdbSearchType === 'movie'} on:click={() => { tmdbSearchType = 'movie'; if (tmdbSearchQuery.trim()) searchUnified() }}>🎬 Film</button>
+              <button type="button" class:active={tmdbSearchType === 'tv'} on:click={() => { tmdbSearchType = 'tv'; if (tmdbSearchQuery.trim()) searchUnified() }}>📺 Série</button>
+              <button type="button" class:active={tmdbSearchType === 'game'} on:click={() => { tmdbSearchType = 'game'; if (tmdbSearchQuery.trim()) searchUnified() }}>🎮 Jeu</button>
             </div>
-            <input type="text" bind:value={tmdbSearchQuery} placeholder={gameMode ? 'Nom du jeu' : 'Nom du film/série'}
-              on:keydown={e => e.key === 'Enter' && manualTMDBSearch()} />
+            <input type="text" class="hyd-search-input" bind:value={tmdbSearchQuery} placeholder={gameMode ? 'Nom du jeu (⌘K)' : 'Nom du film / série (⌘K)'}
+              on:keydown={e => e.key === 'Enter' && searchUnified()} />
             <input type="text" bind:value={tmdbSearchId} placeholder={gameMode ? 'ID IGDB' : 'ID TMDB'} style="width:90px;flex:none"
               on:keydown={e => e.key === 'Enter' && manualTMDBSearch()} />
-            <button class="btn-search" on:click={manualTMDBSearch} disabled={tmdbSearchLoading}>
-              {tmdbSearchLoading ? '…' : 'Chercher'}
+            <button class="btn-search" on:click={searchUnified} disabled={unifiedLoading}>
+              {unifiedLoading ? '…' : 'Chercher'}
             </button>
           </div>
+          {#if unifiedResults.length > 0}
+            <div class="hydracker-results">
+              {#each unifiedResults as r}
+                <button class="hydracker-item" on:click={() => pickUnified(r)}>
+                  <span class="hyd-name">{r.title}</span>
+                  <span class="hyd-year">{r.year || ''}</span>
+                  <span class="hyd-type badge-{r.source === 'elysium' ? 'movie' : 'tv'}" style="background:{r.source === 'elysium' ? 'rgba(126,240,192,0.15)' : 'rgba(255,255,255,0.06)'};color:{r.source === 'elysium' ? '#7ef0c0' : 'var(--text2)'}">{r.badge}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
           {#if igdbResults.length > 1}
             <div class="hydracker-results">
               {#each igdbResults as g}
@@ -1920,31 +2076,6 @@
                   <span class="hyd-type badge-game">🎮 IGDB #{g.id}</span>
                 </button>
               {/each}
-            </div>
-          {/if}
-        </div>
-
-        <div class="search-section">
-          <div class="search-label">🔶 Recherche Elysium</div>
-          <div class="search-row">
-            <input type="text" class="hyd-search-input" bind:value={hydrackerSearchQuery} placeholder="Nom sur Elysium (⌘K)"
-              on:keydown={e => e.key === 'Enter' && searchHydracker()} />
-            <button class="btn-search" on:click={searchHydracker} disabled={hydrackerSearchLoading}>
-              {hydrackerSearchLoading ? '…' : 'Chercher'}
-            </button>
-          </div>
-          {#if hydrackerResults.length > 0}
-            <div class="hydracker-results">
-              {#each hydrackerResults as t}
-                <button class="hydracker-item" on:click={() => selectHydracker(t)}>
-                  <span class="hyd-name">{t.name}</span>
-                  <span class="hyd-year">{(t.release_date||'').slice(0,4)}</span>
-                  <span class="hyd-type badge-{t.type}">{t.type}</span>
-                </button>
-              {/each}
-              <button class="hydracker-item hyd-create-btn" on:click={() => { hydrackerResults = []; hydrackerNotFound = true }}>
-                <span class="hyd-name">+ Aucune de ces fiches — en créer une</span>
-              </button>
             </div>
           {/if}
         </div>
@@ -1975,8 +2106,20 @@
               <div class="post-field">
                 <div class="post-field-label">Saison / Épisode</div>
                 <div class="se-row">
-                  <label class="se-label">Saison <input type="number" min="0" class="se-input" bind:value={postSeason} /></label>
-                  <label class="se-label">Épisode <input type="number" min="0" class="se-input" bind:value={postEpisode} disabled={postFullSaison} title={postFullSaison ? 'Désactivé : saison complète' : ''} /></label>
+                  <label class="se-label">Saison <input type="number" min="0" class="se-input" bind:value={postSeason}
+                    on:change={() => {
+                      // Ancre queue : mémorise le mapping raw→(S,E) tant qu'on
+                      // est en batch, pour propager l'offset aux fichiers suivants.
+                      if ((queue.length > 0 || queueProcessing) && fileInfo?.episode) {
+                        queueEpisodeAnchor = { rawEp: fileInfo.episode, saison: postSeason, episode: postEpisode }
+                      }
+                    }} /></label>
+                  <label class="se-label">Épisode <input type="number" min="0" class="se-input" bind:value={postEpisode} disabled={postFullSaison} title={postFullSaison ? 'Désactivé : saison complète' : ''}
+                    on:change={() => {
+                      if ((queue.length > 0 || queueProcessing) && fileInfo?.episode) {
+                        queueEpisodeAnchor = { rawEp: fileInfo.episode, saison: postSeason, episode: postEpisode }
+                      }
+                    }} /></label>
                 </div>
                 <label class="full-saison-toggle">
                   <input type="checkbox" bind:checked={postFullSaison} />
@@ -2064,7 +2207,7 @@
                       {:else if h.error}
                         <span class="ddl-bar-status err">✗ Erreur</span>
                       {:else if h.posted}
-                        <span class="ddl-bar-status ok">✓ Posté sur Hydracker{#if h.hydrackerID} #{h.hydrackerID}{/if}</span>
+                        <span class="ddl-bar-status ok">✓ Posté sur Elysium{#if h.hydrackerID} #{h.hydrackerID}{/if}</span>
                       {:else if h.posting}
                         <span class="ddl-bar-status posting">⬆ Post Elysium…</span>
                       {:else if h.done}

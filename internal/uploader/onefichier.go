@@ -28,6 +28,76 @@ type OneFichierResult struct {
 	Filename string `json:"filename"`
 }
 
+// oneFichierAPI : petit helper interne pour taper l'API 1F en JSON.
+func oneFichierAPI(ctx context.Context, apiKey, path string, body any, out any) error {
+	var reqBody io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		reqBody = bytes.NewReader(b)
+	}
+	req, _ := http.NewRequestWithContext(ctx, "POST", "https://api.1fichier.com/v1"+path, reqBody)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	c := &http.Client{Timeout: 15 * time.Second}
+	resp, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("1F %s HTTP %d: %s", path, resp.StatusCode, truncateStr(string(data), 200))
+	}
+	if out != nil {
+		return json.Unmarshal(data, out)
+	}
+	return nil
+}
+
+// EnsureOneFichierFolder : cherche ou crée un dossier à la racine du compte
+// 1Fichier. Retourne son folder_id.
+func EnsureOneFichierFolder(ctx context.Context, apiKey, name string) (int, error) {
+	if apiKey == "" || name == "" {
+		return 0, nil
+	}
+	// List racine (folder_id = 0)
+	var lsResp struct {
+		Status     string `json:"status"`
+		SubFolders []struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"sub_folders"`
+	}
+	if err := oneFichierAPI(ctx, apiKey, "/folder/ls.cgi", map[string]any{"folder_id": 0}, &lsResp); err != nil {
+		return 0, err
+	}
+	for _, f := range lsResp.SubFolders {
+		if f.Name == name {
+			return f.ID, nil
+		}
+	}
+	// Absent → création
+	var mkResp struct {
+		Status   string `json:"status"`
+		FolderID int    `json:"folder_id"`
+	}
+	if err := oneFichierAPI(ctx, apiKey, "/folder/mkdir.cgi", map[string]any{"folder_id": 0, "name": name}, &mkResp); err != nil {
+		return 0, err
+	}
+	return mkResp.FolderID, nil
+}
+
+// MoveToOneFichierFolder : déplace un ou plusieurs fichiers 1F vers un dossier.
+func MoveToOneFichierFolder(ctx context.Context, apiKey string, fileURLs []string, folderID int) error {
+	if apiKey == "" || folderID <= 0 || len(fileURLs) == 0 {
+		return nil
+	}
+	return oneFichierAPI(ctx, apiKey, "/file/mv.cgi", map[string]any{
+		"urls":                  fileURLs,
+		"destination_folder_id": folderID,
+	}, nil)
+}
+
 func UploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress func(UploadProgress)) (*OneFichierResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
