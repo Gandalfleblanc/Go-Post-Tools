@@ -16,7 +16,8 @@ type Config struct {
 	TMDBProxyURL string `json:"tmdb_proxy_url"` // default https://tmdb.uklm.xyz
 
 	// 1Fichier
-	OneFichierApiKey string `json:"one_fichier_api_key"`
+	OneFichierApiKey    string `json:"one_fichier_api_key"`
+	OneFichierFolder    string `json:"one_fichier_folder"`     // nom dossier 1F pour ranger auto (vide = pas de rangement)
 
 	// SEND.CM
 	SendCmApiKey string `json:"sendcm_api_key"`
@@ -256,6 +257,7 @@ func Load() *Config {
 		ParParRedundancy: 5,
 		ParParThreads:   8,
 		ParParSliceSize: 768000,
+		OneFichierFolder: "GO POST TOOLS", // dossier de rangement auto — vide = désactivé
 		FTPPort:         21,
 		PrivateFTPPort:  21,
 		FTPModPort:      21,

@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "9.1.0"
+const Version = "9.1.1"
 
 type App struct {
 	ctx         context.Context
@@ -4727,17 +4727,30 @@ func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, su
 	}
 	logEvent("1Fichier : upload terminé ✓")
 
-	// Rangement 1F : bouge le fichier fraîchement uploadé dans le dossier
-	// « GO POST TOOLS » à la racine (créé si absent). Sans ça, l'user retrouve
-	// difficilement ses fichiers noyés dans la racine de son compte 1F.
-	if fid, ferr := uploader.EnsureOneFichierFolder(hostCtx, a.cfg.OneFichierApiKey, "GO POST TOOLS"); ferr == nil && fid > 0 {
-		if merr := uploader.MoveToOneFichierFolder(hostCtx, a.cfg.OneFichierApiKey, []string{res.URL}, fid); merr == nil {
-			logEvent(fmt.Sprintf("1Fichier : rangé dans « GO POST TOOLS » (id %d) ✓", fid))
-		} else {
-			logEvent(fmt.Sprintf("1Fichier : rangement dossier échoué — %s (fichier reste à la racine)", merr.Error()))
+	// Rangement 1F : bouge le fichier fraîchement uploadé dans un dossier de
+	// la racine (créé si absent). Nom du dossier configurable dans Réglages
+	// → 1Fichier (défaut « GO POST TOOLS », vide = désactivé). Robuste : si
+	// le tier 1F de l'user ne permet pas la gestion API de dossiers, on log
+	// un message clair et le fichier reste à la racine — l'upload lui-même
+	// a bien réussi.
+	if folder := strings.TrimSpace(a.cfg.OneFichierFolder); folder != "" {
+		fid, ferr := uploader.EnsureOneFichierFolder(hostCtx, a.cfg.OneFichierApiKey, folder)
+		switch {
+		case ferr == nil && fid > 0:
+			if merr := uploader.MoveToOneFichierFolder(hostCtx, a.cfg.OneFichierApiKey, []string{res.URL}, fid); merr == nil {
+				logEvent(fmt.Sprintf("1Fichier : rangé dans « %s » (id %d) ✓", folder, fid))
+			} else if _, isUnsupported := merr.(*uploader.FolderAPIUnsupportedError); isUnsupported {
+				logEvent(fmt.Sprintf("1Fichier : ✓ fichier posté à la racine de ton compte (gestion dossier « %s » indisponible sur ton tier 1F)", folder))
+			} else {
+				logEvent(fmt.Sprintf("1Fichier : ✓ fichier posté à la racine (rangement dossier échoué : %s)", merr.Error()))
+			}
+		default:
+			if _, isUnsupported := ferr.(*uploader.FolderAPIUnsupportedError); isUnsupported {
+				logEvent(fmt.Sprintf("1Fichier : ✓ fichier posté à la racine de ton compte (gestion dossier « %s » indisponible sur ton tier 1F — passe en Premium/Gold ou vide le champ « Dossier 1F » dans les Réglages)", folder))
+			} else if ferr != nil {
+				logEvent(fmt.Sprintf("1Fichier : ✓ fichier posté à la racine (accès dossier échoué : %s)", ferr.Error()))
+			}
 		}
-	} else if ferr != nil {
-		logEvent(fmt.Sprintf("1Fichier : accès dossier échoué — %s (fichier reste à la racine)", ferr.Error()))
 	}
 
 	var elysiumID int

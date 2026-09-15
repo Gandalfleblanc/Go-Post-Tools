@@ -324,6 +324,7 @@
     tmdb_proxy_url: 'https://tmdb.uklm.xyz',
     lihdl_base_url: '',
     one_fichier_api_key: '',
+    one_fichier_folder: 'GO POST TOOLS',
     sendcm_api_key: '',
     nexum_api_key: '',
     nexum_base_url: 'https://nexum-core.com',
@@ -3772,6 +3773,11 @@
             <div class="field">
               <label>Clé API 1Fichier</label>
               <input type="password" bind:value={cfg.one_fichier_api_key} placeholder="API key" />
+            </div>
+            <div class="field">
+              <label>Dossier de rangement 1Fichier (optionnel)</label>
+              <input type="text" bind:value={cfg.one_fichier_folder} placeholder="ex : GO POST TOOLS (vide = pas de rangement)" />
+              <div class="field-hint">Après upload, le fichier est déplacé dans ce dossier à la racine de ton compte 1F (créé si absent). Vide = fichier laissé à la racine. Nécessite un tier 1F Premium/Gold pour la gestion API des dossiers.</div>
             </div>
           </div>
 

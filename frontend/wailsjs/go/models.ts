@@ -987,6 +987,7 @@ export namespace config {
 	    tmdb_api_key: string;
 	    tmdb_proxy_url: string;
 	    one_fichier_api_key: string;
+	    one_fichier_folder: string;
 	    sendcm_api_key: string;
 	    nexum_api_key: string;
 	    nexum_base_url: string;
@@ -1072,6 +1073,7 @@ export namespace config {
 	        this.tmdb_api_key = source["tmdb_api_key"];
 	        this.tmdb_proxy_url = source["tmdb_proxy_url"];
 	        this.one_fichier_api_key = source["one_fichier_api_key"];
+	        this.one_fichier_folder = source["one_fichier_folder"];
 	        this.sendcm_api_key = source["sendcm_api_key"];
 	        this.nexum_api_key = source["nexum_api_key"];
 	        this.nexum_base_url = source["nexum_base_url"];

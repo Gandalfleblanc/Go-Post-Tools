@@ -54,13 +54,34 @@ func oneFichierAPI(ctx context.Context, apiKey, path string, body any, out any) 
 	return nil
 }
 
+// FolderAPIUnsupportedError : renvoyée quand le compte 1F ne supporte pas
+// les endpoints /folder/* (tier restreint, clé fraîche, IP-lock côté user).
+// L'upload lui-même a bien réussi — juste le rangement dossier qui ne
+// passe pas. Message court pour affichage frontend.
+type FolderAPIUnsupportedError struct{ Raw string }
+
+func (e *FolderAPIUnsupportedError) Error() string {
+	return "compte 1F non compatible avec la gestion de dossiers via API"
+}
+
+// isFolderAPIUnsupported : True quand 1F retourne « No such user » sur un
+// endpoint /folder/*. Reste inexpliqué côté doc mais empirique.
+func isFolderAPIUnsupported(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "no such user") || strings.Contains(s, "http 403")
+}
+
 // EnsureOneFichierFolder : cherche ou crée un dossier à la racine du compte
-// 1Fichier. Retourne son folder_id.
+// 1Fichier. Retourne son folder_id. Tolère le cas où /folder/ls.cgi est
+// refusé pour certains tiers : tente alors mkdir direct.
 func EnsureOneFichierFolder(ctx context.Context, apiKey, name string) (int, error) {
 	if apiKey == "" || name == "" {
 		return 0, nil
 	}
-	// List racine (folder_id = 0)
+	// Tentative 1 : list racine (folder_id = 0) puis chercher par nom.
 	var lsResp struct {
 		Status     string `json:"status"`
 		SubFolders []struct {
@@ -68,23 +89,42 @@ func EnsureOneFichierFolder(ctx context.Context, apiKey, name string) (int, erro
 			Name string `json:"name"`
 		} `json:"sub_folders"`
 	}
-	if err := oneFichierAPI(ctx, apiKey, "/folder/ls.cgi", map[string]any{"folder_id": 0}, &lsResp); err != nil {
-		return 0, err
-	}
-	for _, f := range lsResp.SubFolders {
-		if f.Name == name {
-			return f.ID, nil
+	lsErr := oneFichierAPI(ctx, apiKey, "/folder/ls.cgi", map[string]any{"folder_id": 0}, &lsResp)
+	if lsErr == nil {
+		for _, f := range lsResp.SubFolders {
+			if f.Name == name {
+				return f.ID, nil
+			}
 		}
 	}
-	// Absent → création
+	// Tentative 2 : mkdir direct. Si le dossier existe déjà, 1F peut renvoyer
+	// une erreur (« folder already exists ») avec l'ID existant, ou juste
+	// l'ID. On accepte les deux cas.
 	var mkResp struct {
 		Status   string `json:"status"`
+		Message  string `json:"message"`
 		FolderID int    `json:"folder_id"`
 	}
-	if err := oneFichierAPI(ctx, apiKey, "/folder/mkdir.cgi", map[string]any{"folder_id": 0, "name": name}, &mkResp); err != nil {
-		return 0, err
+	mkErr := oneFichierAPI(ctx, apiKey, "/folder/mkdir.cgi", map[string]any{"folder_id": 0, "name": name}, &mkResp)
+	if mkErr == nil && mkResp.FolderID > 0 {
+		return mkResp.FolderID, nil
 	}
-	return mkResp.FolderID, nil
+	// Les 2 tentatives ont échoué. Si /ls a échoué avec « No such user » ou
+	// 403, c'est très probablement un tier 1F qui ne supporte pas l'API
+	// dossier — on remonte une erreur typée pour un log clair côté app.
+	if isFolderAPIUnsupported(lsErr) || isFolderAPIUnsupported(mkErr) {
+		raw := ""
+		if lsErr != nil {
+			raw = lsErr.Error()
+		} else if mkErr != nil {
+			raw = mkErr.Error()
+		}
+		return 0, &FolderAPIUnsupportedError{Raw: raw}
+	}
+	if lsErr != nil {
+		return 0, lsErr
+	}
+	return 0, mkErr
 }
 
 // MoveToOneFichierFolder : déplace un ou plusieurs fichiers 1F vers un dossier.
