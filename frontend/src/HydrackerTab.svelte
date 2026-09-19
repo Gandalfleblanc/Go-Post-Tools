@@ -1106,16 +1106,21 @@
   // --- TMDB ---
   async function autoSearchTMDB(query) {
     tmdbSearchLoading = true
-    // Shortcut queue : si on a un hint TMDB de l'épisode précédent, on skip
-    // la recherche (souvent en échec sur les animés numérotés type One Piece)
-    // et on force la fiche héritée. Évite le prompt manuel entre EP001/EP002.
-    if (queueTMDBHint && (queue.length > 0 || queueProcessing)) {
+    // Shortcut queue SÉRIES uniquement : on hérite la fiche TMDB du 1er
+    // épisode de la queue pour les suivants (EP001→EP002→…), ce qui évite
+    // le prompt manuel de recherche entre chaque épisode d'une série. NE PAS
+    // appliquer aux films : une queue de films distincts (Nativity, Hard
+    // Way, Bachelor Night) ne partage pas de fiche, sinon tout tombe sous
+    // la fiche du 1er film. Garde : le fichier courant doit ressembler à un
+    // épisode (fileInfo.episode > 0 ou pattern SxxEyy détecté).
+    const currentIsEpisode = (fileInfo?.episode || 0) > 0 || /\bS\d{1,2}[\s._-]?E\d{1,4}\b/i.test(file?.name || '')
+    const hintIsSeries = selectedTMDB?.media_type === 'tv'
+    if (queueTMDBHint && hintIsSeries && currentIsEpisode && (queue.length > 0 || queueProcessing)) {
       try {
-        const hintType = selectedTMDB?.media_type || (fileInfo?.episode ? 'tv' : 'movie')
-        const movie = await TMDBGetByID(queueTMDBHint, hintType)
+        const movie = await TMDBGetByID(queueTMDBHint, 'tv')
         if (movie) {
-          movie.media_type = hintType
-          addLog('TMDB', `↺ fiche héritée queue (tmdb #${queueTMDBHint} ${hintType})`)
+          movie.media_type = 'tv'
+          addLog('TMDB', `↺ fiche série héritée queue (tmdb #${queueTMDBHint})`)
           await selectTMDB(movie)
           tmdbSearchLoading = false
           return
