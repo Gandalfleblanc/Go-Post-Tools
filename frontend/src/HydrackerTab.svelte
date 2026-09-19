@@ -1522,6 +1522,11 @@
   // --- Post ---
   async function lancerPost() {
     if (!selectedHydracker || !postQuality || !postLanguages.length) return
+    if (!postUploadTypes.nzb && !postUploadTypes.ddl) {
+      postResult = { ok: false, message: 'Choisis NZB ou DDL avant de lancer (aucun uploader coché)' }
+      addLog('QUEUE', '✗ aucun uploader coché (NZB / DDL)')
+      return
+    }
     queueCancelled = false  // nouveau cycle de post — on lève le flag d'annulation
     postLoading = true
     postResult = null
@@ -2011,8 +2016,8 @@
 
       <!-- Actions principales (Lancer / Stop / Réinitialiser) juste sous le fichier -->
       <div class="post-actions">
-        <button class="btn-start" title="⌘↵"
-          disabled={postLoading || queueProcessing || (queue.length === 0 && (!postQuality || !postLanguages.length || !selectedHydracker || (!postUploadTypes.torrent_admin && !postUploadTypes.torrent_modo && !postUploadTypes.torrent_prive && !postUploadTypes.nzb && !postUploadTypes.ddl)))}
+        <button class="btn-start" title={!postUploadTypes.nzb && !postUploadTypes.ddl ? 'Choisis NZB ou DDL avant de lancer' : '⌘↵'}
+          disabled={postLoading || queueProcessing || (!postUploadTypes.nzb && !postUploadTypes.ddl) || (queue.length === 0 && (!postQuality || !postLanguages.length || !selectedHydracker))}
           on:click={() => queue.length > 0 ? processQueue() : lancerPost()}>
           {postLoading || queueProcessing ? '…' : (queue.length > 0 ? `▶ Lancer la queue (${queue.length})` : '▶ Lancer')}
         </button>
