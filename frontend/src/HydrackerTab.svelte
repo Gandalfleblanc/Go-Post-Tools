@@ -1005,25 +1005,45 @@
   async function analyzeMediaInfoFromPath(path) {
     mediaInfoLoading = true
     mediaInfoError = ''
-    try {
-      addLog('MI', `analyse : ${path.split('/').pop()}`)
-      const MediaInfo = (await import('mediainfo.js')).default
-      const mi = await MediaInfo({ format: 'object', locateFile: () => '/MediaInfoModule.wasm' })
-      const fileSize = await GetFileSize(path)
-      const getSize = () => fileSize
-      const toU8 = (bytes) => {
-        if (bytes instanceof Uint8Array) return bytes
-        if (Array.isArray(bytes)) return new Uint8Array(bytes)
-        if (typeof bytes === 'string') {
-          const bin = atob(bytes)
-          const u8 = new Uint8Array(bin.length)
-          for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i)
-          return u8
-        }
-        return new Uint8Array(0)
+    const MediaInfo = (await import('mediainfo.js')).default
+    const toU8 = (bytes) => {
+      if (bytes instanceof Uint8Array) return bytes
+      if (Array.isArray(bytes)) return new Uint8Array(bytes)
+      if (typeof bytes === 'string') {
+        const bin = atob(bytes)
+        const u8 = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i)
+        return u8
       }
-      const readChunk = async (size, offset) => toU8(await ReadFileChunk(path, offset, size))
-      const result = await mi.analyzeData(getSize, readChunk)
+      return new Uint8Array(0)
+    }
+    const readChunk = async (size, offset) => toU8(await ReadFileChunk(path, offset, size))
+    const fileSize = await GetFileSize(path)
+    const getSize = () => fileSize
+
+    // Le WASM mediainfo plante parfois avec « exit(NNN) » sur des MKV avec
+    // chapitres/tags atypiques — le retry avec une instance fraîche passe la
+    // grande majorité des cas.
+    const runOnce = async () => {
+      let mi
+      try {
+        mi = await MediaInfo({ format: 'object', locateFile: () => '/MediaInfoModule.wasm' })
+        return await mi.analyzeData(getSize, readChunk)
+      } finally {
+        try { mi?.close() } catch(_) {}
+      }
+    }
+
+    addLog('MI', `analyse : ${path.split('/').pop()}`)
+    try {
+      let result
+      try {
+        result = await runOnce()
+      } catch(e1) {
+        const msg = String(e1?.message || e1 || 'erreur inconnue')
+        addLog('MI', `⚠ 1er essai KO (${msg}) — retry`)
+        result = await runOnce()
+      }
       mediaInfo = parseMediaInfo(result)
       if (!mediaInfo || (!mediaInfo.filesize && !mediaInfo.videoCodec && !mediaInfo.duration)) {
         mediaInfoError = 'Aucune donnée exploitable'
@@ -1032,11 +1052,10 @@
       } else {
         addLog('MI', `✓ ${mediaInfo.videoCodec || '?'} · ${mediaInfo.audios?.length || 0} audio · ${mediaInfo.subs?.length || 0} subs`)
       }
-      mi.close()
     } catch(e) {
       const msg = String(e?.message || e || 'erreur inconnue')
       mediaInfoError = msg
-      addLog('MI', `✗ erreur : ${msg}`)
+      addLog('MI', `✗ erreur (2 essais) : ${msg}`)
     }
     mediaInfoLoading = false
   }

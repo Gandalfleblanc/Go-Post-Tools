@@ -1,5 +1,22 @@
 # CLAUDE.md
 
+> # 🟦 LIGNE COMPLÈTE ELYSIUM + HYDRACKER — versions 8.x
+>
+> | | |
+> |---|---|
+> | Dossier | `/Users/gandalf/go-post-tools` |
+> | Repo | `Gandalfleblanc/Go-Post-Tools` |
+> | Tags | `vX.Y.Z` (8.x) |
+> | Public | toi + la team |
+> | Cross-post Elysium | **actif** |
+>
+> La ligne Hydracker-only vit dans `/Users/gandalf/go-post-tools-hydracker`
+> (versions **1.x**, sans Elysium). Les deux dossiers sont indépendants : ne
+> jamais ajouter ici de remote vers l'autre repo, ni de branche de l'autre ligne.
+>
+> Un correctif non spécifique à Elysium doit être reporté à la main dans l'autre
+> dossier — il n'y a volontairement aucun lien git entre les deux.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project
