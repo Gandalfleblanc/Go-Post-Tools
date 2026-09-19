@@ -178,6 +178,8 @@ export function LoginUser(arg1:string,arg2:string):Promise<main.AuthResult>;
 
 export function Logout():Promise<void>;
 
+export function MediaInfoNative(arg1:string):Promise<string>;
+
 export function MediaSearch(arg1:string):Promise<Array<mediasearch.SearchResult>>;
 
 export function Notify(arg1:string,arg2:string):Promise<void>;

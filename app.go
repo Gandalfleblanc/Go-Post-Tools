@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "9.1.3"
+const Version = "9.1.4"
 
 type App struct {
 	ctx         context.Context
@@ -1162,6 +1162,37 @@ func (a *App) ReadFileChunk(path string, offset int64, size int64) ([]byte, erro
 		err = nil
 	}
 	return buf[:n], err
+}
+
+// MediaInfoNative appelle le binaire mediainfo (brew, apt, etc.) et renvoie
+// la sortie JSON. Fallback quand le WASM mediainfo.js plante sur certains MKV
+// (chapitres/tags atypiques → exit(NNN)).
+func (a *App) MediaInfoNative(path string) (string, error) {
+	// Résout la commande dans PATH + emplacements Homebrew classiques.
+	candidates := []string{"mediainfo", "/usr/local/bin/mediainfo", "/opt/homebrew/bin/mediainfo"}
+	var bin string
+	for _, c := range candidates {
+		if p, err := exec.LookPath(c); err == nil {
+			bin = p
+			break
+		}
+		if _, err := os.Stat(c); err == nil {
+			bin = c
+			break
+		}
+	}
+	if bin == "" {
+		return "", fmt.Errorf("binaire mediainfo introuvable (installe-le : brew install mediainfo)")
+	}
+	cmd := exec.Command(bin, "--Output=JSON", path)
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			return "", fmt.Errorf("mediainfo natif : %v — %s", err, string(ee.Stderr))
+		}
+		return "", fmt.Errorf("mediainfo natif : %v", err)
+	}
+	return string(out), nil
 }
 
 // --- Sélection de fichiers ---

@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime.js'
-  import { ParseFilename, TMDBSearch, TMDBGetByID, IgdbSearch, IgdbGetByID, OpenBrowser, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetFileSize, ReadFileChunk, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, GetVersion, GetElysiumMeta, ElysiumSearchTitles, ElysiumGetTitleByTmdbID, ElysiumGetTitleByIgdbID, ElysiumImportTitle } from '../wailsjs/go/main/App.js'
+  import { ParseFilename, TMDBSearch, TMDBGetByID, IgdbSearch, IgdbGetByID, OpenBrowser, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetFileSize, ReadFileChunk, MediaInfoNative, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, GetVersion, GetElysiumMeta, ElysiumSearchTitles, ElysiumGetTitleByTmdbID, ElysiumGetTitleByIgdbID, ElysiumImportTitle } from '../wailsjs/go/main/App.js'
 
   // Adapter Elysium Title → forme "PartialTitle Hydracker" attendue par le reste
   // de la UI (variable historique `selectedHydracker`). L'app a pivoté sur Elysium
@@ -1040,9 +1040,16 @@
       try {
         result = await runOnce()
       } catch(e1) {
-        const msg = String(e1?.message || e1 || 'erreur inconnue')
-        addLog('MI', `⚠ 1er essai KO (${msg}) — retry`)
-        result = await runOnce()
+        const msg1 = String(e1?.message || e1 || 'erreur inconnue')
+        addLog('MI', `⚠ WASM KO (${msg1}) — retry`)
+        try {
+          result = await runOnce()
+        } catch(e2) {
+          const msg2 = String(e2?.message || e2 || 'erreur inconnue')
+          addLog('MI', `⚠ WASM KO 2× (${msg2}) — fallback binaire mediainfo`)
+          const native = await MediaInfoNative(path)
+          result = JSON.parse(native)
+        }
       }
       mediaInfo = parseMediaInfo(result)
       if (!mediaInfo || (!mediaInfo.filesize && !mediaInfo.videoCodec && !mediaInfo.duration)) {

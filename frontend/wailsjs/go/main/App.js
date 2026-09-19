@@ -334,6 +334,10 @@ export function Logout() {
   return window['go']['main']['App']['Logout']();
 }
 
+export function MediaInfoNative(arg1) {
+  return window['go']['main']['App']['MediaInfoNative'](arg1);
+}
+
 export function MediaSearch(arg1) {
   return window['go']['main']['App']['MediaSearch'](arg1);
 }
