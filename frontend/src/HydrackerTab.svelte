@@ -387,6 +387,7 @@
   }
 
   let queueTMDBHint = 0  // id TMDB à réutiliser pour les items suivants d'une même queue
+  let queueTMDBHintType = '' // 'tv' ou 'movie' — survit au reset selectedTMDB fait par loadFileFromPath
   // Paire {wrongTmdbId → correctHydrackerId} : si l'auto-detect TMDB d'un futur
   // épisode donne le même MAUVAIS tmdb_id, on bascule direct sur la fiche corrigée.
   // Évite que le hint contamine des épisodes d'autres shows.
@@ -412,6 +413,7 @@
     // Snapshot de la fiche TMDB déjà sélectionnée (typiquement le show TV pour
     // les 10 épisodes droppés) → réutilisée sur tous les items suivants.
     queueTMDBHint = selectedTMDB?.id || 0
+    queueTMDBHintType = selectedTMDB?.media_type || ''
     // Reset du hint Hydracker au début de chaque queue (évite de propager
     // une correction d'une queue précédente).
     queueHydrackerHint = { wrongTmdbId: 0, correctHydrackerId: 0 }
@@ -443,6 +445,7 @@
     queueCurrent = ''
     queueProcessing = false
     queueTMDBHint = 0
+    queueTMDBHintType = ''
     queueHydrackerHint = { wrongTmdbId: 0, correctHydrackerId: 0 }
     queueQualityHint = ''
     queueEpisodeAnchor = null
@@ -1140,7 +1143,9 @@
     // la fiche du 1er film. Garde : le fichier courant doit ressembler à un
     // épisode (fileInfo.episode > 0 ou pattern SxxEyy détecté).
     const currentIsEpisode = (fileInfo?.episode || 0) > 0 || /\bS\d{1,2}[\s._-]?E\d{1,4}\b/i.test(file?.name || '')
-    const hintIsSeries = selectedTMDB?.media_type === 'tv'
+    // Le type doit venir du hint (queueTMDBHintType), PAS de selectedTMDB : ce
+    // dernier vient d'être resetté à null par loadFileFromPath juste avant.
+    const hintIsSeries = queueTMDBHintType === 'tv'
     if (queueTMDBHint && hintIsSeries && currentIsEpisode && (queue.length > 0 || queueProcessing)) {
       try {
         const movie = await TMDBGetByID(queueTMDBHint, 'tv')
@@ -1324,6 +1329,16 @@
     }
     selectedTMDB = movie
     tmdbAmbiguous = false
+    // Correction manuelle pendant une queue série : resynchroniser le hint TMDB
+    // pour que les épisodes suivants héritent de la BONNE fiche (sinon E2 relit
+    // le hint fixé au démarrage = mauvaise fiche que l'user vient de corriger).
+    if ((queue.length > 0 || queueProcessing) && movie?.id && movie?.media_type === 'tv') {
+      if (queueTMDBHint !== movie.id) {
+        addLog('QUEUE', `↺ hint TMDB resync : #${queueTMDBHint || '?'} → #${movie.id} (correction manuelle)`)
+        queueTMDBHint = movie.id
+        queueTMDBHintType = 'tv'
+      }
+    }
     posterDataUrl = ''
     selectedHydracker = null
     hydrackerPosterUrl = ''
@@ -1427,6 +1442,13 @@
             if (movie) {
               selectedTMDB = movie
               tmdbAmbiguous = false
+              // Correction manuelle pendant une queue série : resync le hint TMDB
+              // pour que les épisodes suivants héritent de la bonne fiche.
+              if ((queue.length > 0 || queueProcessing) && mediaType === 'tv' && queueTMDBHint !== movie.id) {
+                addLog('QUEUE', `↺ hint TMDB resync : #${queueTMDBHint || '?'} → #${movie.id} (fiche Elysium manuelle)`)
+                queueTMDBHint = movie.id
+                queueTMDBHintType = 'tv'
+              }
               posterDataUrl = ''
               if (movie.poster_path) {
                 try { posterDataUrl = await FetchImageBase64('https://image.tmdb.org/t/p/w342' + movie.poster_path) } catch(e) {}
@@ -1636,6 +1658,7 @@
     queueCancelled = true
     queue = []
     queueTMDBHint = 0
+    queueTMDBHintType = ''
     try { await CancelAllWorkflows() } catch(e) {}
     postLoading = false
     queueProcessing = false
