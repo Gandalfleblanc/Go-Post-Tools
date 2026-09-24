@@ -8,6 +8,7 @@ on:
 env:
   PARPAR_VERSION: "0.4.5"
   NYUU_VERSION: "0.4.2-Obfuscate1.4"
+  MEDIAINFO_VERSION: "26.05"
 
 jobs:
 
@@ -52,6 +53,13 @@ jobs:
           curl -sL -o /tmp/${{ matrix.nyuu_asset }} "https://github.com/Antidote2151/Nyuu-Obfuscation/releases/download/v${{ env.NYUU_VERSION }}/${{ matrix.nyuu_asset }}"
           tar -xf /tmp/${{ matrix.nyuu_asset }} -C binaries/${{ matrix.bindir }}/ nyuu
           chmod +x binaries/${{ matrix.bindir }}/nyuu
+
+      - name: Install & bundle MediaInfo (via Homebrew)
+        run: |
+          brew install mediainfo
+          cp "$(brew --prefix)/bin/mediainfo" binaries/${{ matrix.bindir }}/mediainfo
+          chmod +x binaries/${{ matrix.bindir }}/mediainfo
+          binaries/${{ matrix.bindir }}/mediainfo --Version | head -1
 
       - name: Build
         env:
@@ -147,6 +155,14 @@ jobs:
           tar -xf /tmp/nyuu-linux-amd64.tar.xz -C binaries/linux-amd64/ nyuu
           chmod +x binaries/linux-amd64/nyuu
 
+      - name: Download & extract MediaInfo (Linux static)
+        run: |
+          curl -sL -o /tmp/mediainfo.zip "https://mediaarea.net/download/binary/mediainfo/${{ env.MEDIAINFO_VERSION }}/MediaInfo_CLI_${{ env.MEDIAINFO_VERSION }}_Lambda_x86_64.zip"
+          unzip -o /tmp/mediainfo.zip -d /tmp/mi
+          cp /tmp/mi/bin/mediainfo binaries/linux-amd64/mediainfo
+          chmod +x binaries/linux-amd64/mediainfo
+          binaries/linux-amd64/mediainfo --Version | head -1
+
       - name: Build
         env:
           LIHDL_UNLOCK_HASH: ${{ secrets.LIHDL_UNLOCK_HASH }}
@@ -227,6 +243,14 @@ jobs:
           curl -sL -o /tmp/nyuu-win64.7z "https://github.com/Antidote2151/Nyuu-Obfuscation/releases/download/v${{ env.NYUU_VERSION }}/nyuu-v${{ env.NYUU_VERSION }}-win64.7z"
           7z x /tmp/nyuu-win64.7z -o/tmp/nyuu-extracted -y
           find /tmp/nyuu-extracted -name 'nyuu.exe' -exec mv {} binaries/windows-amd64/nyuu.exe \;
+
+      - name: Download & extract MediaInfo (Windows)
+        shell: bash
+        run: |
+          curl -sL -o /tmp/mediainfo-win.zip "https://mediaarea.net/download/binary/mediainfo/${{ env.MEDIAINFO_VERSION }}/MediaInfo_CLI_${{ env.MEDIAINFO_VERSION }}_Windows_x64.zip"
+          7z x /tmp/mediainfo-win.zip -o/tmp/mi-win -y
+          find /tmp/mi-win -iname 'MediaInfo.exe' -exec cp {} binaries/windows-amd64/mediainfo.exe \;
+          binaries/windows-amd64/mediainfo.exe --Version | head -1
 
       - name: Build Windows (NSIS installer + exe stripped)
         shell: bash

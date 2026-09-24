@@ -1962,7 +1962,11 @@
       {#if mediaInfoLoading}
         <div class="mi-loading">Analyse MediaInfo…</div>
       {:else if mediaInfoError}
-        <div class="mi-error">⚠ MediaInfo : {mediaInfoError}</div>
+        <div class="mi-error">
+          <strong>ℹ MediaInfo indisponible</strong> — les langues et sous-titres sont à saisir à la main.
+          Le post peut continuer normalement.
+          <div class="mi-error-detail">Détail : {mediaInfoError}</div>
+        </div>
       {:else if mediaInfo}
         <div class="mi-details" class:open={mediaInfoOpen}>
           <button type="button" class="mi-summary" on:click={() => mediaInfoOpen = !mediaInfoOpen}>
@@ -2718,11 +2722,13 @@
 
   .mi-loading { font-size: 12px; color: var(--text3); }
   .mi-error {
-    font-size: 11px; color: #ff9585;
-    background: rgba(239, 68, 68, 0.08);
-    border: 1px solid rgba(239, 68, 68, 0.25);
-    border-radius: 8px; padding: 9px 11px;
+    font-size: 12px; color: #f4c17a;
+    background: rgba(234, 179, 8, 0.08);
+    border: 1px solid rgba(234, 179, 8, 0.25);
+    border-radius: 8px; padding: 10px 12px; line-height: 1.45;
   }
+  .mi-error strong { color: #ffd97a; }
+  .mi-error-detail { margin-top: 6px; font-size: 10.5px; color: var(--text3); opacity: 0.75; }
   .mi-details { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
   .mi-summary {
     cursor: pointer; padding: 8px 12px; font-size: 11px; color: var(--text2);

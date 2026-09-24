@@ -33,6 +33,7 @@ import (
 	"go-post-tools/internal/history"
 	"go-post-tools/internal/lihdl"
 	"go-post-tools/internal/alldebrid"
+	"go-post-tools/internal/binutil"
 	"go-post-tools/internal/elysium"
 	"go-post-tools/internal/igdb"
 	"go-post-tools/internal/nexum"
@@ -60,7 +61,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "9.1.6"
+const Version = "9.2.0"
 
 type App struct {
 	ctx         context.Context
@@ -1164,25 +1165,32 @@ func (a *App) ReadFileChunk(path string, offset int64, size int64) ([]byte, erro
 	return buf[:n], err
 }
 
-// MediaInfoNative appelle le binaire mediainfo (brew, apt, etc.) et renvoie
-// la sortie JSON. Fallback quand le WASM mediainfo.js plante sur certains MKV
-// (chapitres/tags atypiques → exit(NNN)).
+// MediaInfoNative appelle le binaire mediainfo bundlé (via binutil) OU installé
+// sur le système, et renvoie la sortie JSON. Fallback quand le WASM
+// mediainfo.js plante sur certains MKV (chapitres/tags atypiques → exit(NNN)).
+//
+// Ordre de résolution : (1) binaire embarqué dans l'app (binutil), (2) PATH,
+// (3) emplacements Homebrew classiques. Le binaire embarqué garantit que le
+// fallback marche sur les Mac des uploaders team sans brew install mediainfo.
 func (a *App) MediaInfoNative(path string) (string, error) {
-	// Résout la commande dans PATH + emplacements Homebrew classiques.
-	candidates := []string{"mediainfo", "/usr/local/bin/mediainfo", "/opt/homebrew/bin/mediainfo"}
 	var bin string
-	for _, c := range candidates {
-		if p, err := exec.LookPath(c); err == nil {
-			bin = p
-			break
-		}
-		if _, err := os.Stat(c); err == nil {
-			bin = c
-			break
+	if p, err := binutil.ExtractBinary("mediainfo"); err == nil {
+		bin = p
+	} else {
+		candidates := []string{"mediainfo", "/usr/local/bin/mediainfo", "/opt/homebrew/bin/mediainfo"}
+		for _, c := range candidates {
+			if p, err := exec.LookPath(c); err == nil {
+				bin = p
+				break
+			}
+			if _, err := os.Stat(c); err == nil {
+				bin = c
+				break
+			}
 		}
 	}
 	if bin == "" {
-		return "", fmt.Errorf("binaire mediainfo introuvable (installe-le : brew install mediainfo)")
+		return "", fmt.Errorf("MediaInfo indisponible sur cette machine — les langues et sous-titres seront à saisir manuellement, mais tu peux poster normalement")
 	}
 	cmd := exec.Command(bin, "--Output=JSON", path)
 	out, err := cmd.Output()
