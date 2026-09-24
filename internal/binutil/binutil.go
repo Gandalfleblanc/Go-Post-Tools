@@ -41,6 +41,9 @@ func ensureCacheDir() (string, error) {
 
 // ExtractBinary extrait un binaire embarqué vers le cache et retourne son chemin.
 // Retourne une erreur si le binaire n'est pas embarqué.
+//
+// Si un dossier compagnon `binaries/<platform>/<name>.d/` existe (ex : DLLs
+// Windows), tous ses fichiers sont extraits à côté du binaire principal.
 func ExtractBinary(name string) (string, error) {
 	mu.Lock()
 	ok := initDone
@@ -84,6 +87,20 @@ func ExtractBinary(name string) (string, error) {
 
 	if err := os.WriteFile(destPath, data, 0755); err != nil {
 		return "", fmt.Errorf("extraction %s: %w", name, err)
+	}
+
+	// Compagnons : binaries/<platform>/<name>.d/* → extraits dans le même
+	// dossier cache que le binaire (ex : LIBCURL.DLL pour mediainfo Windows).
+	companionDir := "binaries/" + platform + "/" + name + ".d"
+	if entries, e := fs.ReadDir(binaries, companionDir); e == nil {
+		for _, ent := range entries {
+			if ent.IsDir() {
+				continue
+			}
+			if cdata, ce := fs.ReadFile(binaries, companionDir+"/"+ent.Name()); ce == nil {
+				_ = os.WriteFile(filepath.Join(dir, ent.Name()), cdata, 0644)
+			}
+		}
 	}
 	return destPath, nil
 }

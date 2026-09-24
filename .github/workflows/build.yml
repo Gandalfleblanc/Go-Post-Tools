@@ -54,11 +54,16 @@ jobs:
           tar -xf /tmp/${{ matrix.nyuu_asset }} -C binaries/${{ matrix.bindir }}/ nyuu
           chmod +x binaries/${{ matrix.bindir }}/nyuu
 
-      - name: Install & bundle MediaInfo (via Homebrew)
+      - name: Download & extract MediaInfo (Mac DMG officiel — binaire universel statique)
         run: |
-          brew install mediainfo
-          cp "$(brew --prefix)/bin/mediainfo" binaries/${{ matrix.bindir }}/mediainfo
+          curl -sL -o /tmp/mediainfo.dmg "https://mediaarea.net/download/binary/mediainfo/${{ env.MEDIAINFO_VERSION }}/MediaInfo_CLI_${{ env.MEDIAINFO_VERSION }}_Mac.dmg"
+          hdiutil attach /tmp/mediainfo.dmg -mountpoint /tmp/mi -nobrowse -quiet
+          pkgutil --expand /tmp/mi/mediainfo.pkg /tmp/mipkg
+          cd /tmp/mipkg && cat Payload | gunzip -dc | cpio -id
+          cd -
+          cp /tmp/mipkg/usr/local/bin/mediainfo binaries/${{ matrix.bindir }}/mediainfo
           chmod +x binaries/${{ matrix.bindir }}/mediainfo
+          hdiutil detach /tmp/mi -quiet
           binaries/${{ matrix.bindir }}/mediainfo --Version | head -1
 
       - name: Build
@@ -249,7 +254,10 @@ jobs:
         run: |
           curl -sL -o /tmp/mediainfo-win.zip "https://mediaarea.net/download/binary/mediainfo/${{ env.MEDIAINFO_VERSION }}/MediaInfo_CLI_${{ env.MEDIAINFO_VERSION }}_Windows_x64.zip"
           7z x /tmp/mediainfo-win.zip -o/tmp/mi-win -y
+          mkdir -p binaries/windows-amd64/mediainfo.d
           find /tmp/mi-win -iname 'MediaInfo.exe' -exec cp {} binaries/windows-amd64/mediainfo.exe \;
+          # LIBCURL.DLL est requise (streams URL) — copiée en compagnon
+          find /tmp/mi-win -iname 'LIBCURL.DLL' -exec cp {} binaries/windows-amd64/mediainfo.d/LIBCURL.DLL \;
           binaries/windows-amd64/mediainfo.exe --Version | head -1
 
       - name: Build Windows (NSIS installer + exe stripped)
