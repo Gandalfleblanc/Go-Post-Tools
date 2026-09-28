@@ -1162,16 +1162,22 @@
     try {
       // Recherche via mediasearch (plus fiable, inclut le tmdb_id directement)
       // Le proxy exige année OU pattern SxxEyy — sinon "Year or episode not found".
+      // ⚠ Si on a une saison/épisode, on DOIT ajouter SxxEyy (même avec year),
+      // sinon le proxy cherche seulement dans les films et rate les séries dont
+      // le nom contient l'année (ex : Truth.Be.Told.2019.S01E01 → query
+      // « Truth Be Told 2019 » = 404 côté proxy, alors que « Truth Be Told
+      // 2019 S01E01 » remonte la série).
       const year = fileInfo?.year || ''
       let q = query
-      if (year) {
-        q = `${query} ${year}`
-      } else if (fileInfo?.season && fileInfo?.episode) {
+      if (fileInfo?.season && fileInfo?.episode) {
         const s = String(fileInfo.season).padStart(2, '0')
         const e = String(fileInfo.episode).padStart(2, '0')
-        q = `${query} S${s}E${e}`
+        q = year ? `${query} ${year} S${s}E${e}` : `${query} S${s}E${e}`
       } else if (fileInfo?.season) {
-        q = `${query} S${String(fileInfo.season).padStart(2, '0')}E01`
+        const s = String(fileInfo.season).padStart(2, '0')
+        q = year ? `${query} ${year} S${s}E01` : `${query} S${s}E01`
+      } else if (year) {
+        q = `${query} ${year}`
       }
       let spResults = []
       try { spResults = await MediaSearch(q) || [] } catch(e) { addLog('TMDB', '⚠ mediasearch: ' + e) }
