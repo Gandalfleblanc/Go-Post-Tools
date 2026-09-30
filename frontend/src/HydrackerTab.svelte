@@ -1039,19 +1039,24 @@
 
     addLog('MI', `analyse : ${path.split('/').pop()}`)
     try {
+      // Ordre inversé (v9.2.3) : binaire natif embarqué EN PREMIER — instantané
+      // sur les MKV LiHDL (x265/H265) qui font planter le WASM avec exit(NNN),
+      // ce qui gaspillait 2-5s d'essais WASM avant de tomber sur ce même binaire.
+      // WASM ne sert plus que si le binaire natif est indisponible (rare : uniquement
+      // si binutil.ExtractBinary rate ET pas de mediainfo dans PATH).
       let result
       try {
-        result = await runOnce()
-      } catch(e1) {
-        const msg1 = String(e1?.message || e1 || 'erreur inconnue')
-        addLog('MI', `⚠ WASM KO (${msg1}) — retry`)
+        const native = await MediaInfoNative(path)
+        result = JSON.parse(native)
+      } catch(eNative) {
+        const msgN = String(eNative?.message || eNative || 'erreur inconnue')
+        addLog('MI', `⚠ binaire natif KO (${msgN}) — fallback WASM`)
         try {
           result = await runOnce()
-        } catch(e2) {
-          const msg2 = String(e2?.message || e2 || 'erreur inconnue')
-          addLog('MI', `⚠ WASM KO 2× (${msg2}) — fallback binaire mediainfo`)
-          const native = await MediaInfoNative(path)
-          result = JSON.parse(native)
+        } catch(e1) {
+          const msg1 = String(e1?.message || e1 || 'erreur inconnue')
+          addLog('MI', `⚠ WASM KO (${msg1}) — retry`)
+          result = await runOnce()
         }
       }
       mediaInfo = parseMediaInfo(result)
@@ -2004,7 +2009,10 @@
                     <span class="track-badge track-badge-audio">AUDIO #{i+1}</span>
                     <span class="track-title">{a.title || a.language || '(sans titre)'}</span>
                     <span class="track-arrow">→</span>
-                    <span class="track-mapped" class:track-mapped-warn={!m?.id}>{m?.name || '?'}{m?.id ? '' : ' ⚠'}</span>
+                    <!-- Post-pivot Elysium : les IDs numériques ne sont plus utilisés
+                         (l'API accepte les noms). On n'affiche le ⚠ que si le mapping
+                         a échoué (name manquant ou "?"). -->
+                    <span class="track-mapped" class:track-mapped-warn={!m?.name || m.name === '?'}>{m?.name || '?'}{(!m?.name || m.name === '?') ? ' ⚠' : ''}</span>
                   </div>
                 {/each}
                 {#each (mediaInfo.subTracks || []) as t, i}
@@ -2013,7 +2021,7 @@
                     <span class="track-badge track-badge-sub">SUB #{i+1}</span>
                     <span class="track-title">{t.title || t.language || '(sans titre)'}{t.forced ? ' (forced)' : ''}</span>
                     <span class="track-arrow">→</span>
-                    <span class="track-mapped" class:track-mapped-warn={!t.forced && !m?.id}>{t.forced ? '— (filtré)' : (m?.name || '?')}{!t.forced && !m?.id ? ' ⚠' : ''}</span>
+                    <span class="track-mapped" class:track-mapped-warn={!t.forced && (!m?.name || m.name === '?')}>{t.forced ? '— (filtré)' : (m?.name || '?')}{!t.forced && (!m?.name || m.name === '?') ? ' ⚠' : ''}</span>
                   </div>
                 {/each}
               </div>
