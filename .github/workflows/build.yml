@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  PARPAR_VERSION: "0.4.5"
+  PARPAR_VERSION: "0.4.6"
   NYUU_VERSION: "0.4.2-Obfuscate1.4"
   MEDIAINFO_VERSION: "26.05"
 
@@ -19,14 +19,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # ⚠ parpar_asset DOIT suivre l'arch : livrer le x64 dans la build
+          # arm64 marchait seulement tant que Rosetta était installé — sans lui
+          # c'est « bad CPU type in executable » et plus aucun NZB.
+          # macos-arm64 n'existe qu'à partir de ParPar v0.4.6.
           - arch: arm64
             runner: macos-14
-            parpar_asset: parpar-v0.4.5-macos-x64.xz
+            parpar_asset: parpar-v0.4.6-macos-arm64.xz
             nyuu_asset: nyuu-v0.4.2-Obfuscate1.4-mac-arm64.txz
             bindir: darwin-arm64
           - arch: amd64
             runner: macos-latest
-            parpar_asset: parpar-v0.4.5-macos-x64.xz
+            parpar_asset: parpar-v0.4.6-macos-x64.xz
             nyuu_asset: nyuu-v0.4.2-Obfuscate1.4-mac-x64.txz
             bindir: darwin-amd64
     steps:

@@ -13,16 +13,18 @@ import (
 var (
 	binaries embed.FS
 	initDone bool
+	appVer   string
 	mu       sync.Mutex
 	cacheDir string
 	cacheErr error
 	cacheOnce sync.Once
 )
 
-func Init(embedded embed.FS) {
+func Init(embedded embed.FS, version string) {
 	mu.Lock()
 	defer mu.Unlock()
 	binaries = embedded
+	appVer = version
 	initDone = true
 }
 
@@ -34,9 +36,38 @@ func ensureCacheDir() (string, error) {
 			return
 		}
 		cacheDir = filepath.Join(home, ".cache", "go-post-tools", "bin")
-		cacheErr = os.MkdirAll(cacheDir, 0755)
+		if cacheErr = os.MkdirAll(cacheDir, 0755); cacheErr != nil {
+			return
+		}
+		purgeStaleCache(cacheDir)
 	})
 	return cacheDir, cacheErr
+}
+
+// purgeStaleCache vide le cache quand l'app a changé de version. Sans ça, un
+// binaire extrait une fois n'est JAMAIS remplacé (voir le test de taille dans
+// ExtractBinary) : un utilisateur qui a reçu un binaire cassé le garde même
+// après mise à jour. Cas réel : parpar x86_64 livré par erreur dans la build
+// arm64, inutilisable dès que Rosetta n'est plus installé.
+func purgeStaleCache(dir string) {
+	mu.Lock()
+	want := appVer
+	mu.Unlock()
+	if want == "" {
+		return
+	}
+	marker := filepath.Join(dir, ".version")
+	if got, err := os.ReadFile(marker); err == nil && string(got) == want {
+		return
+	}
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, ent := range entries {
+			if !ent.IsDir() {
+				_ = os.Remove(filepath.Join(dir, ent.Name()))
+			}
+		}
+	}
+	_ = os.WriteFile(marker, []byte(want), 0644)
 }
 
 // ExtractBinary extrait un binaire embarqué vers le cache et retourne son chemin.

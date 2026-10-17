@@ -21,7 +21,7 @@ var assets embed.FS
 var binariesFS embed.FS
 
 func init() {
-	binutil.Init(binariesFS)
+	binutil.Init(binariesFS, Version)
 }
 
 func main() {
