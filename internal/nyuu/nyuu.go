@@ -130,8 +130,12 @@ func waitForFreeSlot(ctx context.Context, cfg *config.Config, onStatus func(stri
 	if cfg.UsenetHost == "" || cfg.UsenetUser == "" {
 		return
 	}
-	const maxWait = 5 * time.Minute
-	const every = 20 * time.Second
+	// 1 min et pas 5 : si le compte est pris par le post précédent, il se
+	// libère en quelques dizaines de secondes. S'il est pris par une AUTRE
+	// machine, attendre ne sert à rien — autant rendre la main vite avec un
+	// message exact plutôt que de faire patienter pour rien.
+	const maxWait = time.Minute
+	const every = 15 * time.Second
 	deadline := time.Now().Add(maxWait)
 
 	for attempt := 0; ; attempt++ {
@@ -149,12 +153,12 @@ func waitForFreeSlot(ctx context.Context, cfg *config.Config, onStatus func(stri
 		}
 		if time.Now().After(deadline) {
 			if onStatus != nil {
-				onStatus("Connexions Usenet toujours occupées après 5 min — tentative quand même…")
+				onStatus("Connexions Usenet toujours saturées — tentative quand même…")
 			}
 			return
 		}
 		if onStatus != nil {
-			onStatus(fmt.Sprintf("Connexions Usenet occupées par le post précédent — attente %s…",
+			onStatus(fmt.Sprintf("Compte Usenet saturé — attente %s…",
 				time.Until(deadline).Round(time.Second)))
 		}
 		select {
@@ -198,9 +202,11 @@ func Run(ctx context.Context, cfg *config.Config, inputFiles []string, nzbOutput
 		// Message explicite, sinon l'utilisateur ne sait pas qu'il suffit
 		// d'attendre — et relancer tout de suite ne fait qu'entretenir le blocage.
 		if strings.Contains(msg, "482") || strings.Contains(strings.ToLower(msg), "too many connections") {
-			msg += "\n→ Toutes les connexions du compte Usenet sont occupées, " +
-				"en général par le post précédent. Attends 2-3 minutes SANS rien relancer, " +
-				"puis réessaie : relancer immédiatement empêche le provider de les libérer."
+			msg += "\n→ Le compte Usenet a atteint son maximum de connexions.\n" +
+				"   • Si tu viens de poster : attends ~1 min SANS relancer (relancer tout de suite " +
+				"rouvre autant de connexions et empêche le provider de libérer les précédentes).\n" +
+				"   • Si tu n'as rien lancé depuis plusieurs minutes : une AUTRE machine utilise ce " +
+				"compte. Vérifie, ou change le mot de passe chez le provider pour la déconnecter."
 		}
 		onProgress(Progress{Done: true, Error: msg})
 		return nil, fmt.Errorf("nyuu (code %d) : %s", code, msg)
