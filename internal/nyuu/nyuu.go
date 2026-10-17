@@ -161,6 +161,14 @@ func buildArgs(cfg *config.Config, inputFiles []string, nzbOutputPath string, re
 		// tairement PAS `post-fail` : un article réellement non posté doit rester
 		// fatal, sinon on publierait un NZB troué.
 		"--skip-errors", "post-timeout,check-timeout,check-missing,check-fail,connect-fail",
+		// Par défaut nyuu ne retente la connexion qu'UNE fois après 15 s, puis
+		// abandonne tout le post (« No connections available for uploading »).
+		// Or un provider ne libère pas ses connexions instantanément : après un
+		// batch, ou si une instance précédente a été tuée en vol, le compte peut
+		// rester saturé une poignée de minutes et renvoyer 482. 10 × 20 s donne
+		// ~3 min de patience, de quoi absorber ce creux sans perdre le post.
+		"--connect-retries", "10",
+		"--reconnect-delay", "20s",
 	}
 
 	if cfg.UsenetSSL {
