@@ -44,7 +44,13 @@ func NewClientWithBase(baseURL string) *Client {
 	return &Client{
 		base:       baseURL,
 		token:      DefaultProxyToken,
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		// 45 s et pas 15 : une recherche jamais faite oblige le proxy à balayer
+		// sa base complète quand le nom de fichier ne contient pas d'année.
+		// Mesuré à froid : Boston Blue 0,5 s, Dallas S08E01 9,8 s, True Detective
+		// S04E01 19,2 s — puis ~0,15 s une fois en cache. À 15 s on coupait la
+		// réponse juste avant qu'elle arrive, et l'utilisateur ne voyait aucune
+		// fiche remonter (« context deadline exceeded » dans le journal).
+		httpClient: &http.Client{Timeout: 45 * time.Second},
 	}
 }
 

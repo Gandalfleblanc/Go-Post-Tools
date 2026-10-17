@@ -3,13 +3,16 @@ package nyuu
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"go-post-tools/internal/binutil"
 	"go-post-tools/internal/config"
@@ -64,10 +67,109 @@ func binaryPath() string {
 	return "nyuu"
 }
 
-func Run(ctx context.Context, cfg *config.Config, inputFiles []string, nzbOutputPath string, releaseName string, onProgress func(Progress)) (*Result, error) {
+var errAccountBusy = errors.New("toutes les connexions du compte Usenet sont occupées")
+
+// probeFreeSlot ouvre UNE connexion de contrôle et dit si le compte accepte
+// encore une connexion. Renvoie errAccountBusy sur un 482.
+//
+// La socket est refermée « passivement » (QUIT puis lecture jusqu'à EOF) pour
+// laisser le serveur fermer en premier : sinon elle resterait en TIME_WAIT
+// côté client et occuperait justement un des slots qu'on cherche à libérer.
+func probeFreeSlot(cfg *config.Config) error {
+	addr := net.JoinHostPort(cfg.UsenetHost, strconv.Itoa(cfg.UsenetPort))
+	dialer := &net.Dialer{Timeout: 15 * time.Second}
+	var conn net.Conn
+	var err error
+	if cfg.UsenetSSL {
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: cfg.UsenetHost})
+	} else {
+		conn, err = dialer.Dial("tcp", addr)
+	}
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(25 * time.Second))
+
+	br := bufio.NewReader(conn)
+	if _, err := br.ReadString('\n'); err != nil { // bannière
+		return err
+	}
+	fmt.Fprintf(conn, "AUTHINFO USER %s\r\n", cfg.UsenetUser)
+	if _, err := br.ReadString('\n'); err != nil {
+		return err
+	}
+	fmt.Fprintf(conn, "AUTHINFO PASS %s\r\n", cfg.UsenetPassword)
+	line, err := br.ReadString('\n')
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(conn, "QUIT\r\n")
+	_, _ = io.Copy(io.Discard, br)
+
+	switch {
+	case strings.HasPrefix(line, "281"):
+		return nil
+	case strings.HasPrefix(line, "48"):
+		return errAccountBusy
+	default:
+		return fmt.Errorf("auth NNTP : %s", strings.TrimSpace(line))
+	}
+}
+
+// waitForFreeSlot attend que le compte Usenet ait des connexions disponibles
+// avant de lancer nyuu.
+//
+// Pourquoi : nyuu ouvre d'emblée toutes les connexions configurées. Si le post
+// précédent n'a pas encore été relâché par le provider, il se prend un 482 et
+// abandonne — et s'il réessaie, il rouvre autant de connexions, ce qui empêche
+// le provider de libérer les anciennes : le blocage s'auto-entretient. Attendre
+// poliment avec UNE connexion de contrôle laisse le compte se libérer, tout en
+// gardant le plein débit (toutes les connexions) une fois le post lancé.
+func waitForFreeSlot(ctx context.Context, cfg *config.Config, onStatus func(string)) {
+	if cfg.UsenetHost == "" || cfg.UsenetUser == "" {
+		return
+	}
+	const maxWait = 5 * time.Minute
+	const every = 20 * time.Second
+	deadline := time.Now().Add(maxWait)
+
+	for attempt := 0; ; attempt++ {
+		err := probeFreeSlot(cfg)
+		if err == nil {
+			if attempt > 0 && onStatus != nil {
+				onStatus("Connexions Usenet libérées — démarrage du post…")
+			}
+			return
+		}
+		// Erreur réseau/auth : ce n'est pas un problème de saturation, on laisse
+		// nyuu tenter et rapporter l'erreur réelle.
+		if !errors.Is(err, errAccountBusy) {
+			return
+		}
+		if time.Now().After(deadline) {
+			if onStatus != nil {
+				onStatus("Connexions Usenet toujours occupées après 5 min — tentative quand même…")
+			}
+			return
+		}
+		if onStatus != nil {
+			onStatus(fmt.Sprintf("Connexions Usenet occupées par le post précédent — attente %s…",
+				time.Until(deadline).Round(time.Second)))
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(every):
+		}
+	}
+}
+
+func Run(ctx context.Context, cfg *config.Config, inputFiles []string, nzbOutputPath string, releaseName string, onProgress func(Progress), onStatus func(string)) (*Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	waitForFreeSlot(ctx, cfg, onStatus)
 	args := buildArgs(cfg, inputFiles, nzbOutputPath, releaseName)
 	cmd := exec.CommandContext(ctx, binaryPath(), args...)
 
@@ -91,6 +193,15 @@ func Run(ctx context.Context, cfg *config.Config, inputFiles []string, nzbOutput
 	// on rend la main en succès, en remontant les incidents à l'appelant.
 	if waitErr != nil && code != exitCodeNyuuSkipped {
 		msg := summarize(notable, rawTail)
+		// 482 = toutes les connexions du compte sont prises. Le plus souvent
+		// par le post précédent : le provider met un moment à les relâcher.
+		// Message explicite, sinon l'utilisateur ne sait pas qu'il suffit
+		// d'attendre — et relancer tout de suite ne fait qu'entretenir le blocage.
+		if strings.Contains(msg, "482") || strings.Contains(strings.ToLower(msg), "too many connections") {
+			msg += "\n→ Toutes les connexions du compte Usenet sont occupées, " +
+				"en général par le post précédent. Attends 2-3 minutes SANS rien relancer, " +
+				"puis réessaie : relancer immédiatement empêche le provider de les libérer."
+		}
 		onProgress(Progress{Done: true, Error: msg})
 		return nil, fmt.Errorf("nyuu (code %d) : %s", code, msg)
 	}
@@ -134,6 +245,11 @@ func buildArgs(cfg *config.Config, inputFiles []string, nzbOutputPath string, re
 	if group == "" {
 		group = "alt.binaries.test"
 	}
+	// On utilise la TOTALITÉ des connexions configurées : c'est ce qui donne le
+	// débit (~40 Mo/s à 25 connexions sur un gros fichier). Le risque de 482
+	// « too many connections » est traité en amont par waitForFreeSlot(), qui
+	// attend que le provider ait relâché les connexions du post précédent au
+	// lieu de lancer nyuu à l'aveugle et de le faire échouer.
 	conns := cfg.UsenetConns
 	if conns <= 0 {
 		conns = 20
@@ -163,12 +279,23 @@ func buildArgs(cfg *config.Config, inputFiles []string, nzbOutputPath string, re
 		"--skip-errors", "post-timeout,check-timeout,check-missing,check-fail,connect-fail",
 		// Par défaut nyuu ne retente la connexion qu'UNE fois après 15 s, puis
 		// abandonne tout le post (« No connections available for uploading »).
-		// Or un provider ne libère pas ses connexions instantanément : après un
-		// batch, ou si une instance précédente a été tuée en vol, le compte peut
-		// rester saturé une poignée de minutes et renvoyer 482. 10 × 20 s donne
-		// ~3 min de patience, de quoi absorber ce creux sans perdre le post.
-		"--connect-retries", "10",
-		"--reconnect-delay", "20s",
+		//
+		// ⚠ Le délai doit impérativement dépasser le TIME_WAIT de l'OS (30 s sur
+		// macOS : net.inet.tcp.msl = 15 s, TIME_WAIT = 2×MSL). Une socket fermée
+		// y reste bloquée, et le provider la compte TOUJOURS dans le quota de
+		// connexions. Avec un délai plus court, nyuu retente avant que ses
+		// PROPRES sockets précédentes soient libérées, se reprend un 482, les
+		// referme, et boucle indéfiniment sans jamais établir une seule
+		// connexion (observé : ESTABLISHED=0, TIME_WAIT oscillant 25↔50).
+		// ⚠ Rester TRÈS sobre ici. Chaque tentative rouvre `conns` connexions ;
+		// si le compte est déjà saturé, s'acharner empêche le provider de
+		// libérer les précédentes et le blocage devient permanent (observé :
+		// 10 tentatives × 90 s = 15 min de 482 en boucle, compte jamais
+		// relâché ; à l'arrêt complet il redevient libre en ~2 min).
+		// 2 tentatives espacées de 60 s absorbent un creux passager ; au-delà
+		// on rend la main avec une erreur lisible plutôt que de marteler.
+		"--connect-retries", "2",
+		"--reconnect-delay", "60s",
 	}
 
 	if cfg.UsenetSSL {

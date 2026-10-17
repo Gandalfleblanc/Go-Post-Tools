@@ -61,7 +61,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "9.3.2"
+const Version = "9.3.3"
 
 type App struct {
 	ctx         context.Context
@@ -4644,6 +4644,8 @@ func (a *App) PostNzbWorkflow(tmdbID int, mediaType, quality string, langues, su
 	wailsruntime.EventsEmit(a.ctx, "nzb:status", "Post Usenet…")
 	result, err := nyuu.Run(a.workContext(), a.cfg, allFiles, nzbPath, releaseName, func(p nyuu.Progress) {
 		wailsruntime.EventsEmit(a.ctx, "nzb:nyuu", p)
+	}, func(status string) {
+		wailsruntime.EventsEmit(a.ctx, "nzb:status", status)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("nyuu: %w", err)

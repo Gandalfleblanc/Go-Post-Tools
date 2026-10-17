@@ -432,7 +432,11 @@
         const alreadyReady = mkvFilePath === path && selectedTMDB && selectedHydracker && postQuality && postLanguages.length
         if (!alreadyReady) {
           loadFileFromPath(path, null)
-          await waitForReady(60000)
+          // 180 s et pas 60 : en secours du raccourci Elysium, une recherche
+          // proxytmdb à froid peut prendre jusqu'à 45 s (MediaSearch puis
+          // TMDBSearch), ce qui dépassait l'ancien délai et faisait échouer
+          // l'épisode avec « timeout chargement fiche ».
+          await waitForReady(180000)
         }
         await lancerPost()
         queueDone++
@@ -1164,6 +1168,34 @@
       } catch (_) {}
     }
     addLog('TMDB', `🔍 Recherche auto : "${query}"${fileInfo?.year ? ' (' + fileInfo.year + ')' : ''}`)
+
+    // Raccourci catalogue Elysium pour les ÉPISODES DE SÉRIE.
+    // Les releases de séries n'ont presque jamais l'année dans le nom, or sans
+    // année le proxytmdb doit balayer toute sa base : mesuré 9,8 s pour
+    // « Dallas S08E01 » et 19,2 s pour « True Detective S04E01 » à froid, ce
+    // qui dépassait le timeout du client et ne remontait aucune fiche.
+    // Elysium connaît déjà le catalogue et répond en ~0,2 s avec le tmdb_id :
+    // on s'en sert pour sauter directement au lookup par id (instantané).
+    // Garde : correspondance EXACTE du titre, sinon on laisse la recherche
+    // normale décider plutôt que d'imposer une fiche approchante.
+    if (currentIsEpisode && query) {
+      const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+      try {
+        const ely = await ElysiumSearchTitles(query, 'tv') || []
+        const exact = ely.find(t => t?.tmdb_id && norm(t.title) === norm(query))
+        if (exact) {
+          const movie = await TMDBGetByID(exact.tmdb_id, 'tv')
+          if (movie) {
+            movie.media_type = 'tv'
+            addLog('TMDB', `⚡ fiche trouvée via Elysium : ${exact.title} (tmdb #${exact.tmdb_id})`)
+            await selectTMDB(movie)
+            tmdbSearchLoading = false
+            return
+          }
+        }
+      } catch (e) { addLog('TMDB', `⚠ raccourci Elysium indisponible (${e}) — recherche normale`) }
+    }
+
     try {
       // Recherche via mediasearch (plus fiable, inclut le tmdb_id directement)
       // Le proxy exige année OU pattern SxxEyy — sinon "Year or episode not found".
