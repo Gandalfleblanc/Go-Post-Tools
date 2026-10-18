@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime.js'
-  import { ParseFilename, TMDBSearch, TMDBGetByID, IgdbSearch, IgdbGetByID, OpenBrowser, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetFileSize, ReadFileChunk, MediaInfoNative, MediaSearch, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, GetVersion, GetElysiumMeta, ElysiumSearchTitles, ElysiumGetTitleByTmdbID, ElysiumGetTitleByIgdbID, ElysiumImportTitle } from '../wailsjs/go/main/App.js'
+  import { ParseFilename, TMDBSearch, TMDBGetByID, IgdbSearch, IgdbGetByID, OpenBrowser, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetFileSize, ReadFileChunk, MediaInfoNative, MediaSearch, ListMyElyNzbs, ListMyElyDdls, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, GetVersion, GetElysiumMeta, ElysiumSearchTitles, ElysiumGetTitleByTmdbID, ElysiumGetTitleByIgdbID, ElysiumImportTitle } from '../wailsjs/go/main/App.js'
 
   // Adapter Elysium Title → forme "PartialTitle Hydracker" attendue par le reste
   // de la UI (variable historique `selectedHydracker`). L'app a pivoté sur Elysium
@@ -103,6 +103,14 @@
   let subsAutoFilled = false
   let qualityAutoFilled = false  // true tant que l'user n'a pas changé manuellement la qualité
   let queueQualityHint = ''      // qualité sticky (nom Elysium) dans une queue série
+  // Langues / sous-titres sticky. null = jamais touché par l'user → on
+  // laisse l'auto-détection MediaInfo faire son travail épisode par
+  // épisode. Dès qu'il corrige EP1, sa correction devient la référence
+  // pour tous les suivants : c'est presque toujours le même encodeur sur
+  // une saison, donc si l'auto-détection se trompe sur EP1 elle se
+  // trompera pareil sur EP2.
+  let queueLangHint = null
+  let queueSubHint = null
   let postUploadTypes = { nzb: false, torrent_admin: false, torrent_modo: false, torrent_prive: false, ddl: false }
   // Torrent ADMIN n'est visible que pour les admins (= ceux qui ont déverrouillé
   // la section Seedbox dans Réglages avec le mdp partagé).
@@ -136,7 +144,7 @@
   // (pas de FTP, pas de seedbox, pas de regénération depuis MKV)
   let existingTorrentPath = ''
   let mediaInfoOpen = true   // MediaInfo dépliée par défaut
-  let nfoOpen = false        // NFO repliée par défaut
+  let nfoOpen = true         // NFO dépliée par défaut (demande utilisateur)
   let recapOpen = true       // Récapitulatif déplié par défaut
 
   // Résultat du post
@@ -147,6 +155,139 @@
   let nzbStatus = ''
   let nzbParparPct = 0
   let nzbNyuuPct = 0
+
+  // Phases d'un post NZB, dans l'ordre. Le Go émet `nzb:status` à chaque
+  // étape (« Génération PAR2… », « Post Usenet… », « Upload NZB sur
+  // Elysium… », « Terminé ») : on en déduit l'avancement plutôt que de
+  // maintenir un état parallèle qui pourrait désynchroniser.
+  // Pictos SVG inlinés pour les boutons compacts (copier / éditer / voir).
+  // Constantes plutôt que balisage répété : ces boutons apparaissent à
+  // plusieurs endroits et doivent rester identiques.
+  const _ico = d => `<svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"`
+    + ` stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`
+  const COPY_SVG = _ico('M9 9V6.75A1.5 1.5 0 0 1 10.5 5.25h6.75A1.5 1.5 0 0 1 18.75 6.75v6.75a1.5 1.5 0 0 1-1.5 1.5H15M6.75 9h6.75a1.5 1.5 0 0 1 1.5 1.5v6.75a1.5 1.5 0 0 1-1.5 1.5H6.75a1.5 1.5 0 0 1-1.5-1.5V10.5A1.5 1.5 0 0 1 6.75 9Z')
+  const PEN_SVG  = _ico('M16.5 4.5l3 3L8.25 18.75 4.5 19.5l.75-3.75L16.5 4.5Z')
+  const EYE_SVG  = _ico('M2.25 12s3.75-6.75 9.75-6.75S21.75 12 21.75 12s-3.75 6.75-9.75 6.75S2.25 12 2.25 12Zm9.75 2.625a2.625 2.625 0 1 0 0-5.25 2.625 2.625 0 0 0 0 5.25Z')
+
+  const POST_PHASES = ['ANALYSE', 'PAR2', 'USENET', 'ELYSIUM']
+
+  // ------------------------------------------------------------------
+  // Panneau de suivi (à droite des barres) : étapes, chiffres, courbe.
+  // Tout est DÉDUIT de l'état réel du workflow — aucune étape décorative,
+  // sinon le panneau mentirait sur ce qui se passe.
+  // ------------------------------------------------------------------
+  let postStartedAt = 0
+  let postElapsed = 0
+  let debitSeries = []     // [{ddl, nzb}] un point par seconde, 60 max
+  let debitTimer = null
+
+  // "63.0 MB/s", "32.36 MiB/s", "812 KiB/s" → Mo/s. nyuu parle en MiB,
+  // 1Fichier en MB : on ramène tout à la même unité avant d'additionner.
+  function parseDebit(txt) {
+    const m = /([\d.]+)\s*([KMG]i?B)\/s/i.exec(txt || '')
+    if (!m) return 0
+    const v = parseFloat(m[1]) || 0
+    const u = m[2].toLowerCase()
+    if (u.startsWith('k')) return v / 1024
+    if (u.startsWith('g')) return v * 1024
+    return v
+  }
+  $: ddlDebit = parseDebit(ddlHosts['1Fichier']?.speed)
+  $: nzbDebit = parseDebit(nzbNyuuSpeed)
+  $: debitTotal = ddlDebit + nzbDebit
+
+  function fmtDuree(sec) {
+    if (!sec || sec < 0 || !isFinite(sec)) return '—'
+    sec = Math.round(sec)
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), r = sec % 60
+    return h ? `${h} h ${String(m).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`
+  }
+  function fmtGo(octets) {
+    if (!octets) return '0'
+    return octets >= 1e9 ? (octets / 1e9).toFixed(2) + ' Go' : Math.round(octets / 1e6) + ' Mo'
+  }
+
+  // Volume : le NZB envoie le fichier PLUS la redondance PAR2 (~10 %), le DDL
+  // envoie le fichier seul. D'où un total qui dépend des cases cochées.
+  $: tailleFichier = mediaInfo?.filesizeBytes || 0
+  $: volumeTotal = tailleFichier * ((postUploadTypes.ddl ? 1 : 0) + (postUploadTypes.nzb ? 1.1 : 0))
+  $: volumeEnvoye = tailleFichier * (
+       (postUploadTypes.ddl ? (ddlHosts['1Fichier']?.pct || 0) / 100 : 0) +
+       (postUploadTypes.nzb ? 1.1 * (nzbNyuuPct || 0) / 100 : 0))
+
+  // Restant : l'ETA de nyuu quand il existe (c'est lui qui sait), sinon une
+  // extrapolation sur l'avancement écoulé.
+  $: resteEstime = (() => {
+    if (nzbNyuuETA) return nzbNyuuETA
+    const pct = Math.max(ddlHosts['1Fichier']?.pct || 0, nzbNyuuPct || 0)
+    if (!postElapsed || pct <= 1) return '—'
+    return fmtDuree(postElapsed * (100 - pct) / pct)
+  })()
+
+  const ETAT_OK = 'ok', ETAT_NOW = 'now', ETAT_WAIT = 'wait', ETAT_ERR = 'err'
+  $: postSteps = (() => {
+    const l = []
+    l.push({ t: 'Analyse du fichier', e: mediaInfo ? ETAT_OK : (file ? ETAT_NOW : ETAT_WAIT) })
+    l.push({ t: selectedHydracker ? `Fiche Elysium #${selectedHydracker.id}` : 'Fiche Elysium',
+             e: selectedHydracker ? ETAT_OK : (selectedTMDB ? ETAT_NOW : ETAT_WAIT) })
+    l.push({ t: 'NFO généré', e: nfoPreview ? ETAT_OK : ETAT_WAIT })
+    if (postUploadTypes.ddl) {
+      const h = ddlHosts['1Fichier'] || {}
+      l.push({ t: 'Upload 1Fichier', pct: h.pct || 0,
+               e: h.error ? ETAT_ERR : ((h.posted || h.done) ? ETAT_OK : (h.active ? ETAT_NOW : ETAT_WAIT)) })
+    }
+    if (postUploadTypes.nzb) {
+      l.push({ t: 'Génération PAR2', pct: nzbParparPct,
+               e: postPhase > 1 ? ETAT_OK : (postPhase === 1 ? ETAT_NOW : ETAT_WAIT) })
+      l.push({ t: 'Post Usenet', pct: nzbNyuuPct,
+               e: postPhase > 2 ? ETAT_OK : (postPhase === 2 ? ETAT_NOW : ETAT_WAIT) })
+    }
+    l.push({ t: 'Publication Elysium',
+             e: postResult?.ok ? ETAT_OK
+               : ((postPhase === 3 || ddlHosts['1Fichier']?.posting) ? ETAT_NOW : ETAT_WAIT) })
+    return l
+  })()
+
+  // Échantillonnage à la seconde pour la courbe + le chrono.
+  $: if (postLoading && !debitTimer) {
+    postStartedAt = Date.now()
+    postElapsed = 0
+    debitSeries = []
+    debitTimer = setInterval(() => {
+      postElapsed = Math.round((Date.now() - postStartedAt) / 1000)
+      debitSeries = [...debitSeries, { ddl: ddlDebit, nzb: nzbDebit }].slice(-60)
+    }, 1000)
+  } else if (!postLoading && debitTimer) {
+    clearInterval(debitTimer)
+    debitTimer = null
+  }
+
+  // Courbe : une polyligne par flux, normalisée sur le maximum observé pour
+  // que le relief reste lisible quel que soit le débit.
+  const COURBE_W = 100, COURBE_H = 26
+  $: debitMax = Math.max(1, ...debitSeries.map(p => Math.max(p.ddl, p.nzb)))
+  function polyligne(cle) {
+    if (debitSeries.length < 2) return ''
+    const n = debitSeries.length
+    return debitSeries.map((p, i) =>
+      `${(i / (n - 1) * COURBE_W).toFixed(1)},${(COURBE_H - (p[cle] / debitMax) * COURBE_H).toFixed(1)}`
+    ).join(' ')
+  }
+  $: courbeDdl = debitSeries.length ? polyligne('ddl') : ''
+  $: courbeNzb = debitSeries.length ? polyligne('nzb') : ''
+
+  $: postEnCours = postLoading || !!nzbStatus ||
+      Object.values(ddlHosts).some(h => h.active || h.done || h.error || h.posting)
+
+  // Nombre de phases terminées = index de la phase en cours.
+  $: postPhase = (() => {
+    const s = (nzbStatus || '').toLowerCase()
+    if (s.includes('terminé') || s.includes('termine')) return 4
+    if (s.includes('elysium')) return 3
+    if (s.includes('usenet')) return 2
+    if (s.includes('par2')) return 1
+    return 0
+  })()
   let nzbNyuuSpeed = ''
   let nzbNyuuETA = ''
   let nzbNyuuArticles = ''
@@ -440,10 +581,16 @@
         }
         await lancerPost()
         queueDone++
-        if (postResult) queueResults = [...queueResults, { ok: postResult.ok, filename: fname, message: postResult.message }]
+        // On mémorise les canaux DEMANDÉS : sans ça le bilan de fin ne peut
+        // pas distinguer « NZB manquant » de « NZB jamais demandé ».
+        const voulu = { nzb: postUploadTypes.nzb, ddl: postUploadTypes.ddl }
+        if (postResult) queueResults = [...queueResults,
+          { ok: postResult.ok, filename: fname, message: postResult.message, voulu, path }]
       } catch(e) {
         addLog('QUEUE', `✗ ${fname} : ${e}`)
-        queueResults = [...queueResults, { ok: false, filename: fname, message: String(e) }]
+        queueResults = [...queueResults,
+          { ok: false, filename: fname, message: String(e), path,
+            voulu: { nzb: postUploadTypes.nzb, ddl: postUploadTypes.ddl } }]
       }
     }
     queueCurrent = ''
@@ -452,6 +599,8 @@
     queueTMDBHintType = ''
     queueHydrackerHint = { wrongTmdbId: 0, correctHydrackerId: 0 }
     queueQualityHint = ''
+    queueLangHint = null
+    queueSubHint = null
     queueEpisodeAnchor = null
     // Récap final cumulé
     if (queueResults.length > 1) {
@@ -464,6 +613,9 @@
         details: lines,
       }
       try { Notify('Go Post Tools — Queue terminée', `${okCount}/${queueResults.length} OK${koCount > 0 ? ` · ${koCount} erreur${koCount > 1 ? 's' : ''}` : ''}`) } catch(e) {}
+      // Confrontation au catalogue Elysium : c'est lui qui fait foi,
+      // un post peut se déclarer réussi sans que le NZB atterrisse.
+      verifierSession()
     } else if (queueResults.length === 1) {
       const r = queueResults[0]
       try { Notify(r.ok ? '✓ Post terminé' : '✗ Post échoué', r.filename) } catch(e) {}
@@ -487,6 +639,7 @@
   let queueCancelled = false
 
   onDestroy(() => {
+    if (debitTimer) { clearInterval(debitTimer); debitTimer = null }
     EventsOff('nzb:status', 'nzb:parpar', 'nzb:nyuu', 'ddl:progress', 'ddl:done', 'ddl:posting',
               'torrent:status', 'torrent:ftp', 'torrent:create', 'torrent:seedbox')
     OnFileDropOff()
@@ -941,6 +1094,12 @@
     // Sticky qualité série : restaure le choix manuel de l'user pour tous
     // les épisodes suivants (fixée sur EP1, héritée sur EP2, EP3…).
     if (queueQualityHint) postQuality = queueQualityHint
+    // Idem langues / sous-titres. Les drapeaux *AutoFilled passent à true
+    // pour neutraliser les blocs réactifs d'auto-détection : sans ça, la
+    // lecture MediaInfo de l'épisode écraserait le choix de l'user dès
+    // qu'elle arrive.
+    if (queueLangHint) { postLanguages = [...queueLangHint]; langsAutoFilled = true }
+    if (queueSubHint)  { postSubs      = [...queueSubHint];  subsAutoFilled  = true }
 
     // Objet file synthétique pour afficher le nom
     file = { name: filename }
@@ -1006,6 +1165,75 @@
     } else {
       addLog('TMDB', '⚠ pas de titre extrait du nom de fichier — recherche auto annulée')
     }
+  }
+
+  // ── Bilan de session ────────────────────────────────────────────────
+  // À la fin d'une file, on confronte ce qu'on croit avoir posté à ce qui
+  // est RÉELLEMENT arrivé sur Elysium. Un post peut se déclarer réussi
+  // sans que le NZB atterrisse ; seul le catalogue fait foi.
+  let sessionReport = null      // [{filename, path, voulu, nzb, ddl}]
+  let sessionChecking = false
+
+  // Normalise un nom pour comparer les deux côtés : Elysium préfixe les
+  // releases de série par « SxxEyy », et l'extension diffère parfois.
+  function _normNom(n) {
+    return String(n || '')
+      .replace(/\.[a-z0-9]{2,4}$/i, '')                      // extension
+      .replace(/^\s*S\d{1,2}[\s._-]?E\d{1,4}\s+/i, '')     // préfixe SxxEyy
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '')
+  }
+
+  async function verifierSession() {
+    if (!queueResults.length) return
+    sessionChecking = true
+    try {
+      // 3 pages de chaque canal : large devant une file typique, et ça
+      // reste 6 appels au total.
+      const prendre = async (fn) => {
+        const vus = []
+        for (let page = 1; page <= 3; page++) {
+          const r = await fn(page)
+          const lot = r?.data || []
+          vus.push(...lot)
+          if (lot.length === 0) break
+        }
+        return new Set(vus.map(x => _normNom(x.file_name)))
+      }
+      const [nzbSet, ddlSet] = await Promise.all([
+        prendre(ListMyElyNzbs).catch(() => new Set()),
+        prendre(ListMyElyDdls).catch(() => new Set()),
+      ])
+      sessionReport = queueResults.map(r => {
+        const k = _normNom(r.filename)
+        return {
+          filename: r.filename,
+          path: r.path,
+          voulu: r.voulu || { nzb: false, ddl: false },
+          nzb: nzbSet.has(k),
+          ddl: ddlSet.has(k),
+        }
+      })
+      const manquants = sessionReport.filter(x => x.voulu.nzb && !x.nzb).length
+      addLog('QUEUE', `📋 bilan : ${sessionReport.length} release(s) vérifiée(s) sur Elysium`
+        + (manquants ? ` — ${manquants} NZB manquant(s)` : ' — tout est là'))
+    } catch (e) {
+      addLog('QUEUE', `⚠ bilan indisponible : ${e}`)
+      sessionReport = null
+    }
+    sessionChecking = false
+  }
+
+  // Reconstruit une file avec les seules releases dont le NZB manque, en
+  // ne réactivant QUE le canal NZB : le DDL est déjà en ligne, le reposter
+  // créerait un doublon.
+  function reposterNzbManquants() {
+    const aReprendre = (sessionReport || []).filter(x => x.voulu.nzb && !x.nzb && x.path)
+    if (!aReprendre.length) return
+    postUploadTypes = { ...postUploadTypes, nzb: true, ddl: false }
+    queue = aReprendre.map(x => x.path)
+    sessionReport = null
+    addLog('QUEUE', `↻ rattrapage : ${queue.length} NZB à reposter (DDL désactivé)`)
   }
 
   // --- MediaInfo via Go filesystem ---
@@ -1104,6 +1332,9 @@
     return {
       duration: general.Duration ? formatDuration(parseFloat(general.Duration)) : null,
       filesize: general.FileSize ? formatSize(parseInt(general.FileSize)) : null,
+      // Taille brute en octets : le panneau de suivi calcule un volume
+      // transféré, ce que la chaîne formatée ne permet pas.
+      filesizeBytes: general.FileSize ? parseInt(general.FileSize) : 0,
       videoCodec: video.Format || video.CodecID || null,
       videoProfile: video.Format_Profile || null,
       width: video.Width || null,
@@ -1182,7 +1413,17 @@
       const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
       try {
         const ely = await ElysiumSearchTitles(query, 'tv') || []
-        const exact = ely.find(t => t?.tmdb_id && norm(t.title) === norm(query))
+        const exacts = ely.filter(t => t?.tmdb_id && norm(t.title) === norm(query))
+        // ⚠ Plusieurs fiches peuvent porter EXACTEMENT le même titre : « One
+        // Piece » existe en animé (tmdb 37854) et en série live (111110).
+        // Prendre la première reviendrait à poster sur la mauvaise fiche sans
+        // rien dire. Dans ce cas on ne tranche pas : la recherche normale
+        // affichera le choix à l'utilisateur.
+        if (exacts.length > 1) {
+          addLog('TMDB', `⚠ ${exacts.length} fiches Elysium nommées « ${query} » `
+            + `(tmdb ${exacts.map(t => t.tmdb_id).join(', ')}) — choix laissé à la recherche`)
+        }
+        const exact = exacts.length === 1 ? exacts[0] : null
         if (exact) {
           const movie = await TMDBGetByID(exact.tmdb_id, 'tv')
           if (movie) {
@@ -1240,7 +1481,22 @@
       }
 
       if (tmdbResults.length === 1) {
-        await selectTMDB(tmdbResults[0])
+        // Un résultat unique n'est pas forcément le bon : pour « One Piece »
+        // le proxy a renvoyé la série « Piece » (tmdb 46131), sélectionnée
+        // d'office, ce qui envoyait la saison sur la mauvaise fiche. On
+        // n'accepte en automatique que si le titre ressemble vraiment à ce
+        // qu'on cherchait ; sinon on laisse l'utilisateur trancher.
+        const nrm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+        const seul = tmdbResults[0]
+        const cible = nrm(query)
+        const trouve = nrm(seul.title || seul.name)
+        if (trouve === cible || trouve.includes(cible) || cible.includes(trouve)) {
+          await selectTMDB(seul)
+        } else {
+          addLog('TMDB', `⚠ résultat unique « ${seul.title || seul.name} » trop éloigné de `
+            + `« ${query} » — à toi de choisir`)
+          tmdbAmbiguous = true
+        }
       } else if (tmdbResults.length > 1) {
         // En mode queue, si on a un hint (fiche TMDB sélectionnée pour un épisode
         // précédent du même show), on l'applique automatiquement sans reposer la
@@ -1294,8 +1550,14 @@
         tmdbResults = movie ? [movie] : []
       } else if (tmdbSearchQuery) {
         const all = await TMDBSearch(tmdbSearchQuery) || []
-        // Filtre par type sélectionné (ignore les résultats sans media_type connu)
-        tmdbResults = all.filter(r => !r.media_type || r.media_type === tmdbSearchType)
+        // Filtre par type sélectionné, puis ESTAMPILLE le type choisi
+        // explicitement dans le sélecteur. Sans ça un résultat sans media_type
+        // restait de type inconnu, et la mémorisation de la fiche pour la suite
+        // de la file (qui exige media_type === 'tv') ne se déclenchait jamais :
+        // l'app redemandait de choisir à CHAQUE épisode.
+        tmdbResults = all
+          .filter(r => !r.media_type || r.media_type === tmdbSearchType)
+          .map(r => (r.media_type ? r : { ...r, media_type: tmdbSearchType }))
         addLog('TMDB', `Recherche "${tmdbSearchQuery}" (${tmdbSearchType}) : ${all.length} brut → ${tmdbResults.length} après filtre`)
       }
       if (tmdbResults.length === 1) selectTMDB(tmdbResults[0])
@@ -1375,7 +1637,13 @@
     // Correction manuelle pendant une queue série : resynchroniser le hint TMDB
     // pour que les épisodes suivants héritent de la BONNE fiche (sinon E2 relit
     // le hint fixé au démarrage = mauvaise fiche que l'user vient de corriger).
-    if ((queue.length > 0 || queueProcessing) && movie?.id && movie?.media_type === 'tv') {
+    // On mémorise si la fiche est marquée série OU si le fichier courant est
+    // manifestement un épisode : certains résultats remontent sans media_type
+    // et on ne veut pas perdre le choix de l'utilisateur pour autant.
+    const _estEpisode = (fileInfo?.episode || 0) > 0 || (postSeason > 0 && postEpisode > 0)
+      || /\bS\d{1,2}[\s._-]?E\d{1,4}\b/i.test(file?.name || '')
+    if ((queue.length > 0 || queueProcessing) && movie?.id
+        && (movie?.media_type === 'tv' || _estEpisode)) {
       if (queueTMDBHint !== movie.id) {
         addLog('QUEUE', `↺ hint TMDB resync : #${queueTMDBHint || '?'} → #${movie.id} (correction manuelle)`)
         queueTMDBHint = movie.id
@@ -1702,6 +1970,9 @@
     queue = []
     queueTMDBHint = 0
     queueTMDBHintType = ''
+    queueQualityHint = ''
+    queueLangHint = null
+    queueSubHint = null
     try { await CancelAllWorkflows() } catch(e) {}
     postLoading = false
     queueProcessing = false
@@ -1829,15 +2100,31 @@
     hydrackerManualError = ''
   }
 
+  // Mémorise les pistes choisies comme référence pour la suite de la
+  // queue. Appelée APRÈS chaque modification manuelle (l'affectation
+  // Svelte est synchrone, les tableaux sont donc déjà à jour).
+  // Ne fait rien hors queue : un post isolé n'a rien à propager.
+  function rememberQueueTracks() {
+    if (queue.length > 0 || queueProcessing) {
+      queueLangHint = [...postLanguages]
+      queueSubHint = [...postSubs]
+      addLog('QUEUE', `↺ pistes mémorisées pour la suite : `
+        + `${postLanguages.map(l => l.name).join(', ') || '—'}`
+        + ` / ${postSubs.map(s => s.name).join(', ') || '—'}`)
+    }
+  }
+
   function addLang(opt) {
     if (!postLanguages.find(l => l.id === opt.id)) postLanguages = [...postLanguages, opt]
+    rememberQueueTracks()
   }
 
   function addSub(opt) {
     if (!postSubs.find(s => s.id === opt.id)) postSubs = [...postSubs, opt]
+    rememberQueueTracks()
   }
-  function removeSubAt(idx) { postSubs = postSubs.filter((_, i) => i !== idx) }
-  function removeLangAt(idx) { postLanguages = postLanguages.filter((_, i) => i !== idx) }
+  function removeSubAt(idx) { postSubs = postSubs.filter((_, i) => i !== idx); rememberQueueTracks() }
+  function removeLangAt(idx) { postLanguages = postLanguages.filter((_, i) => i !== idx); rememberQueueTracks() }
 </script>
 
 <div class="hydracker-tab">
@@ -1904,7 +2191,7 @@
   <div class="dropzone" class:drag={dragOver}
     on:dragover={onDragOver} on:dragleave={onDragLeave}
     role="region" aria-label="Zone de dépôt">
-    <div class="drop-icon">🎬</div>
+    <div class="drop-icon"><svg class="drop-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 5.25h16.5v13.5H3.75zM3.75 9h16.5M3.75 15h16.5M8.25 5.25v13.5M15.75 5.25v13.5"/></svg></div>
     <p>Glissez un fichier <strong>.mkv</strong> ici</p>
     <p class="drop-sub">ou pour une saison complète, glissez un <strong>dossier</strong> / archive</p>
     <div class="drop-buttons">
@@ -1917,7 +2204,7 @@
         }
         // Multi-fichiers : ouvre le modal pour choisir queue ou saison
         pendingMultiPaths = paths
-      }}>📄 Parcourir MKV</button>
+      }}><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.25 3.75H6.75A1.5 1.5 0 0 0 5.25 5.25v13.5a1.5 1.5 0 0 0 1.5 1.5h10.5a1.5 1.5 0 0 0 1.5-1.5V8.25l-4.5-4.5ZM14.25 3.75V8.25h4.5"/></svg>Parcourir MKV</button>
       <button class="btn-browse" on:click={async () => {
         const path = await SelectFolder()
         if (path) loadFileFromPath(path, null, { isFolder: true })
@@ -1930,7 +2217,15 @@
   </div>
 
   {:else}
-  <div class="main-grid">
+  <!-- Fond d'ambiance : l'affiche de la release, très floutée et assombrie.
+       Chaque titre donne ainsi sa couleur à l'écran. Rendu STATIQUE (aucune
+       animation dessous), et le flou est figé sur une image immobile : pas de
+       recalcul par image, contrairement au backdrop-filter sur fond animé qui
+       avait mis le cockpit d'encodage à 50 % de CPU. -->
+  {#if posterDataUrl}
+    <div class="ambiance" style="background-image:url({posterDataUrl})" aria-hidden="true"></div>
+  {/if}
+  <div class="main-grid" class:reveal={!!file}>
 
     <!-- Colonne gauche : poster + infos fiche -->
     <div class="col-left">
@@ -1939,7 +2234,7 @@
         {#if posterDataUrl}
           <img src={posterDataUrl} alt={selectedTMDB?.title || selectedTMDB?.name} />
         {:else}
-          <div class="poster-placeholder">🎬</div>
+          <div class="poster-placeholder"><svg class="ph-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 5.25h16.5v13.5H3.75zM3.75 9h16.5M3.75 15h16.5M8.25 5.25v13.5M15.75 5.25v13.5"/></svg></div>
         {/if}
       </div>
       {#if selectedTMDB}
@@ -1956,7 +2251,7 @@
           {#if hydrackerPosterUrl}
             <img class="hyd-poster" src={hydrackerPosterUrl} alt={selectedHydracker.name} />
           {:else}
-            <div class="hyd-poster hyd-poster-placeholder">🎬</div>
+            <div class="hyd-poster hyd-poster-placeholder"><svg class="ph-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 5.25h16.5v13.5H3.75zM3.75 9h16.5M3.75 15h16.5M8.25 5.25v13.5M15.75 5.25v13.5"/></svg></div>
           {/if}
           <div class="hyd-info">
             <div class="hyd-info-name">✓ {selectedHydracker.name}</div>
@@ -1974,7 +2269,7 @@
           <div class="hyd-tmdb-url-row">
             <input type="number" class="hyd-tmdb-input" bind:value={manualTmdbIdEdit}
               on:keydown={e => e.key === 'Enter' && refreshTmdbFromManual()} />
-            <button class="btn-copy" on:click={() => navigator.clipboard.writeText(String(manualTmdbIdEdit || selectedTMDB.id))}>📋</button>
+            <button class="btn-copy" on:click={() => navigator.clipboard.writeText(String(manualTmdbIdEdit || selectedTMDB.id))}>{@html COPY_SVG}</button>
             <button class="btn-copy" title="Mettre à jour la fiche TMDB depuis cet ID" on:click={refreshTmdbFromManual} disabled={tmdbReloadLoading}>
               {tmdbReloadLoading ? '…' : '🔄'}
             </button>
@@ -2034,7 +2329,7 @@
             <!-- Pistes détectées : confirmation visuelle Title → mapping Hydracker -->
             {#if (mediaInfo.audios?.length || mediaInfo.subTracks?.length)}
               <div class="mi-block tracks-block">
-                <div class="tracks-header">🎯 Pistes détectées (mapping auto Elysium)</div>
+                <div class="tracks-header"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-4.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0-3a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/></svg>Pistes détectées (mapping auto Elysium)</div>
                 {#each (mediaInfo.audios || []) as a, i}
                   {@const m = mapAudioTrackByTitle(a)}
                   <div class="track-row">
@@ -2061,20 +2356,143 @@
           {/if}
         </div>
       {/if}
+      {#if selectedTMDB}
+        <!-- Bilan de session : ce qui est réellement arrivé sur Elysium -->
+        {#if sessionChecking}
+          <div class="bilan-box"><div class="bilan-head"><span>Vérification sur Elysium…</span></div></div>
+        {:else if sessionReport}
+          <div class="bilan-box" class:bilan-ko={sessionReport.some(x => x.voulu.nzb && !x.nzb)}>
+            <div class="bilan-head">
+              <span>Bilan de session</span>
+              <span class="bilan-count">
+                {sessionReport.filter(x => (!x.voulu.nzb || x.nzb) && (!x.voulu.ddl || x.ddl)).length}/{sessionReport.length} complets
+              </span>
+              <button class="bilan-x" title="Fermer" on:click={() => sessionReport = null}>×</button>
+            </div>
+            <div class="bilan-list">
+              {#each sessionReport as r}
+                <div class="bilan-row">
+                  <span class="bilan-name">{r.filename}</span>
+                  {#if r.voulu.nzb}<span class="bilan-tag" class:bilan-on={r.nzb} class:bilan-off={!r.nzb}>NZB</span>{/if}
+                  {#if r.voulu.ddl}<span class="bilan-tag" class:bilan-on={r.ddl} class:bilan-off={!r.ddl}>DDL</span>{/if}
+                </div>
+              {/each}
+            </div>
+            {#if sessionReport.filter(x => x.voulu.nzb && !x.nzb && x.path).length > 0}
+              <button class="bilan-fix" on:click={reposterNzbManquants}>
+                ↻ Reposter les {sessionReport.filter(x => x.voulu.nzb && !x.nzb && x.path).length} NZB manquants — DDL désactivé
+              </button>
+            {/if}
+          </div>
+        {/if}
+
+        <!-- Récapitulatif du post (repliable) -->
+        <div class="recap-box" class:open={recapOpen}>
+          <button type="button" class="recap-title" on:click={() => recapOpen = !recapOpen}>
+            <span class="mi-chevron">{recapOpen ? '▾' : '▸'}</span>
+            <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8.25 6.75h10.5M8.25 12h10.5M8.25 17.25h10.5M4.5 6.75h.008M4.5 12h.008M4.5 17.25h.008"/></svg>Récapitulatif du post Elysium
+          </button>
+          {#if recapOpen}
+            <div class="recap-body">
+              <div class="recap-row">
+                <span class="recap-key">Titre</span>
+                <span class="recap-val">{selectedTMDB.title || selectedTMDB.name}
+                  {#if (selectedTMDB.release_date || selectedTMDB.first_air_date)}
+                    ({(selectedTMDB.release_date || selectedTMDB.first_air_date).slice(0,4)})
+                  {/if}
+                </span>
+              </div>
+              <div class="recap-row">
+                <span class="recap-key">TMDB ID</span>
+                <span class="recap-val recap-id">{selectedTMDB.id} <span class="recap-type">{selectedTMDB.media_type || 'movie'}</span></span>
+              </div>
+              <div class="recap-row">
+                <span class="recap-key">Fiche Elysium</span>
+                <span class="recap-val">{selectedHydracker ? selectedHydracker.name + ' (#' + (selectedHydracker.id || '?') + ')' : '— non sélectionnée'}</span>
+              </div>
+              <div class="recap-row">
+                <span class="recap-key">Qualité</span>
+                <span class="recap-val">{qualityOptions.find(q => q.id === postQuality)?.name || '—'}</span>
+              </div>
+              <div class="recap-row">
+                <span class="recap-key">Codec vidéo</span>
+                <span class="recap-val">{mediaInfo?.videoCodec || fileInfo?.video_codec || '—'}</span>
+              </div>
+              <div class="recap-row">
+                <span class="recap-key">Codec audio</span>
+                <span class="recap-val">{mediaInfo?.audios?.[0]?.codec || fileInfo?.audio_codec || '—'}</span>
+              </div>
+              <div class="recap-row">
+                <span class="recap-key">Langues</span>
+                <span class="recap-val">{postLanguages.length ? postLanguages.map(l => l.name).join(', ') : '—'}</span>
+              </div>
+              <div class="recap-row">
+                <span class="recap-key">Sous-titres</span>
+                <span class="recap-val">{postSubs.length ? postSubs.map(s => s.name).join(', ') : '—'}</span>
+              </div>
+              <div class="recap-row">
+                <span class="recap-key">Upload via</span>
+                <span class="recap-val">
+                  {(() => {
+                    const parts = []
+                    if (postUploadTypes.torrent_admin) parts.push('Torrent ADMIN')
+                    if (postUploadTypes.torrent_modo) parts.push('Torrent MODO')
+                    if (postUploadTypes.nzb) parts.push('NZB')
+                    if (postUploadTypes.ddl) parts.push('DDL (1Fichier)')
+                    return parts.join(' + ') || '—'
+                  })()}
+                </span>
+              </div>
+              <div class="recap-row">
+                <span class="recap-key">Fichier</span>
+                <span class="recap-val recap-file">{file?.name}</span>
+              </div>
+            </div>
+          {/if}
+        </div>
+      {/if}
+
     </div>
 
     <!-- Colonne droite : recherches + post options -->
     <div class="col-right">
       {#if queueCurrent || postLoading || queueProcessing}
-        <div class="release-current">
-          <span class="release-current-label">▶ {queueProcessing ? 'Release en cours' : 'Post en cours'}</span>
-          <code class="release-current-name">{(queueCurrent || file?.name || '').split('/').pop()}</code>
-          {#if queueProcessing && queue.length > 0}
-            <button class="btn-skip-ep" on:click={async () => { try { await SkipCurrentEpisode() } catch(e) {} }} title="Abandonner cet épisode et passer au suivant dans la queue">
-              ⏭ Skip épisode
-            </button>
+        <div class="release-current" class:has-spine={postUploadTypes.nzb}>
+          {#if postUploadTypes.nzb}
+            <!-- Épine : les 4 phases du post NZB, pilotées par nzb:status.
+                 Affichée seulement si le NZB fait partie du post — sur un
+                 DDL seul, ces phases n'existent pas et afficheraient un
+                 état figé trompeur. -->
+            <div class="spine" title={POST_PHASES[postPhase] || 'Terminé'}>
+              {#each POST_PHASES as ph, i}
+                <div class="ph" class:done={i < postPhase} class:now={i === postPhase}>
+                  <span class="ph-dot"></span>
+                  {#if i < POST_PHASES.length - 1}<span class="ph-stem"></span>{/if}
+                </div>
+              {/each}
+            </div>
           {/if}
-          <button class="btn-stop-inline" on:click={stopPost} title="Tout arrêter">■ Stop</button>
+          <div class="release-body">
+            <div class="release-line">
+              <span class="release-current-label">▶ {queueProcessing ? 'Release en cours' : 'Post en cours'}</span>
+              <code class="release-current-name">{(queueCurrent || file?.name || '').split('/').pop()}</code>
+              {#if queueProcessing && queue.length > 0}
+                <button class="btn-skip-ep" on:click={async () => { try { await SkipCurrentEpisode() } catch(e) {} }} title="Abandonner cet épisode et passer au suivant dans la queue">
+                  ⏭ Skip épisode
+                </button>
+              {/if}
+              <button class="btn-stop-inline" on:click={stopPost} title="Tout arrêter">■ Stop</button>
+            </div>
+            {#if postUploadTypes.nzb}
+              <div class="release-phases">
+                {#each POST_PHASES as ph, i}
+                  <span class="phl" class:done={i < postPhase} class:now={i === postPhase}
+                    >{ph}{i < postPhase ? ' ✓' : i === postPhase ? ' ▶' : ''}</span
+                  >{#if i < POST_PHASES.length - 1}<span class="phsep">·</span>{/if}
+                {/each}
+              </div>
+            {/if}
+          </div>
         </div>
       {/if}
 
@@ -2134,7 +2552,7 @@
                 {:else if m._poster_full}
                   <img src={m._poster_full} alt="" />
                 {:else}
-                  <div class="ambig-no-poster">🎬</div>
+                  <div class="ambig-no-poster"><svg class="ph-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 5.25h16.5v13.5H3.75zM3.75 9h16.5M3.75 15h16.5M8.25 5.25v13.5M15.75 5.25v13.5"/></svg></div>
                 {/if}
                 <div>
                   <div class="ambig-name">{m.title || m.name}</div>
@@ -2150,12 +2568,12 @@
            dans un seul champ. Remplace les 2 blocs séparés depuis 2026-09-14. -->
       <div class="searches-row" style="grid-template-columns: 1fr">
         <div class="search-section">
-          <div class="search-label">🔍 Recherche fiche</div>
+          <div class="search-label"><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z"/></svg>Recherche fiche</div>
           <div class="search-row">
             <div class="tmdb-type-toggle">
-              <button type="button" class:active={tmdbSearchType === 'movie'} on:click={() => { tmdbSearchType = 'movie'; if (tmdbSearchQuery.trim()) searchUnified() }}>🎬 Film</button>
-              <button type="button" class:active={tmdbSearchType === 'tv'} on:click={() => { tmdbSearchType = 'tv'; if (tmdbSearchQuery.trim()) searchUnified() }}>📺 Série</button>
-              <button type="button" class:active={tmdbSearchType === 'game'} on:click={() => { tmdbSearchType = 'game'; if (tmdbSearchQuery.trim()) searchUnified() }}>🎮 Jeu</button>
+              <button type="button" class:active={tmdbSearchType === 'movie'} on:click={() => { tmdbSearchType = 'movie'; if (tmdbSearchQuery.trim()) searchUnified() }}><svg class="tt-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 5.25h16.5v13.5H3.75zM3.75 9h16.5M3.75 15h16.5M8.25 5.25v13.5M15.75 5.25v13.5"/></svg><span>Film</span></button>
+              <button type="button" class:active={tmdbSearchType === 'tv'} on:click={() => { tmdbSearchType = 'tv'; if (tmdbSearchQuery.trim()) searchUnified() }}><svg class="tt-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 6.75h16.5v10.5H3.75zM8.25 20.25h7.5M12 17.25v3"/></svg><span>Série</span></button>
+              <button type="button" class:active={tmdbSearchType === 'game'} on:click={() => { tmdbSearchType = 'game'; if (tmdbSearchQuery.trim()) searchUnified() }}><svg class="tt-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 10.5h3M9 9v3M15 10.5h.008M17.25 12.75h.008M6.75 16.5h10.5a3.75 3.75 0 0 0 0-7.5H6.75a3.75 3.75 0 0 0 0 7.5Z"/></svg><span>Jeu</span></button>
             </div>
             <input type="text" class="hyd-search-input" bind:value={tmdbSearchQuery} placeholder={gameMode ? 'Nom du jeu (⌘K)' : 'Nom du film / série (⌘K)'}
               on:keydown={e => e.key === 'Enter' && searchUnified()} />
@@ -2285,14 +2703,14 @@
                   class:active={postUploadTypes.nzb}
                   data-color="purple"
                   on:click={() => postUploadTypes = { ...postUploadTypes, nzb: !postUploadTypes.nzb }}>
-                  <span class="pill-icon">📰</span><span class="pill-label">NZB</span>
+                  <span class="pill-icon"><svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z"/></svg></span><span class="pill-label">NZB</span>
                 </button>
                 <button type="button"
                   class="upload-pill"
                   class:active={postUploadTypes.ddl}
                   data-color="green"
                   on:click={() => postUploadTypes = { ...postUploadTypes, ddl: !postUploadTypes.ddl }}>
-                  <span class="pill-icon">💾</span><span class="pill-label">DDL</span>
+                  <span class="pill-icon"><svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.25 3.75h13.5v16.5H5.25zM8.25 3.75v5.25h7.5V3.75M9 15.75h6"/></svg></span><span class="pill-label">DDL</span>
                 </button>
               </div>
             </div>
@@ -2302,6 +2720,9 @@
 
           <!-- Ancre pour auto-scroll vers les barres de progression -->
           <div id="progress-anchor"></div>
+
+          <div class="post-live">
+            <div class="post-live-bars">
 
           <!-- Barres DDL juste sous les checkboxes -->
           {#if postUploadTypes.ddl && Object.values(ddlHosts).some(h => h.active || h.done || h.error || h.posting)}
@@ -2433,6 +2854,57 @@
               </div>
             </div>
           {/if}
+            </div><!-- /.post-live-bars -->
+
+            {#if postEnCours}
+              <aside class="post-panel">
+                <div class="post-panel-title">Déroulé du post</div>
+                <ol class="pp-steps">
+                  {#each postSteps as st}
+                    <li class="pp-step pp-{st.e}">
+                      <span class="pp-dot"></span>
+                      <span class="pp-label">{st.t}</span>
+                      {#if st.pct !== undefined && st.e === 'now'}
+                        <span class="pp-pct mono">{st.pct.toFixed(0)} %</span>
+                      {/if}
+                    </li>
+                  {/each}
+                </ol>
+
+                <div class="pp-sep"></div>
+
+                <div class="pp-figures">
+                  <div><span class="pp-k">Écoulé</span><b class="mono">{fmtDuree(postElapsed)}</b></div>
+                  <div><span class="pp-k">Restant</span><b class="mono">{resteEstime}</b></div>
+                  <div><span class="pp-k">Débit</span><b class="mono">{debitTotal.toFixed(1)} Mo/s</b></div>
+                  {#if volumeTotal > 0}
+                    <div><span class="pp-k">Envoyé</span><b class="mono">{fmtGo(volumeEnvoye)} / {fmtGo(volumeTotal)}</b></div>
+                  {/if}
+                </div>
+
+                {#if debitSeries.length > 1}
+                  <svg class="pp-courbe" viewBox="0 0 {COURBE_W} {COURBE_H}" preserveAspectRatio="none" aria-hidden="true">
+                    {#if courbeDdl}<polyline class="pp-l-ddl" points={courbeDdl} />{/if}
+                    {#if courbeNzb}<polyline class="pp-l-nzb" points={courbeNzb} />{/if}
+                  </svg>
+                  <div class="pp-legende">
+                    <span class="pp-lg pp-lg-ddl">1Fichier {ddlDebit.toFixed(1)}</span>
+                    <span class="pp-lg pp-lg-nzb">Usenet {nzbDebit.toFixed(1)}</span>
+                    <span class="pp-lg-max mono">max {debitMax.toFixed(0)} Mo/s</span>
+                  </div>
+                {/if}
+
+                {#if queue.length > 0}
+                  <div class="pp-sep"></div>
+                  <div class="pp-next">
+                    <span class="pp-k">Ensuite</span>
+                    <b>{(queue[0] || '').split(/[\\/]/).pop()}</b>
+                    <span class="pp-reste mono">+{queue.length - 1 > 0 ? queue.length - 1 : 0}</span>
+                  </div>
+                {/if}
+              </aside>
+            {/if}
+          </div><!-- /.post-live -->
 
         </div>
 
@@ -2444,78 +2916,14 @@
           </div>
         {/if}
 
-        <!-- Récapitulatif du post (repliable) -->
-        <div class="recap-box" class:open={recapOpen}>
-          <button type="button" class="recap-title" on:click={() => recapOpen = !recapOpen}>
-            <span class="mi-chevron">{recapOpen ? '▾' : '▸'}</span>
-            📋 Récapitulatif du post Elysium
-          </button>
-          {#if recapOpen}
-            <div class="recap-body">
-              <div class="recap-row">
-                <span class="recap-key">Titre</span>
-                <span class="recap-val">{selectedTMDB.title || selectedTMDB.name}
-                  {#if (selectedTMDB.release_date || selectedTMDB.first_air_date)}
-                    ({(selectedTMDB.release_date || selectedTMDB.first_air_date).slice(0,4)})
-                  {/if}
-                </span>
-              </div>
-              <div class="recap-row">
-                <span class="recap-key">TMDB ID</span>
-                <span class="recap-val recap-id">{selectedTMDB.id} <span class="recap-type">{selectedTMDB.media_type || 'movie'}</span></span>
-              </div>
-              <div class="recap-row">
-                <span class="recap-key">Fiche Elysium</span>
-                <span class="recap-val">{selectedHydracker ? selectedHydracker.name + ' (#' + (selectedHydracker.id || '?') + ')' : '— non sélectionnée'}</span>
-              </div>
-              <div class="recap-row">
-                <span class="recap-key">Qualité</span>
-                <span class="recap-val">{qualityOptions.find(q => q.id === postQuality)?.name || '—'}</span>
-              </div>
-              <div class="recap-row">
-                <span class="recap-key">Codec vidéo</span>
-                <span class="recap-val">{mediaInfo?.videoCodec || fileInfo?.video_codec || '—'}</span>
-              </div>
-              <div class="recap-row">
-                <span class="recap-key">Codec audio</span>
-                <span class="recap-val">{mediaInfo?.audios?.[0]?.codec || fileInfo?.audio_codec || '—'}</span>
-              </div>
-              <div class="recap-row">
-                <span class="recap-key">Langues</span>
-                <span class="recap-val">{postLanguages.length ? postLanguages.map(l => l.name).join(', ') : '—'}</span>
-              </div>
-              <div class="recap-row">
-                <span class="recap-key">Sous-titres</span>
-                <span class="recap-val">{postSubs.length ? postSubs.map(s => s.name).join(', ') : '—'}</span>
-              </div>
-              <div class="recap-row">
-                <span class="recap-key">Upload via</span>
-                <span class="recap-val">
-                  {(() => {
-                    const parts = []
-                    if (postUploadTypes.torrent_admin) parts.push('Torrent ADMIN')
-                    if (postUploadTypes.torrent_modo) parts.push('Torrent MODO')
-                    if (postUploadTypes.nzb) parts.push('NZB')
-                    if (postUploadTypes.ddl) parts.push('DDL (1Fichier)')
-                    return parts.join(' + ') || '—'
-                  })()}
-                </span>
-              </div>
-              <div class="recap-row">
-                <span class="recap-key">Fichier</span>
-                <span class="recap-val recap-file">{file?.name}</span>
-              </div>
-            </div>
-          {/if}
-        </div>
 
         {#if file}
           <div class="nfo-preview" class:open={nfoOpen}>
             <button type="button" class="nfo-preview-header" on:click={() => nfoOpen = !nfoOpen}>
               <span class="mi-chevron">{nfoOpen ? '▾' : '▸'}</span>
-              <span>📝 NFO (inclus dans NZB + DDL + Torrent){postNfoManual.trim() ? ' — édité' : ''}</span>
-              <button class="btn-copy" title={nfoEditMode ? 'Mode preview' : 'Mode édition'} on:click|stopPropagation={() => nfoEditMode = !nfoEditMode}>{nfoEditMode ? '👁' : '✏️'}</button>
-              <button class="btn-copy" title="Copier" on:click|stopPropagation={() => navigator.clipboard.writeText(nfoPreview)}>📋</button>
+              <span><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.25 3.75H6.75A1.5 1.5 0 0 0 5.25 5.25v13.5a1.5 1.5 0 0 0 1.5 1.5h10.5a1.5 1.5 0 0 0 1.5-1.5V8.25l-4.5-4.5ZM14.25 3.75V8.25h4.5"/></svg>NFO (inclus dans NZB + DDL + Torrent){postNfoManual.trim() ? ' — édité' : ''}</span>
+              <button class="btn-copy" title={nfoEditMode ? 'Mode preview' : 'Mode édition'} on:click|stopPropagation={() => nfoEditMode = !nfoEditMode}>{@html nfoEditMode ? EYE_SVG : PEN_SVG}</button>
+              <button class="btn-copy" title="Copier" on:click|stopPropagation={() => navigator.clipboard.writeText(nfoPreview)}>{@html COPY_SVG}</button>
             </button>
             {#if nfoOpen}
               {#if nfoEditMode}
@@ -2561,24 +2969,68 @@
 
   .queue-bar {
     margin-bottom: 18px;
-    background: linear-gradient(180deg, rgba(255, 214, 10, 0.06) 0%, rgba(255, 214, 10, 0.02) 100%);
-    border: 1px solid rgba(255, 214, 10, 0.25);
+    background: linear-gradient(180deg, rgba(255, 107, 26, 0.07) 0%, rgba(255, 107, 26, 0.02) 100%);
+    border: 1px solid rgba(255, 107, 26, 0.24);
     border-radius: 12px;
     padding: 12px 14px;
   }
   .queue-head { display: flex; align-items: center; gap: 12px; }
-  .queue-title { font-size: 12px; font-weight: 700; color: var(--yellow); text-transform: uppercase; letter-spacing: 1.2px; }
+  .queue-title { font-family: var(--font-display); font-size: 11px; font-weight: 700;
+    color: var(--ember); text-transform: uppercase; letter-spacing: .18em; }
   .queue-counter { font-size: 11px; color: var(--text2); flex: 1; }
   .release-current {
     display: flex; align-items: center; gap: 10px;
     padding: 8px 14px; margin-bottom: 8px;
-    background: linear-gradient(90deg, rgba(255,214,10,0.08), transparent);
-    border: 1px solid rgba(255,214,10,0.3);
-    border-radius: 8px;
+    background: linear-gradient(90deg, rgba(255,107,26,0.09), transparent 45%);
+    border: 1px solid rgba(255,107,26,0.26);
+    border-radius: 10px;
   }
+  /* Avec l'épine, le bloc passe sur deux lignes : grille au lieu de flex. */
+  /* align-items:center + hauteur fixe de l'épine : sinon les 4 phases
+     s'étirent et imposent la hauteur du bloc (~95 px pour deux lignes). */
+  .release-current.has-spine {
+    display: grid; grid-template-columns: 26px 1fr; gap: 0;
+    align-items: center; padding: 9px 14px 9px 0;
+  }
+  .release-body { min-width: 0; }
+  .release-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
+  /* ── Épine dorsale : les 4 phases, de haut en bas ── */
+  /* Hauteur NATURELLE : ni `height` fixe ni `flex:1` sur les phases.
+     Avec une hauteur fixe l'épine débordait du bloc, et avec `flex:1`
+     elle s'étirait et le gonflait. Segments courts et non extensibles :
+     l'épine fait ~58 px, le bloc se dimensionne dessus. */
+  .spine {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center;
+    border-right: 1px solid rgba(255,107,26,0.18);
+  }
+  .ph { display: flex; flex-direction: column; align-items: center; }
+  .ph-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex: none;
+    border: 1.5px solid var(--text3); background: var(--bg);
+  }
+  .ph-stem { width: 1.5px; height: 6px; flex: none; background: var(--border-strong); margin: 2px 0; }
+  .ph.done .ph-dot { background: var(--success); border-color: var(--success); }
+  .ph.done .ph-stem { background: var(--success); opacity: .5; }
+  .ph.now .ph-dot {
+    background: var(--ember); border-color: var(--ember);
+    box-shadow: 0 0 0 3px rgba(255,107,26,.18), 0 0 10px var(--accent-glow);
+  }
+
+  /* Rappel textuel des phases sous le nom de la release. */
+  .release-phases {
+    display: flex; align-items: center; gap: 5px; margin-top: 3px;
+    font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .06em;
+  }
+  .phl { color: var(--text3); }
+  .phl.done { color: var(--success); }
+  .phl.now { color: var(--ember); font-weight: 700; }
+  .phsep { color: var(--text3); opacity: .4; }
+
   .release-current-label {
-    font-size: 11px; font-weight: 700; color: #ffe066;
-    text-transform: uppercase; letter-spacing: 1px; flex: none;
+    font-size: 10.5px; font-weight: 700; color: var(--ember-hi);
+    font-family: var(--font-display); letter-spacing: .13em; flex: none;
   }
   .release-current-name {
     font-family: ui-monospace, Menlo, monospace; font-size: 11px;
@@ -2637,8 +3089,8 @@
     background: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.005) 100%);
   }
   .dropzone.drag {
-    border-color: rgba(0, 180, 216, 0.55);
-    background: rgba(0, 180, 216, 0.06);
+    border-color: rgba(255, 107, 26, 0.55);
+    background: rgba(255, 107, 26, 0.06);
     color: var(--blue-hot);
   }
   .drop-icon { font-size: 48px; margin-bottom: 12px; }
@@ -2731,15 +3183,56 @@
   .btn-browse:active { transform: translateY(1px); }
 
   /* Main grid — layout 2 colonnes pour éviter de scroller */
-  .main-grid { display: grid; grid-template-columns: 260px 1fr; gap: 18px; align-items: start; }
+  /* Colonne d'infos (fiche / média / récap) à DROITE, paramètres à
+     gauche — disposition de la maquette. L'inversion se fait par `order`
+     plutôt qu'en déplaçant le balisage : col-left reste col-left dans le
+     DOM, seul son rendu bascule. */
+
+  /* ── Fond d'ambiance ─────────────────────────────────────────────── */
+  .ambiance {
+    position: fixed; inset: -60px; z-index: -1; pointer-events: none;
+    background-size: cover; background-position: center top;
+    filter: blur(58px) saturate(1.25);
+    opacity: .22;
+    /* fondu vers le bas pour ne pas concurrencer le contenu */
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, rgba(0,0,0,.45) 38%, transparent 72%);
+            mask-image: linear-gradient(180deg, #000 0%, rgba(0,0,0,.45) 38%, transparent 72%);
+  }
+
+  /* ── Apparition en cascade ───────────────────────────────────────────
+     Uniquement transform + opacity : composé par la carte graphique, donc
+     aucune repeinte. Animation ponctuelle au chargement, jamais en boucle. */
+  @keyframes gpt-reveal {
+    from { opacity: 0; transform: translateY(7px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .reveal > * { animation: gpt-reveal .34s cubic-bezier(.22,.8,.3,1) both; }
+  .reveal > :nth-child(1) { animation-delay: .02s; }
+  .reveal > :nth-child(2) { animation-delay: .07s; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal > * { animation: none; }
+  }
+
+  /* ── Télémétrie : le débit et l'ETA deviennent les héros ──────────── */
+  .ddl-step-label, .nzb-step-label { font-family: var(--font-mono); }
+
+  .main-grid { display: grid; grid-template-columns: 1fr 340px; gap: 18px; align-items: start; }
+  .col-left  { order: 2; }
+  .col-right { order: 1; min-width: 0; }
   @media (max-width: 1100px) {
     .main-grid { grid-template-columns: 1fr; }
   }
 
   /* Left col */
-  .col-left { display: flex; flex-direction: column; gap: 10px; }
+  .col-left { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  /* L'affiche est plus étroite que la colonne : on la centre plutôt que
+     de la laisser collée au bord gauche. */
+  .poster-wrap { margin-left: auto; margin-right: auto; }
+  .fiche-title, .fiche-year { text-align: center; }
   .poster-wrap {
-    width: 260px; aspect-ratio: 2/3; border-radius: 10px; overflow: hidden;
+    /* 104 px et non 260 : en 2/3, une affiche de 260 px faisait 390 px
+       de haut et repoussait le média et le récapitulatif hors de l'écran. */
+    width: 104px; aspect-ratio: 2/3; border-radius: 8px; overflow: hidden;
     background: var(--bg2);
     border: 1px solid var(--border);
     box-shadow: 0 6px 24px -8px rgba(0,0,0,0.6);
@@ -2762,8 +3255,8 @@
   }
   .btn-ghost-sm:hover {
     color: var(--text);
-    background: rgba(0, 180, 216, 0.08);
-    border-color: rgba(0, 180, 216, 0.35);
+    background: rgba(255, 107, 26, 0.08);
+    border-color: rgba(255, 107, 26, 0.35);
   }
 
   .mi-loading { font-size: 12px; color: var(--text3); }
@@ -2805,7 +3298,8 @@
   .mi-row span:last-child { color: var(--text); text-align: right; max-width: 120px; }
 
   .tracks-block { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
-  .tracks-header { font-size: 11px; color: var(--text3); margin-bottom: 8px; font-weight: 600; }
+  .tracks-header { font-family: var(--font-display); font-size: 9.5px; color: var(--text3);
+    margin-bottom: 8px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }
   .track-row {
     display: grid;
     grid-template-columns: 70px 1fr auto auto;
@@ -2873,7 +3367,7 @@
   }
   .ambig-item:hover {
     background: rgba(255,255,255,0.06);
-    border-color: rgba(0, 180, 216, 0.35);
+    border-color: rgba(255, 107, 26, 0.35);
   }
   .ambig-item img { width: 36px; height: 54px; object-fit: cover; border-radius: 4px; }
   .ambig-no-poster {
@@ -2885,15 +3379,49 @@
   .ambig-year { font-size: 11px; color: var(--text3); }
 
   /* Recherches */
+  /* ── Panneaux d'instrument ─────────────────────────────────────
+     Équerres de viseur sur DEUX coins opposés seulement (haut-gauche
+     et bas-droite) : l'asymétrie évite l'effet « cadre de jeu vidéo »
+     des quatre coins et laisse le panneau respirer. Purement
+     décoratif, donc pointer-events:none. */
+  .search-section, .post-options, .recap-box, .mi-details, .card-surface {
+    position: relative;
+  }
+  .search-section::before, .post-options::before, .recap-box::before,
+  .mi-details::before, .card-surface::before,
+  .search-section::after, .post-options::after, .recap-box::after,
+  .mi-details::after, .card-surface::after {
+    content: ""; position: absolute; width: 13px; height: 13px;
+    border: 1.5px solid var(--ember); opacity: .45; pointer-events: none;
+  }
+  .search-section::before, .post-options::before, .recap-box::before,
+  .mi-details::before, .card-surface::before {
+    top: -1px; left: -1px; border-right: 0; border-bottom: 0;
+    border-radius: 12px 0 0 0;
+  }
+  .search-section::after, .post-options::after, .recap-box::after,
+  .mi-details::after, .card-surface::after {
+    bottom: -1px; right: -1px; border-left: 0; border-top: 0;
+    border-radius: 0 0 12px 0;
+  }
+
   .search-section {
     background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%);
     border: 1px solid var(--border);
     border-radius: 12px; padding: 14px;
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
   }
-  .search-label {
-    font-size: 10px; font-weight: 600; color: var(--text2);
-    margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1.2px;
+  /* Étiquette de section : Oxanium très espacé + filet qui occupe
+     la largeur restante, pour poser une ligne de lecture nette. */
+  .search-label, .post-label {
+    display: flex; align-items: center; gap: 9px;
+    font-family: var(--font-display);
+    font-size: 9.5px; font-weight: 700; color: var(--text3);
+    letter-spacing: .2em; text-transform: uppercase;
+    margin-bottom: 11px;
+  }
+  .search-label::after, .post-label::after {
+    content: ""; flex: 1; height: 1px; background: var(--border);
   }
   .search-row { display: flex; gap: 8px; }
   .search-row input { flex: 1; }
@@ -2919,21 +3447,30 @@
     gap: 2px;
     flex: none;
   }
+  /* ⚠ Tailles OBLIGATOIRES : un <svg> sans width/height remplit son
+     conteneur. Sans ces règles, le picto de la zone de dépôt s'étalait
+     sur tout l'écran (constaté en v9.4.0). */
+  .ui-ico   { width: 14px; height: 14px; flex: none; vertical-align: -2px; }
+  .drop-ico { width: 48px; height: 48px; opacity: .55; }
+  .ph-ico   { width: 28px; height: 28px; opacity: .4; }
+  .pill-ico { width: 13px; height: 13px; flex: none; }
+  .tt-icon { width: 14px; height: 14px; flex: none; }
   .tmdb-type-toggle button {
+    display: inline-flex; align-items: center; gap: 6px;
     background: transparent;
     border: none;
     color: var(--text3);
-    padding: 4px 10px;
-    font-size: 12px;
+    padding: 5px 11px;
+    font-family: var(--font-display); font-weight: 600; letter-spacing: .05em;
+    font-size: 11.5px;
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.15s;
   }
   .tmdb-type-toggle button:hover { color: var(--text); }
   .tmdb-type-toggle button.active {
-    background: rgba(96, 165, 250, 0.15);
-    color: #93c5fd;
-    font-weight: 600;
+    background: rgba(255, 107, 26, 0.13);
+    color: var(--ember-hi);
   }
 
   .hydracker-results { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto; }
@@ -2946,7 +3483,7 @@
   }
   .hydracker-item:hover {
     background: rgba(255,255,255,0.06);
-    border-color: rgba(0, 180, 216, 0.35);
+    border-color: rgba(255, 107, 26, 0.35);
   }
   .hyd-create-btn {
     background: rgba(255, 214, 10, 0.05);
@@ -3049,10 +3586,10 @@
     border-radius: 14px; padding: 16px 18px;
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 2px rgba(0,0,0,0.4);
   }
-  .post-label {
-    font-size: 10px; font-weight: 600; margin-bottom: 14px;
-    color: var(--text2); text-transform: uppercase; letter-spacing: 1.2px;
-  }
+  /* Style unifié avec .search-label, déclaré plus haut (section
+     « Panneaux d'instrument ») : ne rien remettre ici, cette règle
+     étant plus basse dans la feuille elle gagnerait. */
+  .post-label { margin-bottom: 14px; }
   .post-field { margin-bottom: 14px; }
   .post-field label, .post-field-label {
     display: block; font-size: 11px; color: var(--text3);
@@ -3080,8 +3617,8 @@
   .chips-empty { font-size: 11px; color: var(--text3); font-style: italic; }
   .chip {
     display: inline-flex; align-items: center; gap: 5px;
-    background: rgba(0, 180, 216, 0.1);
-    border: 1px solid rgba(0, 180, 216, 0.3);
+    background: rgba(255, 107, 26, 0.1);
+    border: 1px solid rgba(255, 107, 26, 0.3);
     color: var(--blue-hot);
     padding: 4px 10px; font-size: 11px; border-radius: 7px;
     font-weight: 500;
@@ -3109,8 +3646,8 @@
     transition: all 160ms ease;
   }
   .btn-add:hover {
-    background: rgba(0, 180, 216, 0.08);
-    border-color: rgba(0, 180, 216, 0.35);
+    background: rgba(255, 107, 26, 0.08);
+    border-color: rgba(255, 107, 26, 0.35);
   }
 
   /* Pills modernes "Uploader via" */
@@ -3248,7 +3785,7 @@
   }
   .btn-reset:hover {
     background: rgba(255,255,255,0.06);
-    border-color: rgba(0, 180, 216, 0.35);
+    border-color: rgba(255, 107, 26, 0.35);
     color: var(--text);
   }
 
@@ -3264,6 +3801,77 @@
 
   /* Barres DDL côte à côte — hauteur égale, largeur égale */
   .ddl-bars { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 10px; margin-top: 6px; }
+
+  /* ---------- Suivi du post : barres à gauche, panneau à droite ----------
+     Les barres occupaient une grille 2 colonnes avec une seule carte, d'où
+     une moitié droite vide. On les empile et on remplit la place. */
+  .post-live { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; margin-top: 6px; }
+  .post-live-bars { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .post-live-bars .ddl-bars { grid-template-columns: 1fr; margin-top: 0; }
+
+  .post-panel {
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    min-width: 0;
+  }
+  .post-panel-title {
+    font-family: var(--font-display); font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .2em; color: var(--text3);
+    margin-bottom: 9px;
+  }
+
+  .pp-steps { list-style: none; margin: 0; padding: 0; }
+  .pp-step {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11.5px; line-height: 1.55; color: var(--text3);
+  }
+  .pp-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex: none;
+    border: 1px solid var(--text3); background: transparent;
+  }
+  .pp-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pp-pct { margin-left: auto; font-size: 10px; color: var(--ember-hi); flex: none; }
+
+  .pp-ok   { color: var(--text2); }
+  .pp-ok   .pp-dot { background: var(--success); border-color: var(--success); }
+  .pp-now  { color: var(--text1); font-weight: 600; }
+  .pp-now  .pp-dot { background: var(--ember); border-color: var(--ember);
+                     animation: pp-pulse 1.3s ease-in-out infinite; }
+  .pp-err  { color: var(--red-hot); }
+  .pp-err  .pp-dot { background: var(--danger); border-color: var(--danger); }
+  /* opacity seule : pas de filtre, conformément à la règle de perf. */
+  @keyframes pp-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
+
+  .pp-sep { height: 1px; background: var(--border); margin: 10px 0; }
+
+  .pp-figures { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 14px; }
+  .pp-figures > div { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+  .pp-k { font-size: 9px; text-transform: uppercase; letter-spacing: .14em; color: var(--text3); flex: none; }
+  .pp-figures b { font-size: 12px; color: var(--text1); font-weight: 600; margin-left: auto; }
+
+  .pp-courbe { width: 100%; height: 30px; margin-top: 10px; display: block; }
+  .pp-courbe polyline { fill: none; stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+  .pp-l-ddl { stroke: var(--success); }
+  .pp-l-nzb { stroke: var(--ember); }
+  .pp-legende { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 9px; }
+  .pp-lg { display: inline-flex; align-items: center; gap: 4px; }
+  .pp-lg::before { content: ""; width: 7px; height: 2px; border-radius: 1px; }
+  .pp-lg-ddl { color: var(--success); }
+  .pp-lg-ddl::before { background: var(--success); }
+  .pp-lg-nzb { color: var(--ember-hi); }
+  .pp-lg-nzb::before { background: var(--ember); }
+  .pp-lg-max { margin-left: auto; color: var(--text3); }
+
+  .pp-next { display: flex; align-items: baseline; gap: 8px; font-size: 11px; min-width: 0; }
+  .pp-next b { color: var(--text1); font-weight: 600; overflow: hidden;
+               text-overflow: ellipsis; white-space: nowrap; }
+  .pp-reste { margin-left: auto; color: var(--ember-hi); font-size: 10px; flex: none; }
+
+  @media (max-width: 900px) {
+    .post-live { grid-template-columns: 1fr; }
+  }
   @media (max-width: 900px) {
     .post-grid, .ddl-bars { grid-template-columns: 1fr; grid-auto-rows: auto; }
   }
@@ -3288,7 +3896,13 @@
     font-size: 11px; font-weight: 700; color: var(--blue-hot);
     text-transform: uppercase; letter-spacing: 0.4px; flex: none;
   }
-  .ddl-bar-speed { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; margin-left: auto; }
+  /* Débit, ETA et pourcentage : les chiffres qu'on fixe pendant un upload.
+     Chasse fixe tabulaire pour qu'ils ne dansent pas en défilant. */
+  .ddl-bar-speed {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+    font-size: 13px; font-weight: 700; color: var(--ember-hi);
+    letter-spacing: -.01em; margin-left: auto;
+  }
   .ddl-bar-status { font-size: 11px; font-weight: 600; margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ddl-bar-status.ok { color: #7ef0c0; }
   .ddl-bar-status.err { color: #ff9585; }
@@ -3316,39 +3930,105 @@
     font-size: 11px; color: var(--text3);
   }
   .progress-fill.hydone {
-    background: linear-gradient(180deg, #34d399 0%, #22c55e 100%);
-    box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+    background: linear-gradient(180deg, var(--success) 0%, #2bb972 100%);
+    box-shadow: 0 0 10px rgba(61, 220, 132, 0.45);
   }
   .nzb-progress-block { display: flex; flex-direction: column; gap: 4px; }
   .nzb-step-label { font-size: 11px; color: var(--text2); }
+
+  /* ── Bandeau de diodes ──────────────────────────────────────────
+     La barre est découpée en segments par un MASQUE CSS, sans aucun
+     changement de balisage : les 6 barres de l'app en héritent.
+     Le motif est exprimé en unités absolues et ancré à gauche, donc
+     il reste fixe pendant que `width` grandit — les diodes
+     s'allument au lieu de glisser. Un segment partiel en tête donne
+     l'impression du voyant en cours. */
   .progress-bar {
-    height: 7px; background: rgba(255,255,255,0.06);
-    border-radius: 4px; overflow: hidden;
-    box-shadow: inset 0 1px 1px rgba(0,0,0,0.3);
+    --seg: 9px;
+    --gap: 3px;
+    height: 9px;
+    background: transparent;
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+  }
+  /* diodes éteintes, sur toute la largeur */
+  .progress-bar::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: rgba(255, 255, 255, 0.055);
+    -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 var(--seg), transparent var(--seg) calc(var(--seg) + var(--gap)));
+            mask-image: repeating-linear-gradient(90deg, #000 0 var(--seg), transparent var(--seg) calc(var(--seg) + var(--gap)));
   }
   .progress-fill {
-    height: 100%; background: var(--grad-primary);
-    border-radius: 4px;
+    position: relative;
+    height: 100%;
+    background: var(--grad-primary);
+    border-radius: 2px;
     transition: width 0.12s linear;
-    box-shadow: 0 0 10px rgba(230, 57, 70, 0.35);
+    box-shadow: 0 0 8px var(--accent-glow);
+    -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 var(--seg), transparent var(--seg) calc(var(--seg) + var(--gap)));
+            mask-image: repeating-linear-gradient(90deg, #000 0 var(--seg), transparent var(--seg) calc(var(--seg) + var(--gap)));
   }
+
+  /* ── Bilan de session ─────────────────────────────────────────────── */
+  .bilan-box {
+    position: relative;
+    background: linear-gradient(180deg, rgba(61,220,132,.06), rgba(61,220,132,.02));
+    border: 1px solid rgba(61,220,132,.26);
+    border-radius: 11px; padding: 12px 14px; margin-bottom: 10px;
+  }
+  .bilan-box.bilan-ko {
+    background: linear-gradient(180deg, rgba(255,200,61,.07), rgba(255,200,61,.02));
+    border-color: rgba(255,200,61,.3);
+  }
+  .bilan-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 9px;
+    font-family: var(--font-display); font-size: 10px; font-weight: 700;
+    letter-spacing: .18em; text-transform: uppercase; color: var(--success);
+  }
+  .bilan-ko .bilan-head { color: var(--warning); }
+  .bilan-count { font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+    color: var(--text3); text-transform: none; font-weight: 500; }
+  .bilan-x { margin-left: auto; background: transparent; border: 0; color: var(--text3);
+    font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
+  .bilan-x:hover { color: var(--text); }
+  .bilan-list { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; }
+  .bilan-row { display: flex; align-items: center; gap: 7px; }
+  .bilan-name {
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--text2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
+  }
+  .bilan-tag {
+    font-family: var(--font-display); font-size: 8.5px; font-weight: 700; letter-spacing: .1em;
+    padding: 2px 6px; border-radius: 4px; flex: none; border: 1px solid transparent;
+  }
+  .bilan-on  { color: var(--success); border-color: rgba(61,220,132,.35); background: rgba(61,220,132,.1); }
+  .bilan-off { color: var(--warning); border-color: rgba(255,200,61,.4);  background: rgba(255,200,61,.12); }
+  .bilan-fix {
+    width: 100%; margin-top: 10px; padding: 9px;
+    background: linear-gradient(180deg, var(--ember-hi), var(--ember-deep));
+    color: #1a0d04; border: 0; border-radius: 7px; cursor: pointer;
+    font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: .08em;
+  }
+  .bilan-fix:hover { filter: brightness(1.07); }
 
   /* Récapitulatif (repliable) */
   .recap-box {
-    background: linear-gradient(180deg, rgba(0, 180, 216, 0.05) 0%, rgba(0, 180, 216, 0.02) 100%);
-    border: 1px solid rgba(0, 180, 216, 0.2);
+    background: linear-gradient(180deg, rgba(255, 107, 26, 0.05) 0%, rgba(255, 107, 26, 0.02) 100%);
+    border: 1px solid rgba(255, 107, 26, 0.2);
     border-radius: 14px; overflow: hidden;
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
   }
   .recap-title {
     display: flex; align-items: center; gap: 6px; width: 100%;
     background: transparent; border: 0; padding: 10px 18px;
-    font-size: 11px; font-weight: 700; color: var(--blue-hot);
-    text-transform: uppercase; letter-spacing: 1.2px;
+    font-family: var(--font-display); font-size: 10px; font-weight: 700; color: var(--ember-hi);
+    text-transform: uppercase; letter-spacing: .2em;
     cursor: pointer; text-align: left;
   }
   .recap-title:hover { background: rgba(255,255,255,0.02); }
-  .recap-box.open .recap-title { border-bottom: 1px solid rgba(0, 180, 216, 0.2); }
+  .recap-box.open .recap-title { border-bottom: 1px solid rgba(255, 107, 26, 0.2); }
   .recap-body { padding: 12px 18px 14px; }
   .recap-row {
     display: flex; justify-content: space-between; align-items: baseline;
@@ -3363,7 +4043,7 @@
   .recap-val { color: var(--text); text-align: right; flex: 1; }
   .recap-id { color: var(--red-hot); }
   .recap-type {
-    background: rgba(0, 180, 216, 0.15); color: var(--blue-hot);
+    background: rgba(255, 107, 26, 0.15); color: var(--blue-hot);
     font-size: 10px; padding: 1px 7px; border-radius: 9999px; margin-left: 4px;
   }
   .recap-file { color: var(--text2); font-size: 11px; word-break: break-all; }

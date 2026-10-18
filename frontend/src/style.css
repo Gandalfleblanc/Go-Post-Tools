@@ -1,70 +1,189 @@
-:root {
-  --bg: #0f1117;
-  --bg2: #1a1d27;
-  --bg3: #23273a;
-  --accent: #6c63ff;
-  --accent2: #a78bfa;
-  --text: #e2e8f0;
-  --text2: #94a3b8;
-  --border: #2d3148;
-  --danger: #ef4444;
-  --success: #22c55e;
-  --warning: #f59e0b;
+/* ============================================================
+   GO POST TOOLS — système de design « baie de lancement » (v10)
+   ------------------------------------------------------------
+   SOURCE UNIQUE des tokens. App.svelte ne redéfinit plus de
+   couleurs : tout part d'ici, donc restyler = modifier ce fichier.
+
+   Polices EMBARQUÉES (frontend/public/fonts/, ~108 Ko) et non
+   chargées depuis Google : c'est une app desktop, elle doit
+   garder son identité hors ligne.
+   ============================================================ */
+
+/* — Azeret Mono : chiffres, noms de fichiers, télémétrie — */
+@font-face{font-family:'Azeret Mono';font-style:normal;font-weight:400;font-display:swap;
+  src:url(/fonts/3XFuErsiyJsY9O_Gepph-HHhZfn23vRK.woff2) format('woff2')}
+@font-face{font-family:'Azeret Mono';font-style:normal;font-weight:500;font-display:swap;
+  src:url(/fonts/3XFuErsiyJsY9O_Gepph-HHhZfn23vRK.woff2) format('woff2')}
+@font-face{font-family:'Azeret Mono';font-style:normal;font-weight:700;font-display:swap;
+  src:url(/fonts/3XFuErsiyJsY9O_Gepph-HHhZfn23vRK.woff2) format('woff2')}
+
+/* — Oxanium : titres, étiquettes, chrome de l'interface — */
+@font-face{font-family:'Oxanium';font-style:normal;font-weight:500;font-display:swap;
+  src:url(/fonts/RrQQboN_4yJ0JmiMe2LE0ZJCZ4c.woff2) format('woff2')}
+@font-face{font-family:'Oxanium';font-style:normal;font-weight:600;font-display:swap;
+  src:url(/fonts/RrQQboN_4yJ0JmiMe2LE0ZJCZ4c.woff2) format('woff2')}
+@font-face{font-family:'Oxanium';font-style:normal;font-weight:700;font-display:swap;
+  src:url(/fonts/RrQQboN_4yJ0JmiMe2LE0ZJCZ4c.woff2) format('woff2')}
+
+/* — Sora : texte courant — */
+@font-face{font-family:'Sora';font-style:normal;font-weight:400;font-display:swap;
+  src:url(/fonts/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-xo6eeIw.woff2) format('woff2')}
+@font-face{font-family:'Sora';font-style:normal;font-weight:500;font-display:swap;
+  src:url(/fonts/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-xo6eeIw.woff2) format('woff2')}
+@font-face{font-family:'Sora';font-style:normal;font-weight:600;font-display:swap;
+  src:url(/fonts/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-xo6eeIw.woff2) format('woff2')}
+
+:root{
+  color-scheme: dark;
+
+  /* ── Socle : carbone chaud. Volontairement PAS bleu, pour ne pas
+     se confondre avec le cockpit d'encodage (cyan). ── */
+  --bg:            #08060a;
+  --bg-tint:       #0d0a0f;
+  --bg2:           #13101a;
+  --bg3:           #191520;
+  --surface:       rgba(25, 21, 32, .72);
+  --border:        rgba(255, 255, 255, .07);
+  --border-strong: rgba(255, 255, 255, .13);
+
+  /* ── Accent unique : braise Elysium. Ne sert QUE pour l'action
+     en cours et le primaire — s'il est partout, il ne dit plus rien. ── */
+  --ember:         #ff6b1a;
+  --ember-hi:      #ff8c47;
+  --ember-deep:    #e8431a;
+  --accent:        var(--ember);
+  --accent-glow:   rgba(255, 107, 26, .35);
+  --orange:        var(--ember);
+
+  /* ── Signaux d'état ── */
+  --success:  #3ddc84;
+  --ok:       #3ddc84;
+  --warning:  #ffc83d;
+  --yellow:   #ffc83d;
+  --danger:   #ff4d5e;
+  --red:      #ff4d5e;
+  --red-hot:  #ff6b7a;
+  --steel:    #5c7a99;
+  --blue:     #5c7a99;
+  --blue-hot: #a9c4de;
+
+  /* ── Encre. --text1 était utilisé 7× sans jamais être défini. ── */
+  --text:   #f6f1ea;
+  --text1:  #f6f1ea;
+  --text2:  #a89d94;
+  --text3:  #6b625c;
+
+  --grad-primary:       linear-gradient(180deg, var(--ember-hi) 0%, var(--ember-deep) 100%);
+  --grad-primary-hover: linear-gradient(180deg, #ffa066 0%, #f14a24 100%);
+
+  /* ── Typographie ── */
+  --font-display: 'Oxanium', system-ui, sans-serif;
+  --font-mono:    'Azeret Mono', ui-monospace, 'SF Mono', monospace;
+  --font-body:    'Sora', system-ui, -apple-system, sans-serif;
+
+  --radius:    9px;
+  --radius-sm: 6px;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+*{ box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body {
-  background: var(--bg);
+html, body{
   color: var(--text);
-  font-family: 'Inter', system-ui, sans-serif;
-  font-size: 14px;
+  font-family: var(--font-body);
+  font-size: 13px;
   height: 100vh;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--bg);
 }
 
-button {
-  cursor: pointer;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.15s;
+/* ── Atmosphère : grille + halos, STRICTEMENT STATIQUES.
+   Le cockpit d'encodage a coûté 50 % de CPU en continu à cause d'un
+   fond animé + backdrop-filter + mix-blend-mode. Ici la WebView
+   tourne pendant les uploads : ce CPU serait pris à parpar et nyuu.
+   Règle : aucun blend-mode, aucun flou, on n'anime que
+   transform/opacity, et jamais sur une surface plein écran. ── */
+body::before{
+  content:""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 52px 52px;
+  opacity: .5;
+  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 10%, transparent 70%);
+          mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 10%, transparent 70%);
 }
+body::after{
+  content:""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(ellipse 70% 50% at 18% -5%, rgba(255,107,26,.13), transparent 60%),
+    radial-gradient(ellipse 60% 45% at 95% 100%, rgba(92,122,153,.10), transparent 60%);
+}
+#app{ position: relative; z-index: 1; height: 100vh; }
 
-.btn-primary { background: var(--accent); color: white; }
-.btn-primary:hover { background: #574fd6; }
-.btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
-.btn-ghost:hover { background: var(--bg3); color: var(--text); }
-.btn-danger { background: var(--danger); color: white; }
+/* ── Contrôles ── */
+button{
+  cursor: pointer; border: none; border-radius: var(--radius-sm);
+  padding: 8px 16px; font-size: 12.5px; font-weight: 600;
+  font-family: var(--font-display); letter-spacing: .06em;
+  transition: background .14s, border-color .14s, color .14s, transform .12s;
+}
+.btn-primary{
+  background: var(--grad-primary); color: #1a0d04; letter-spacing: .1em;
+  box-shadow: 0 4px 16px rgba(232,67,26,.28), inset 0 1px 0 rgba(255,255,255,.28);
+}
+.btn-primary:hover{ background: var(--grad-primary-hover); transform: translateY(-1px); }
+.btn-ghost{ background: transparent; color: var(--text2); border: 1px solid var(--border-strong); }
+.btn-ghost:hover{ border-color: var(--text3); color: var(--text); }
+.btn-danger{ background: transparent; border: 1px solid rgba(255,77,94,.4); color: var(--danger); }
 
-input, select {
-  background: var(--bg3);
+input, select, textarea{
+  background: rgba(0,0,0,.3);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: var(--text);
-  padding: 8px 12px;
-  font-size: 13px;
+  padding: 8px 11px;
+  font-size: 12.5px;
+  font-family: var(--font-body);
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color .14s, box-shadow .14s;
   width: 100%;
 }
-input:focus, select:focus { border-color: var(--accent); }
-
-.badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  font-size: 11px;
-  font-weight: 600;
+input:focus, select:focus, textarea:focus{
+  border-color: var(--ember);
+  box-shadow: 0 0 0 3px rgba(255,107,26,.12);
 }
-.badge-movie  { background: #1e3a5f; color: #60a5fa; }
-.badge-series { background: #1e3d2f; color: #4ade80; }
-.badge-torrent { background: #2d1f4e; color: var(--accent2); }
-.badge-nzb    { background: #3d2a1e; color: #fb923c; }
-.badge-ddl    { background: #1e3d3d; color: #2dd4bf; }
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: var(--bg2); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+/* Chiffres toujours en chasse fixe tabulaire : ils ne dansent plus
+   quand une progression défile. */
+.num, .mono{ font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.badge{
+  display: inline-block; padding: 2.5px 8px; border-radius: 5px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  border: 1px solid var(--border-strong); color: var(--text2);
+}
+.badge-movie  { border-color: rgba(92,122,153,.4);  color: var(--blue-hot); }
+.badge-series { border-color: rgba(61,220,132,.35); color: var(--success); }
+.badge-nzb    { border-color: rgba(255,107,26,.4);  color: var(--ember-hi); }
+.badge-ddl    { border-color: rgba(61,220,132,.35); color: var(--success); }
+.badge-torrent{ border-color: rgba(167,139,250,.35); color: #c4b5fd; }
+
+::-webkit-scrollbar{ width: 9px; height: 9px; }
+::-webkit-scrollbar-track{ background: transparent; }
+::-webkit-scrollbar-thumb{ background: var(--border-strong); border-radius: 9px; }
+::-webkit-scrollbar-thumb:hover{ background: var(--text3); }
+
+/* ------------------------------------------------------------------
+   Tailles des pictos — GLOBALES et non scopées.
+   Un <svg> sans width/height remplit son conteneur : sans ces règles on
+   obtient un picto plein écran (constaté en v9.4.0). Elles vivent ici
+   plutôt que dans un composant parce que les pictos injectés via
+   {@html} n'héritent PAS de la classe de scope Svelte — une règle
+   scopée ne les atteindrait donc jamais.
+   ------------------------------------------------------------------ */
+.ui-ico   { width: 14px; height: 14px; flex: none; vertical-align: -2px; }
+.drop-ico { width: 48px; height: 48px; opacity: .55; }
+.ph-ico   { width: 28px; height: 28px; opacity: .4; }
+.pill-ico { width: 13px; height: 13px; flex: none; }

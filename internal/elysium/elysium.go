@@ -38,9 +38,9 @@ func NewClient(token string) *Client {
 }
 
 type User struct {
-	ID              int     `json:"id"`
-	Name            string  `json:"name"`
-	Role            string  `json:"role"`
+	ID              int      `json:"id"`
+	Name            string   `json:"name"`
+	Role            string   `json:"role"`
 	Ratio           *float64 `json:"ratio"`
 	RatioUploaded   int64    `json:"ratio_uploaded"`
 	RatioDownloaded int64    `json:"ratio_downloaded"`
@@ -198,9 +198,9 @@ type UploadPayload struct {
 	DDLURL      string   // URL 1fichier.com (optionnel)
 	NZBFilePath string   // Chemin local du .nzb à uploader (optionnel)
 	NzbFileName string   // Nom logique du .nzb côté serveur (surcharge le
-	                     // nom du fichier envoyé en multipart). Utilisé par
-	                     // le ReleaseParser d'Elysium pour ranger la release
-	                     // dans la bonne saison — DOIT contenir SxxEyy.
+	// nom du fichier envoyé en multipart). Utilisé par
+	// le ReleaseParser d'Elysium pour ranger la release
+	// dans la bonne saison — DOIT contenir SxxEyy.
 }
 
 type UploadResult struct {
@@ -360,10 +360,10 @@ type Category struct {
 // Qualities/Languages/Subtitles sont des map[key]label (l'API renvoie souvent
 // key == label mais on garde la forme pour être robuste).
 type Meta struct {
-	Qualities     map[string]string   `json:"qualities"`
-	Languages     map[string]string   `json:"languages"`
-	Subtitles     map[string]string   `json:"subtitles"`
-	Categories    []Category          `json:"categories"`
+	Qualities     map[string]string            `json:"qualities"`
+	Languages     map[string]string            `json:"languages"`
+	Subtitles     map[string]string            `json:"subtitles"`
+	Categories    []Category                   `json:"categories"`
 	Subcategories map[string]map[string]string `json:"subcategories"`
 }
 
@@ -409,15 +409,15 @@ func (c *Client) SearchTitles(query, mediaType string, perPage int) ([]Title, er
 // Structure commune volontairement réduite au strict utile pour la UI
 // « Mes uploads » (id, filename, taille, qualité, langues, date, fiche).
 type UploadRef struct {
-	ID         int      `json:"id"`
-	FileName   string   `json:"file_name"`
-	SizeBytes  int64    `json:"size_bytes"`
-	Quality    string   `json:"quality"`
-	Languages  []string `json:"language"`
-	Subtitles  []string `json:"subtitles"`
-	CreatedAt  string   `json:"created_at"`
-	Category   *Category `json:"category"`
-	Title      *struct {
+	ID        int       `json:"id"`
+	FileName  string    `json:"file_name"`
+	SizeBytes int64     `json:"size_bytes"`
+	Quality   string    `json:"quality"`
+	Languages []string  `json:"language"`
+	Subtitles []string  `json:"subtitles"`
+	CreatedAt string    `json:"created_at"`
+	Category  *Category `json:"category"`
+	Title     *struct {
 		ID     int    `json:"id"`
 		Title  string `json:"title"`
 		Year   int    `json:"year"`
@@ -477,5 +477,37 @@ func (c *Client) DeleteNzb(id int) error {
 // ou admin/modo requis côté serveur).
 func (c *Client) DeleteDdl(id int) error {
 	req, _ := http.NewRequest("DELETE", fmt.Sprintf("%s/api/v1/ddls/%d", c.base, id), nil)
+	return c.doJSON(req, nil)
+}
+
+// UpdateNzb : PATCH /api/v1/nzbs/{id} — corrige les métadonnées d'un NZB déjà
+// posté (qualité, langues, sous-titres). Le serveur ne modifie QUE les clés
+// présentes dans le corps : un champ absent est laissé tel quel.
+func (c *Client) UpdateNzb(id int, champs map[string]any) error {
+	return c.patchUpload("nzbs", id, champs)
+}
+
+// UpdateDdl : PATCH /api/v1/ddls/{id} — idem pour un DDL.
+func (c *Client) UpdateDdl(id int, champs map[string]any) error {
+	return c.patchUpload("ddls", id, champs)
+}
+
+// patchUpload : corps JSON + Content-Type, que doJSON ne pose pas (il ne gère
+// que les en-têtes communs). Les valeurs refusées remontent en HTTP 422 avec
+// le détail du champ fautif, ce que doJSON inclut dans l'erreur.
+func (c *Client) patchUpload(ressource string, id int, champs map[string]any) error {
+	if len(champs) == 0 {
+		return fmt.Errorf("aucun champ à modifier")
+	}
+	corps, err := json.Marshal(champs)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("PATCH",
+		fmt.Sprintf("%s/api/v1/%s/%d", c.base, ressource, id), bytes.NewReader(corps))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
 	return c.doJSON(req, nil)
 }

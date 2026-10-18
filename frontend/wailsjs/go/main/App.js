@@ -542,6 +542,14 @@ export function TryAutoLogin() {
   return window['go']['main']['App']['TryAutoLogin']();
 }
 
+export function UpdateMyElyDdl(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateMyElyDdl'](arg1, arg2, arg3, arg4);
+}
+
+export function UpdateMyElyNzb(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateMyElyNzb'](arg1, arg2, arg3, arg4);
+}
+
 export function UpdateMyLien(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['UpdateMyLien'](arg1, arg2, arg3, arg4, arg5, arg6);
 }

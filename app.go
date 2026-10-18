@@ -1,10 +1,10 @@
 package main
 
 import (
-	"context"
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -27,19 +27,19 @@ import (
 	"sync"
 
 	"go-post-tools/api"
-	"go-post-tools/internal/config"
-	"go-post-tools/internal/downloader"
-	"go-post-tools/internal/ftpup"
-	"go-post-tools/internal/history"
-	"go-post-tools/internal/lihdl"
 	"go-post-tools/internal/alldebrid"
 	"go-post-tools/internal/binutil"
+	"go-post-tools/internal/config"
+	"go-post-tools/internal/downloader"
 	"go-post-tools/internal/elysium"
+	"go-post-tools/internal/ftpup"
+	"go-post-tools/internal/history"
 	"go-post-tools/internal/igdb"
+	"go-post-tools/internal/lihdl"
+	"go-post-tools/internal/mediasearch"
 	"go-post-tools/internal/nexum"
 	"go-post-tools/internal/nyuu"
 	"go-post-tools/internal/rutorrent"
-	"go-post-tools/internal/mediasearch"
 
 	"github.com/anacrolix/torrent/metainfo"
 	"go-post-tools/internal/parpar"
@@ -61,7 +61,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "9.3.4"
+const Version = "9.5.0"
 
 type App struct {
 	ctx         context.Context
@@ -1352,12 +1352,12 @@ func (a *App) PostLien(titleID, qualite int, langues, subs []string, lien, nfo s
 // --- Reseed (MKV + .torrent → FTP + ruTorrent + re-check) ---
 
 type ReseedPrepareResult struct {
-	TorrentName   string             `json:"torrent_name"`
-	FirstFileName string             `json:"first_file_name"`
-	Size          int64              `json:"size"`
-	InfoHash      string             `json:"info_hash"`
-	Search        *mediasearch.SearchResult `json:"search"`
-	HydrackerFiche *api.PartialTitle `json:"hydracker_fiche"`
+	TorrentName    string                    `json:"torrent_name"`
+	FirstFileName  string                    `json:"first_file_name"`
+	Size           int64                     `json:"size"`
+	InfoHash       string                    `json:"info_hash"`
+	Search         *mediasearch.SearchResult `json:"search"`
+	HydrackerFiche *api.PartialTitle         `json:"hydracker_fiche"`
 }
 
 func (a *App) ReseedPrepare(torrentPath string) (*ReseedPrepareResult, error) {
@@ -2128,10 +2128,11 @@ type UploaderScanResult struct {
 }
 
 // GetTopUploaders construit un classement site-wide en :
-//   1. Listant les N fiches les plus populaires (`/titles?order=popularity:desc`)
-//   2. Pour chaque fiche, fetchant ses torrents/nzbs/liens via les endpoints
-//      documentés `/titles/{id}/content/{type}` (qui exposent l'auteur)
-//   3. Agrégeant par uploader, retournant top topN par type
+//  1. Listant les N fiches les plus populaires (`/titles?order=popularity:desc`)
+//  2. Pour chaque fiche, fetchant ses torrents/nzbs/liens via les endpoints
+//     documentés `/titles/{id}/content/{type}` (qui exposent l'auteur)
+//  3. Agrégeant par uploader, retournant top topN par type
+//
 // Coût : 1 + 3*scanTitles requêtes, sérialisées par le rate limit (1 req/s).
 // Avec scanTitles=30 → ~91 req → ~95 secondes.
 func (a *App) GetUploaderStats(daysSince int) (*UploaderScanResult, error) {
@@ -2280,10 +2281,10 @@ type DDLResolved struct {
 // caller doit refetch pour avoir une URL fraîche au moment du clic.
 //
 // Stratégie de débridage (priorité AllDebrid si configuré) :
-//   1. AllDebrid (si clé renseignée) → Unlock(raw_url) → CDN haute vitesse
-//      multi-hoster (1Fichier, Uptobox, Rapidgator, Mega, etc.)
-//   2. Fallback Hydracker directDL (débridage 1Fichier server-side)
-//   3. Fallback raw_url tel quel (l'user devra cliquer manuellement)
+//  1. AllDebrid (si clé renseignée) → Unlock(raw_url) → CDN haute vitesse
+//     multi-hoster (1Fichier, Uptobox, Rapidgator, Mega, etc.)
+//  2. Fallback Hydracker directDL (débridage 1Fichier server-side)
+//  3. Fallback raw_url tel quel (l'user devra cliquer manuellement)
 func (a *App) GetDDLFilenameByLienID(lienID int) (*DDLResolved, error) {
 	a.resetCancellation()
 	detail, err := a.client.GetLienDetailByID(lienID)
@@ -2375,7 +2376,7 @@ func (a *App) GetDDLFilename(shareURL string) (string, error) {
 }
 
 // getFilenameFromHEAD fait un HEAD HTTP et extrait le filename depuis
-// Content-Disposition (RFC 6266 : `attachment; filename="xxx"` ou `filename*=UTF-8''xxx`).
+// Content-Disposition (RFC 6266 : `attachment; filename="xxx"` ou `filename*=UTF-8”xxx`).
 func getFilenameFromHEAD(rawURL string) (string, error) {
 	req, err := http.NewRequest("HEAD", rawURL, nil)
 	if err != nil {
@@ -2621,17 +2622,17 @@ func (a *App) SelectAnyTorrentFile() (string, error) {
 // --- Check Torrent (liste ruTorrent + matching LiHDL + re-seed auto) ---
 
 type CheckTorrentEntry struct {
-	Hash       string `json:"hash"`
-	Name       string `json:"name"`
-	FileName   string `json:"file_name"`
-	HasError   bool   `json:"has_error"`
-	Message    string `json:"message"`
-	IsActive   int    `json:"is_active"`
-	State      int    `json:"state"`
-	Size       int64  `json:"size"`
-	Done       int64  `json:"done"`
-	LihdlURL   string `json:"lihdl_url"`
-	LihdlName  string `json:"lihdl_name"`
+	Hash      string `json:"hash"`
+	Name      string `json:"name"`
+	FileName  string `json:"file_name"`
+	HasError  bool   `json:"has_error"`
+	Message   string `json:"message"`
+	IsActive  int    `json:"is_active"`
+	State     int    `json:"state"`
+	Size      int64  `json:"size"`
+	Done      int64  `json:"done"`
+	LihdlURL  string `json:"lihdl_url"`
+	LihdlName string `json:"lihdl_name"`
 }
 
 func (a *App) ListCheckTorrents(refreshIndex bool) ([]CheckTorrentEntry, error) {
@@ -2732,10 +2733,10 @@ func (a *App) ReseedFromLihdl(hash, lihdlURL, remoteName string) error {
 // --- Workflow Torrent complet (FTP → create → Hydracker → download → Seedbox) ---
 
 type TorrentWorkflowResult struct {
-	TorrentPath     string `json:"torrent_path"`
-	HydrackerID     int    `json:"hydracker_id"`
+	TorrentPath      string `json:"torrent_path"`
+	HydrackerID      int    `json:"hydracker_id"`
 	HydrackerTorPath string `json:"hydracker_torrent_path"` // chemin local du .torrent téléchargé depuis Hydracker
-	SeedboxPath     string `json:"seedbox_path"`
+	SeedboxPath      string `json:"seedbox_path"`
 }
 
 // DownloadToDownloads télécharge un fichier via signed URL vers ~/Downloads avec un nom donné.
@@ -2890,9 +2891,9 @@ type NexumIndexEntry struct {
 }
 
 // NexumIndex : map clé → torrent Nexum. Les clés incluent :
-//  - info_hash lowercase (rarement utile : les 2 trackers recalculent le hash
-//    différemment car ils remplacent le tracker + forcent private=1)
-//  - nom normalisé (lowercase, sans espaces/points/underscores) → match robuste
+//   - info_hash lowercase (rarement utile : les 2 trackers recalculent le hash
+//     différemment car ils remplacent le tracker + forcent private=1)
+//   - nom normalisé (lowercase, sans espaces/points/underscores) → match robuste
 type NexumIndex map[string]nexum.Torrent
 
 // normalizeName : strip . _ - espaces et lower → compare robuste entre
@@ -2931,10 +2932,11 @@ func (a *App) GetNexumIndex() (NexumIndex, error) {
 }
 
 // GetSeedboxNexumIndex : approche seedbox-first.
-//   1. Liste les torrents présents sur la seedbox (rutorrent.List → hash + nom)
-//   2. Pour chaque torrent seedbox, demande à Nexum : `?info_hash=<hash>` (lookup direct)
-//      avec fallback search par nom si le hash ne match pas
-//   3. Construit l'index { "h:<seedbox_hash>": nexum.Torrent, "n:<name>": nexum.Torrent }
+//  1. Liste les torrents présents sur la seedbox (rutorrent.List → hash + nom)
+//  2. Pour chaque torrent seedbox, demande à Nexum : `?info_hash=<hash>` (lookup direct)
+//     avec fallback search par nom si le hash ne match pas
+//  3. Construit l'index { "h:<seedbox_hash>": nexum.Torrent, "n:<name>": nexum.Torrent }
+//
 // Avantage vs GetNexumIndex : pas besoin de pull tout le catalogue Nexum,
 // on scanne uniquement ce qui est sur ta seedbox (les .torrent Nexum y sont aussi).
 func (a *App) GetSeedboxNexumIndex() (NexumIndex, error) {
@@ -2998,13 +3000,13 @@ func (a *App) GetSeedboxNexumIndex() (NexumIndex, error) {
 // les keys d'index Nexum qui matchent (ou les keys "proches" pour comprendre
 // pourquoi ça ne match pas). Échantillonne aussi 5 keys de l'index pour comparer.
 type NexumDebug struct {
-	HydHashLower    string   `json:"hyd_hash_lower"`
-	HydNameNorm     string   `json:"hyd_name_norm"`
-	HashKeyExists   bool     `json:"hash_key_exists"`
-	NameKeyExists   bool     `json:"name_key_exists"`
-	IndexHashCount  int      `json:"index_hash_count"`
-	IndexNameCount  int      `json:"index_name_count"`
-	SampleNameKeys  []string `json:"sample_name_keys"`
+	HydHashLower   string   `json:"hyd_hash_lower"`
+	HydNameNorm    string   `json:"hyd_name_norm"`
+	HashKeyExists  bool     `json:"hash_key_exists"`
+	NameKeyExists  bool     `json:"name_key_exists"`
+	IndexHashCount int      `json:"index_hash_count"`
+	IndexNameCount int      `json:"index_name_count"`
+	SampleNameKeys []string `json:"sample_name_keys"`
 }
 
 func (a *App) DebugNexumMatch(idx NexumIndex, hydName, hydHash string) NexumDebug {
@@ -3219,6 +3221,44 @@ func (a *App) DeleteMyElyDdl(id int) error {
 	return c.DeleteDdl(id)
 }
 
+// champsUploadElysium : ne retient que ce qui a été renseigné. Le PATCH Elysium
+// ignore les clés absentes, donc ne rien envoyer = ne rien changer. La qualité
+// vide est volontairement omise plutôt qu'envoyée à null, pour qu'un champ
+// laissé tel quel ne puisse pas effacer la valeur en place.
+func champsUploadElysium(quality string, langues, subs []string) map[string]any {
+	m := map[string]any{}
+	if strings.TrimSpace(quality) != "" {
+		m["quality"] = quality
+	}
+	if langues != nil {
+		m["language"] = langues
+	}
+	if subs != nil {
+		m["subtitles"] = subs
+	}
+	return m
+}
+
+// UpdateMyElyNzb : corrige les métadonnées d'un NZB depuis l'onglet Mes uploads.
+// Les noms de langues et de sous-titres doivent être ceux d'Elysium (ex.
+// « TrueFrench », « English ») — le serveur refuse tout le reste en 422.
+func (a *App) UpdateMyElyNzb(id int, quality string, langues, subs []string) error {
+	c, err := a.elysiumClient()
+	if err != nil {
+		return err
+	}
+	return c.UpdateNzb(id, champsUploadElysium(quality, langues, subs))
+}
+
+// UpdateMyElyDdl : idem pour un DDL.
+func (a *App) UpdateMyElyDdl(id int, quality string, langues, subs []string) error {
+	c, err := a.elysiumClient()
+	if err != nil {
+		return err
+	}
+	return c.UpdateDdl(id, champsUploadElysium(quality, langues, subs))
+}
+
 // nfoForElysium : convertit le NFO HTML (wrappé <pre>…</pre> + entités
 // échappées, format hérité de Hydracker) en texte brut pour Elysium.
 func nfoForElysium(nfo string) string {
@@ -3363,23 +3403,24 @@ func (a *App) ListSeedboxHashes() ([]string, error) {
 
 // DeleteTorrentResult — résultat de DeleteTorrentAndFTP, détail par étape.
 type DeleteTorrentResult struct {
-	HydrackerOK     bool     `json:"hydracker_ok"`
-	HydrackerErr    string   `json:"hydracker_err,omitempty"`
-	SeedboxOK       bool     `json:"seedbox_ok"`
-	SeedboxErr      string   `json:"seedbox_err,omitempty"`
-	UsedSeedbox     string   `json:"used_seedbox"` // "rutorrent" | "qbit" | ""
-	FTPDeleted      []string `json:"ftp_deleted"`
-	FTPErrors       []string `json:"ftp_errors"`
-	FilesAttempted  []string `json:"files_attempted"`
-	UsedFTP         string   `json:"used_ftp"`     // "perso", "mod" ou "" si rien trouvé
-	SiblingsErased  []string `json:"siblings_erased"` // hashes des .torrent siblings (Nexum etc) effacés par nom
+	HydrackerOK    bool     `json:"hydracker_ok"`
+	HydrackerErr   string   `json:"hydracker_err,omitempty"`
+	SeedboxOK      bool     `json:"seedbox_ok"`
+	SeedboxErr     string   `json:"seedbox_err,omitempty"`
+	UsedSeedbox    string   `json:"used_seedbox"` // "rutorrent" | "qbit" | ""
+	FTPDeleted     []string `json:"ftp_deleted"`
+	FTPErrors      []string `json:"ftp_errors"`
+	FilesAttempted []string `json:"files_attempted"`
+	UsedFTP        string   `json:"used_ftp"`        // "perso", "mod" ou "" si rien trouvé
+	SiblingsErased []string `json:"siblings_erased"` // hashes des .torrent siblings (Nexum etc) effacés par nom
 }
 
 // DeleteTorrentAndFTP : suppression complète d'un torrent.
-//   1. Récupère le .torrent via /torrents/{id}/download (Bearer auth)
-//   2. Parse metainfo pour extraire la liste des fichiers
-//   3. Tente DELE sur le FTP perso, puis sur le FTP mod si échec
-//   4. DELETE /torrents/{id} sur Hydracker
+//  1. Récupère le .torrent via /torrents/{id}/download (Bearer auth)
+//  2. Parse metainfo pour extraire la liste des fichiers
+//  3. Tente DELE sur le FTP perso, puis sur le FTP mod si échec
+//  4. DELETE /torrents/{id} sur Hydracker
+//
 // Idempotent : un fichier déjà absent (550) est traité comme succès.
 func (a *App) DeleteTorrentAndFTP(torrentID int) (*DeleteTorrentResult, error) {
 	result := &DeleteTorrentResult{FTPDeleted: []string{}, FTPErrors: []string{}, FilesAttempted: []string{}, SiblingsErased: []string{}}
@@ -3640,14 +3681,14 @@ func (a *App) ListReseedRequests(status string, uploaderID, requesterID, page in
 
 // AutoReseedResult retourne le résultat du workflow auto-reseed.
 type AutoReseedResult struct {
-	TorrentID    int    `json:"torrent_id"`
-	TorrentName  string `json:"torrent_name"`
-	Quality      int    `json:"quality"`
-	Lang         int    `json:"lang"`
-	Season       int    `json:"saison"`
-	Episode      int    `json:"episode"`
-	SizeBytes    int64  `json:"size_bytes"`
-	SeedboxPath  string `json:"seedbox_path"`
+	TorrentID   int    `json:"torrent_id"`
+	TorrentName string `json:"torrent_name"`
+	Quality     int    `json:"quality"`
+	Lang        int    `json:"lang"`
+	Season      int    `json:"saison"`
+	Episode     int    `json:"episode"`
+	SizeBytes   int64  `json:"size_bytes"`
+	SeedboxPath string `json:"seedbox_path"`
 }
 
 // pickBestTorrent choisit le meilleur torrent parmi la liste.
@@ -3814,10 +3855,10 @@ func (a *App) AutoReseedFromHydracker(titleID, saison, episode, preferQuality, p
 
 // AutoReseedDDLResult retourne le résultat du workflow DDL auto-reseed.
 type AutoReseedDDLResult struct {
-	LienID      int    `json:"lien_id"`
-	Filename    string `json:"filename"`
-	Host        string `json:"host"`
-	SizeBytes   int64  `json:"size_bytes"`
+	LienID        int    `json:"lien_id"`
+	Filename      string `json:"filename"`
+	Host          string `json:"host"`
+	SizeBytes     int64  `json:"size_bytes"`
 	FTPRemoteName string `json:"ftp_remote_name"`
 }
 
@@ -4573,8 +4614,48 @@ type NzbWorkflowResult struct {
 //   - tmdbID / mediaType : résolvent ou importent la fiche Elysium.
 //   - quality : nom exact TrackerMeta (ex "WEB 1080p (x265)").
 //   - langues / subs : noms TrackerMeta (envoyés tels quels).
-func (a *App) PostNzbWorkflow(tmdbID int, mediaType, quality string, langues, subs []string, mkvPath, nfo string, saison, episode int) (*NzbWorkflowResult, error) {
+//
+// Reprise sur saturation Usenet : le compte a un nombre fixe de connexions et
+// met une dizaine de secondes à libérer celles d'un post terminé. Enchaîner les
+// épisodes fait échouer le premier d'une salve sans qu'aucun quota ne soit
+// réellement atteint. 25 s couvre largement la libération mesurée (10-15 s).
+const (
+	nyuuMaxEssais    = 3
+	nyuuDelaiReprise = 25 * time.Second
+)
+
+// estSaturationUsenet : vrai UNIQUEMENT pour un refus de connexion faute de
+// place. Volontairement étroit : une panne réelle (auth, article refusé, disque)
+// doit échouer tout de suite au lieu d'être réessayée.
+func estSaturationUsenet(err error) bool {
+	if err == nil {
+		return false
+	}
+	m := strings.ToLower(err.Error())
+	return strings.Contains(m, "too many connections") || strings.Contains(m, "482")
+}
+
+func (a *App) PostNzbWorkflow(tmdbID int, mediaType, quality string, langues, subs []string, mkvPath, nfo string, saison, episode int) (res *NzbWorkflowResult, err error) {
 	a.resetCancellation()
+	// Un post qui échoue ne laissait AUCUNE trace : l'historique ne contenait que
+	// les succès, d'où des NZB manquants découverts des heures plus tard sans
+	// pouvoir dire lesquels. On enregistre désormais l'échec avec sa cause, pour
+	// que l'onglet Historique donne la liste à reposter au lieu de la deviner.
+	defer func() {
+		if err == nil {
+			return
+		}
+		a.recordHistory(history.Entry{
+			Type:        "nzb",
+			TitleID:     tmdbID,
+			QualiteName: quality,
+			Saison:      saison,
+			Episode:     episode,
+			Filename:    filepath.Base(mkvPath),
+			Status:      "error",
+			Error:       err.Error(),
+		})
+	}()
 	// Validation config — retourne des messages explicites
 	if a.cfg.UsenetHost == "" {
 		return nil, fmt.Errorf("serveur Usenet non configuré (host vide) — renseignez les Settings")
@@ -4642,11 +4723,28 @@ func (a *App) PostNzbWorkflow(tmdbID int, mediaType, quality string, langues, su
 	// 3. Nyuu
 	nzbPath := filepath.Join(outputDir, releaseName+".nzb")
 	wailsruntime.EventsEmit(a.ctx, "nzb:status", "Post Usenet…")
-	result, err := nyuu.Run(a.workContext(), a.cfg, allFiles, nzbPath, releaseName, func(p nyuu.Progress) {
-		wailsruntime.EventsEmit(a.ctx, "nzb:nyuu", p)
-	}, func(status string) {
-		wailsruntime.EventsEmit(a.ctx, "nzb:status", status)
-	})
+	// Le compte Usenet autorise un nombre FIXE de connexions simultanées (25 chez
+	// NewsXS, mesuré) et met 10 à 15 s à libérer celles d'un post terminé. En
+	// enchaînant les épisodes, le premier NZB d'une salve peut donc se faire
+	// refuser une place (`482 too many connections`) alors que plus rien n'est
+	// occupé 20 s plus tard. On réessaie — borné à 2 reprises de 25 s, et
+	// UNIQUEMENT sur cette erreur : toute autre panne doit remonter aussitôt.
+	var result *nyuu.Result
+	for essai := 1; essai <= nyuuMaxEssais; essai++ {
+		result, err = nyuu.Run(a.workContext(), a.cfg, allFiles, nzbPath, releaseName, func(p nyuu.Progress) {
+			wailsruntime.EventsEmit(a.ctx, "nzb:nyuu", p)
+		})
+		if err == nil || !estSaturationUsenet(err) || essai == nyuuMaxEssais || a.isCancelled() {
+			break
+		}
+		wailsruntime.EventsEmit(a.ctx, "nzb:status", fmt.Sprintf(
+			"Connexions Usenet toutes occupées — reprise dans %s (tentative %d/%d)…",
+			nyuuDelaiReprise, essai+1, nyuuMaxEssais))
+		select {
+		case <-time.After(nyuuDelaiReprise):
+		case <-a.workContext().Done():
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("nyuu: %w", err)
 	}
