@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "9.5.2"
+const Version = "10.0.0"
 
 type App struct {
 	ctx         context.Context
