@@ -132,7 +132,8 @@
   let mkvFilePath = ''
   let dropDebounce = null  // debounce le loadFileFromPath après OnFileDrop pour ordre garanti
   let mediaInfoOpen = true   // MediaInfo dépliée par défaut
-  let nfoOpen = true         // NFO dépliée par défaut (demande utilisateur)
+  let nfoOpen = false        // NFO repliée : déplier poussait la fenêtre
+                             // loin vers le bas dès la sélection d'un fichier
   let recapOpen = true       // Récapitulatif déplié par défaut
 
   // Résultat du post
