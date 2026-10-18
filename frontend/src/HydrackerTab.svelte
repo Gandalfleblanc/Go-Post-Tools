@@ -441,6 +441,24 @@
   let queueTotal = 0
   let queueDone = 0
   let queueResults = []         // [{ok, filename, message}] cumulés sur la queue
+  let queueOkOpen = false       // réussites repliées par défaut
+
+  // Traduit une erreur brute (422 Laravel, timeout…) en une phrase utile.
+  // Le message complet reste consultable sous « détail ».
+  function resumeErreur(msg) {
+    const m = String(msg || '')
+    let r
+    if ((r = /The selected (language|subtitles)\.(\d+) is invalid/.exec(m))) {
+      const quoi = r[1] === 'language' ? 'La langue' : 'Le sous-titre'
+      return `${quoi} n°${+r[2] + 1} ne fait pas partie de la liste Elysium`
+    }
+    if (/The selected quality is invalid/.test(m)) return 'Qualité absente de la liste Elysium'
+    if (/timeout chargement fiche/i.test(m)) return 'Fiche non chargée — délai dépassé'
+    if (/timeout|deadline exceeded/i.test(m)) return 'Délai dépassé'
+    if (/too many connections|482/.test(m)) return 'Toutes les connexions Usenet étaient occupées'
+    if (/HTTP (\d{3})/.test(m)) return 'Elysium a refusé l’envoi (HTTP ' + /HTTP (\d{3})/.exec(m)[1] + ')'
+    return m.split('\n')[0].slice(0, 120)
+  }
 
   // Insert + sort sans toucher la preview (utilisé en batch via forEach)
   function enqueueOnly(path) {
@@ -551,11 +569,13 @@
     if (queueResults.length > 1) {
       const okCount = queueResults.filter(r => r.ok).length
       const koCount = queueResults.length - okCount
-      const lines = queueResults.map(r => `${r.ok ? '✓' : '✗'} ${r.filename}\n  ${r.message}`).join('\n')
+      // Plus de pavé de texte : le détail est rendu en liste depuis
+      // queueResults, échecs en tête. Retrouver 2 erreurs dans 50 lignes
+      // collées était impraticable.
       postResult = {
         ok: koCount === 0,
         message: `Queue terminée — ${okCount}/${queueResults.length} OK${koCount > 0 ? ` · ${koCount} erreur${koCount > 1 ? 's' : ''}` : ''}`,
-        details: lines,
+        queue: true,
       }
       try { Notify('Go Post Tools — Queue terminée', `${okCount}/${queueResults.length} OK${koCount > 0 ? ` · ${koCount} erreur${koCount > 1 ? 's' : ''}` : ''}`) } catch(e) {}
       // Confrontation au catalogue Elysium : c'est lui qui fait foi,
@@ -1813,8 +1833,18 @@
     const tmdbID    = selectedTMDB?.id || 0
     const mediaType = selectedTMDB?.media_type || (selectedHydracker?.type || 'movie')
     const qualityName = qualityOptions.find(q => q.id === postQuality || q.name === postQuality)?.name || ''
-    const langNames = postLanguages.map(l => l.name).filter(Boolean)
-    const subNames  = postSubs.map(s => s.name).filter(Boolean)
+    // Elysium n'accepte QUE les noms de sa propre liste et renvoie sinon un
+    // HTTP 422 « The selected language.0 is invalid », qui fait perdre le post
+    // entier (constaté sur un VOSTFR, absent de sa liste). La pastille annonçait
+    // déjà « ne sera pas envoyée » sans qu'aucun filtre n'existe : le voici.
+    const nomsLangOk = new Set(langOptions.map(o => o.name))
+    const nomsSubOk  = new Set(subOptions.map(o => o.name))
+    const langNames  = postLanguages.map(l => l.name).filter(n => n && nomsLangOk.has(n))
+    const subNames   = postSubs.map(s => s.name).filter(n => n && nomsSubOk.has(n))
+    const langEcart  = postLanguages.map(l => l.name).filter(n => n && !nomsLangOk.has(n))
+    const subEcart   = postSubs.map(s => s.name).filter(n => n && !nomsSubOk.has(n))
+    if (langEcart.length) addLog('POST', `⚠ langue(s) écartée(s), hors liste Elysium : ${langEcart.join(', ')}`)
+    if (subEcart.length)  addLog('POST', `⚠ sous-titre(s) écarté(s), hors liste Elysium : ${subEcart.join(', ')}`)
     // Le NFO reste wrappé <pre>+entités échappées : le backend le dé-wrappe
     // avant l'envoi à Elysium (nfoForElysium) — historique préservé.
     const nfoText = postNfoManual.trim() || generateNFO()
@@ -2792,6 +2822,38 @@
           <div class="post-result" class:post-result-ok={postResult.ok} class:post-result-err={!postResult.ok}>
             {postResult.ok ? '✓' : '✗'} {postResult.message}
             {#if postResult.details}<div class="post-result-details">{postResult.details}</div>{/if}
+
+            {#if postResult.queue && queueResults.length}
+              {@const echecs = queueResults.filter(r => !r.ok)}
+              {@const reussites = queueResults.filter(r => r.ok)}
+              <div class="qr">
+                {#if echecs.length}
+                  <div class="qr-head">{echecs.length} échec{echecs.length > 1 ? 's' : ''}</div>
+                  {#each echecs as r}
+                    <div class="qr-row">
+                      <div class="qr-name" title={r.filename}>{r.filename}</div>
+                      <div class="qr-msg">{resumeErreur(r.message)}</div>
+                      <details class="qr-det">
+                        <summary>message complet</summary>
+                        <pre>{r.message}</pre>
+                      </details>
+                    </div>
+                  {/each}
+                {/if}
+                {#if reussites.length}
+                  <button type="button" class="qr-toggle" on:click={() => queueOkOpen = !queueOkOpen}>
+                    {queueOkOpen ? '▾' : '▸'} {reussites.length} réussite{reussites.length > 1 ? 's' : ''}
+                  </button>
+                  {#if queueOkOpen}
+                    <div class="qr-ok-list">
+                      {#each reussites as r}
+                        <div class="qr-ok" title={r.message}>{r.filename}</div>
+                      {/each}
+                    </div>
+                  {/if}
+                {/if}
+              </div>
+            {/if}
           </div>
         {/if}
 
@@ -3502,6 +3564,49 @@
     color: #ff9585;
   }
   .post-result-details { margin-top: 4px; font-size: 11px; opacity: 0.75; font-weight: 400; }
+
+  /* Récapitulatif de queue : les échecs doivent se voir sans chercher. */
+  .qr { margin-top: 10px; }
+  .qr-head {
+    font-family: var(--font-display); font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .2em; color: var(--red-hot);
+    margin-bottom: 7px;
+  }
+  .qr-row {
+    border-left: 2px solid var(--danger);
+    background: rgba(255,77,94,.06);
+    border-radius: 0 7px 7px 0;
+    padding: 8px 11px; margin-bottom: 7px;
+  }
+  .qr-name {
+    font-size: 11.5px; font-weight: 600; color: var(--text1);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .qr-msg { font-size: 11px; color: var(--red-hot); margin-top: 3px; }
+  .qr-det { margin-top: 5px; }
+  .qr-det summary {
+    font-size: 10px; color: var(--text3); cursor: pointer; list-style: none;
+  }
+  .qr-det summary::before { content: "▸ "; }
+  .qr-det[open] summary::before { content: "▾ "; }
+  .qr-det summary:hover { color: var(--text2); }
+  .qr-det pre {
+    margin: 5px 0 0; padding: 7px 9px; border-radius: 6px;
+    background: rgba(0,0,0,.3); border: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 10px; color: var(--text2);
+    white-space: pre-wrap; max-height: 160px; overflow: auto;
+  }
+  .qr-toggle {
+    background: none; border: none; cursor: pointer; padding: 3px 0;
+    font-family: var(--font-display); font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .2em; color: var(--success);
+  }
+  .qr-toggle:hover { color: var(--text1); }
+  .qr-ok-list { max-height: 220px; overflow: auto; margin-top: 5px; }
+  .qr-ok {
+    font-size: 11px; color: var(--text3); padding: 2px 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
 
   .post-actions { display: flex; gap: 10px; margin-top: 16px; }
   .btn-start {
