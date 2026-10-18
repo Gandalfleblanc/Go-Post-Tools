@@ -22,6 +22,8 @@ export function AutoReseedFromHydracker(arg1:number,arg2:number,arg3:number,arg4
 
 export function AutoReseedFullFromTorrent(arg1:number,arg2:number,arg3:number,arg4:number):Promise<main.AutoReseedFullResult>;
 
+export function BinariesStatus():Promise<Array<main.BinaryStatus>>;
+
 export function BuildTeamJSON(arg1:Record<string, main.RoleDef>,arg2:Array<main.TeamUser>,arg3:Record<string, string>):Promise<string>;
 
 export function CancelAllWorkflows():Promise<void>;

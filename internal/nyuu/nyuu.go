@@ -54,15 +54,8 @@ const exitCodeNyuuSkipped = 32
 // milliers de lignes de progression d'un gros post en mémoire.
 const rawTailSize = 20
 
-func binaryPath() string {
-	if path, err := binutil.ExtractBinary("nyuu"); err == nil {
-		return path
-	}
-	if path, err := exec.LookPath("nyuu"); err == nil {
-		return path
-	}
-	return "nyuu"
-}
+// binaryPath : voir internal/binutil.Path — résolution tracée et mémorisée.
+func binaryPath() string { return binutil.Path("nyuu") }
 
 func Run(ctx context.Context, cfg *config.Config, inputFiles []string, nzbOutputPath string, releaseName string, onProgress func(Progress)) (*Result, error) {
 	if ctx == nil {

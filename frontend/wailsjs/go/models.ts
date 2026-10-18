@@ -1287,6 +1287,26 @@ export namespace main {
 	        this.seedbox_path = source["seedbox_path"];
 	    }
 	}
+	export class BinaryStatus {
+	    name: string;
+	    path: string;
+	    source: string;
+	    version: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BinaryStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.source = source["source"];
+	        this.version = source["version"];
+	        this.error = source["error"];
+	    }
+	}
 	export class DDLResolved {
 	    url: string;
 	    filename: string;

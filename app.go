@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "10.0.0"
+const Version = "10.0.1"
 
 type App struct {
 	ctx         context.Context
@@ -914,6 +914,92 @@ func (a *App) startup(ctx context.Context) {
 	// http.ProxyFromEnvironment qui lit ces env vars à chaque requête, donc
 	// les mises à jour via SaveConfig sont prises en compte dynamiquement.
 	applyProxy(a.cfg.ProxyURL)
+	// Trace l'origine des trois outils dès le démarrage : une résolution
+	// hors de l'app est anormale et doit se voir, pas se découvrir après
+	// des heures de panne (cf. le parpar x86 du PATH, utilisé via Rosetta).
+	go a.logBinaries()
+}
+
+// outilsEmbarques : les exécutables compilés dans l'app.
+var outilsEmbarques = []string{"parpar", "nyuu", "mediainfo"}
+
+// BinariesStatus : origine et version des outils, pour l'écran Réglages.
+func (a *App) BinariesStatus() []BinaryStatus {
+	out := make([]BinaryStatus, 0, len(outilsEmbarques))
+	for _, r := range binutil.Statuses(outilsEmbarques...) {
+		out = append(out, BinaryStatus{
+			Name:    r.Name,
+			Path:    r.Path,
+			Source:  r.Source,
+			Error:   r.Err,
+			Version: versionOutil(r.Name, r.Path),
+		})
+	}
+	return out
+}
+
+type BinaryStatus struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Source  string `json:"source"`
+	Version string `json:"version"`
+	Error   string `json:"error,omitempty"`
+}
+
+// versionOutil interroge l'outil. mediainfo veut --Version (majuscule), les
+// deux autres --version ; un échec n'est pas une erreur, on rend "".
+func versionOutil(nom, chemin string) string {
+	if chemin == "" {
+		return ""
+	}
+	flag := "--version"
+	if nom == "mediainfo" {
+		flag = "--Version"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, chemin, flag).CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return ""
+	}
+	// On cherche la ligne qui PORTE un numéro : mediainfo ouvre sur
+	// « MediaInfo Command line, » et ne donne la version qu'en 2e ligne.
+	lignes := strings.Split(string(out), "\n")
+	for _, l := range lignes {
+		if l = strings.TrimSpace(l); l != "" && reVersion.MatchString(l) {
+			return l
+		}
+	}
+	for _, l := range lignes {
+		if l = strings.TrimSpace(l); l != "" {
+			return l
+		}
+	}
+	return ""
+}
+
+var reVersion = regexp.MustCompile(`\d+\.\d+`)
+
+func (a *App) logBinaries() {
+	for _, b := range a.BinariesStatus() {
+		switch {
+		case b.Error != "" && b.Path == "":
+			a.logBin(fmt.Sprintf("✗ %-10s introuvable — %s", b.Name, b.Error))
+		case b.Source == binutil.SourceSysteme:
+			a.logBin(fmt.Sprintf("⚠ %-10s %s (%s) — le binaire embarqué n'a pas pu être extrait : %s",
+				b.Name, b.Source, b.Path, b.Error))
+		default:
+			a.logBin(fmt.Sprintf("%-10s %s%s", b.Name, b.Source,
+				map[bool]string{true: " · " + b.Version, false: ""}[b.Version != ""]))
+		}
+	}
+}
+
+func (a *App) logBin(msg string) {
+	if a.ctx == nil {
+		return
+	}
+	wailsruntime.EventsEmit(a.ctx, "bin:log", msg)
 }
 
 // applyProxy set les env vars HTTP_PROXY + HTTPS_PROXY. Passer "" efface.
@@ -1122,16 +1208,12 @@ func (a *App) ReadFileChunk(path string, offset int64, size int64) ([]byte, erro
 // (3) emplacements Homebrew classiques. Le binaire embarqué garantit que le
 // fallback marche sur les Mac des uploaders team sans brew install mediainfo.
 func (a *App) MediaInfoNative(path string) (string, error) {
-	var bin string
-	if p, err := binutil.ExtractBinary("mediainfo"); err == nil {
-		bin = p
-	} else {
-		candidates := []string{"mediainfo", "/usr/local/bin/mediainfo", "/opt/homebrew/bin/mediainfo"}
-		for _, c := range candidates {
-			if p, err := exec.LookPath(c); err == nil {
-				bin = p
-				break
-			}
+	bin := binutil.Resolve("mediainfo").Path
+	if bin == "" {
+		// Derniers recours propres à macOS, qu'un PATH de GUI n'expose pas
+		// toujours : une app lancée depuis le Finder n'hérite pas du PATH
+		// du shell.
+		for _, c := range []string{"/usr/local/bin/mediainfo", "/opt/homebrew/bin/mediainfo"} {
 			if _, err := os.Stat(c); err == nil {
 				bin = c
 				break

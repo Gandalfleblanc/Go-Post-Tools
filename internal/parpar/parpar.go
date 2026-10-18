@@ -24,15 +24,9 @@ type Progress struct {
 
 var percentRegex = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*%`)
 
-func binaryPath() string {
-	if path, err := binutil.ExtractBinary("parpar"); err == nil {
-		return path
-	}
-	if path, err := exec.LookPath("parpar"); err == nil {
-		return path
-	}
-	return "parpar"
-}
+// binaryPath : binutil.Path trace d'où vient le binaire (embarqué ou PATH)
+// et mémorise la réponse, pour que l'écart soit visible au lieu d'être subi.
+func binaryPath() string { return binutil.Path("parpar") }
 
 // Run génère les .par2 pour un fichier OU un dossier. Si inputPath est un dossier,
 // les .par2 sont nommés d'après le dossier (ex: /path/MyShow.S01/ → /path/MyShow.S01.par2)

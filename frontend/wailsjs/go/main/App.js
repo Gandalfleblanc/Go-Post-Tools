@@ -22,6 +22,10 @@ export function AutoReseedFullFromTorrent(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['AutoReseedFullFromTorrent'](arg1, arg2, arg3, arg4);
 }
 
+export function BinariesStatus() {
+  return window['go']['main']['App']['BinariesStatus']();
+}
+
 export function BuildTeamJSON(arg1, arg2, arg3) {
   return window['go']['main']['App']['BuildTeamJSON'](arg1, arg2, arg3);
 }

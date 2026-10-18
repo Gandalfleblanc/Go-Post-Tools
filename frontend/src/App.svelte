@@ -3,7 +3,8 @@
   import {
     GetConfig, SaveConfig, TestTMDB, TestOneFichier,
     TestUsenet, HasSeedboxSettingsPassword, SetSeedboxSettingsPassword, VerifySeedboxSettingsPassword,
-    ClearSeedboxSettingsPassword, UpdateMyElyNzb, UpdateMyElyDdl, GetElysiumMeta
+    ClearSeedboxSettingsPassword, UpdateMyElyNzb, UpdateMyElyDdl, GetElysiumMeta,
+    BinariesStatus
   } from '../wailsjs/go/main/App.js'
   import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime.js'
   import HydrackerTab from './HydrackerTab.svelte'
@@ -39,6 +40,13 @@
       icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12 3v2.25M12 18.75V21M3 12h2.25M18.75 12H21M5.64 5.64l1.59 1.59M16.77 16.77l1.59 1.59M18.36 5.64l-1.59 1.59M7.23 16.77l-1.59 1.59' },
   ]
   let logsSubTab = 'journal'      // 'journal' | 'api'
+
+  // Outils embarqués (parpar, nyuu, mediainfo) : l'app les contient, mais
+  // il faut pouvoir le vérifier — un repli sur le PATH doit sauter aux yeux.
+  let outils = []
+  $: if (activeTab === 'settings' && !outils.length) {
+    BinariesStatus().then(r => outils = r || []).catch(() => {})
+  }
 
   // --- Journal : filtres, recherche, copie ---
   // Le Journal sert à retrouver UNE ligne parmi des centaines quand un post
@@ -731,6 +739,7 @@
     })
     EventsOn('nzb:result', r => { nzbResult = r; nzbDone = true; addLog('NZB', r.message) })
     EventsOn('ddl:log',    msg => addLog('DDL', msg))
+    EventsOn('bin:log',    msg => addLog('BIN', msg))
     EventsOn('check:log',  msg => addLog('CHK', msg))
     EventsOn('check:status', p => {
       if (!p.hash) return
@@ -1282,6 +1291,33 @@
           </div>
 
           <!-- ===== Configuration ===== -->
+          <div class="settings-group settings-group-spaced">{@html ICO_ARCHIVE}Outils embarqués</div>
+          <div class="section">
+            <div class="section-header">
+              <span>parpar · nyuu · mediainfo</span>
+              <span class="up-count">compilés dans l'app</span>
+            </div>
+            {#if !outils.length}
+              <div class="up-state">Lecture des outils…</div>
+            {:else}
+              {#each outils as o}
+                <div class="outil" class:outil-warn={o.source !== 'embarqué'} class:outil-err={!o.path}>
+                  <span class="outil-nom mono">{o.name}</span>
+                  <span class="outil-src">{o.path ? o.source : 'introuvable'}</span>
+                  <span class="outil-ver mono">{o.version || '—'}</span>
+                </div>
+                {#if o.source !== 'embarqué' || !o.path}
+                  <div class="outil-detail">{o.error || o.path}</div>
+                {/if}
+              {/each}
+              <div class="field-hint">
+                Ces trois outils sont inclus dans l'application et extraits au premier lancement :
+                aucune installation n'est nécessaire. Une ligne en ambre signalerait un repli sur
+                un binaire du système, ce qui ne doit pas arriver.
+              </div>
+            {/if}
+          </div>
+
           <div class="settings-group settings-group-spaced">{@html ICO_COG}Configuration</div>
 
           <!-- Usenet -->
@@ -2079,6 +2115,25 @@
   .settings-hint { color: var(--text3); font-size: 12px; line-height: 1.5; margin-bottom: 8px; }
   .settings-hint-ok { display: inline-flex; align-items: center; gap: 6px; }
   .settings-hint-ok :global(.ui-ico) { color: var(--success); }
+
+  .outil {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 6px 0; border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .outil:last-of-type { border-bottom: 0; }
+  .outil-nom { color: var(--text1); font-weight: 600; min-width: 92px; flex: none; }
+  .outil-src { color: var(--success); font-size: 11px; }
+  .outil-ver {
+    margin-left: auto; color: var(--text3); font-size: 10.5px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .outil-warn .outil-src { color: var(--warning); }
+  .outil-err  .outil-src { color: var(--red-hot); }
+  .outil-detail {
+    font-family: var(--font-mono); font-size: 10px; color: var(--text3);
+    padding: 0 0 6px; word-break: break-all;
+  }
   .api-search { margin-bottom: 0; }
 
   .test-result {
