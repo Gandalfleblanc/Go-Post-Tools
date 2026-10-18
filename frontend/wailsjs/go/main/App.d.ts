@@ -74,8 +74,6 @@ export function FetchHydrackerAvatar():Promise<string>;
 
 export function FetchImageBase64(arg1:string):Promise<string>;
 
-export function FicheGetContent(arg1:number):Promise<main.FicheContent>;
-
 export function FicheGetNfo(arg1:string,arg2:number):Promise<string>;
 
 export function FindFirstMkvInFolder(arg1:string):Promise<string>;
@@ -96,13 +94,7 @@ export function GetElysiumMeta():Promise<elysium.Meta>;
 
 export function GetFileSize(arg1:string):Promise<number>;
 
-export function GetMetaLangs():Promise<Array<api.Lang>>;
-
 export function GetMetaQualities():Promise<Array<api.Quality>>;
-
-export function GetMetaSubs():Promise<Array<api.Lang>>;
-
-export function GetMyUsername():Promise<string>;
 
 export function GetNexumIndex():Promise<main.NexumIndex>;
 
@@ -111,8 +103,6 @@ export function GetNzbFilenames(arg1:number):Promise<Array<main.NzbFileEntry>>;
 export function GetSeedboxNexumIndex():Promise<main.NexumIndex>;
 
 export function GetTeamConfig():Promise<main.TeamConfig>;
-
-export function GetUploaderStats(arg1:number):Promise<main.UploaderScanResult>;
 
 export function GetUserProfile(arg1:string):Promise<api.User>;
 
@@ -150,13 +140,9 @@ export function IsHydrackerURLManaged():Promise<boolean>;
 
 export function IsLihdlPasswordManaged():Promise<boolean>;
 
-export function IsSeedboxPasswordManaged():Promise<boolean>;
-
 export function IsTorrentAdminAcknowledged():Promise<boolean>;
 
 export function IsWatching():Promise<boolean>;
-
-export function ListCheckTorrents(arg1:boolean):Promise<Array<main.CheckTorrentEntry>>;
 
 export function ListMyElyDdls(arg1:number):Promise<elysium.Paginated_go_post_tools_internal_elysium_UploadRef_>;
 
@@ -194,13 +180,7 @@ export function PostDDLWorkflow(arg1:number,arg2:string,arg3:string,arg4:Array<s
 
 export function PostExistingTorrent(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<main.TorrentWorkflowResult>;
 
-export function PostLien(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<api.UploadLienResult>;
-
-export function PostNzb(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<api.UploadNzbResult>;
-
 export function PostNzbWorkflow(arg1:number,arg2:string,arg3:string,arg4:Array<string>,arg5:Array<string>,arg6:string,arg7:string,arg8:number,arg9:number):Promise<main.NzbWorkflowResult>;
-
-export function PostTorrent(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:boolean):Promise<api.UploadTorrentResult>;
 
 export function PostTorrentWorkflow(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:string,arg10:boolean):Promise<main.TorrentWorkflowResult>;
 
@@ -208,15 +188,9 @@ export function PrepareSeasonFolder(arg1:Array<string>):Promise<string>;
 
 export function ReadFileChunk(arg1:string,arg2:number,arg3:number):Promise<Array<number>>;
 
-export function ReseedExecute(arg1:string,arg2:string):Promise<void>;
-
 export function ReseedFromLihdl(arg1:string,arg2:string,arg3:string):Promise<void>;
 
-export function ReseedPrepare(arg1:string):Promise<main.ReseedPrepareResult>;
-
 export function SaveConfig(arg1:config.Config):Promise<void>;
-
-export function SelectAnyTorrentFile():Promise<string>;
 
 export function SelectArchiveFile():Promise<string>;
 
@@ -225,10 +199,6 @@ export function SelectFolder():Promise<string>;
 export function SelectMkvFile():Promise<string>;
 
 export function SelectMkvFiles():Promise<Array<string>>;
-
-export function SelectNzbFile():Promise<string>;
-
-export function SelectTorrentFile():Promise<string>;
 
 export function SetLihdlSettingsPassword(arg1:string,arg2:string):Promise<void>;
 
@@ -252,29 +222,11 @@ export function TestAllDebrid(arg1:string):Promise<string>;
 
 export function TestElysium(arg1:string):Promise<string>;
 
-export function TestFTP(arg1:string,arg2:number,arg3:string,arg4:string):Promise<tester.Result>;
-
-export function TestHydracker(arg1:string,arg2:string):Promise<tester.Result>;
-
 export function TestIgdb(arg1:string,arg2:string):Promise<string>;
-
-export function TestLihdl(arg1:string,arg2:string,arg3:string):Promise<tester.Result>;
-
-export function TestModSeedbox(arg1:string,arg2:string,arg3:string):Promise<tester.Result>;
-
-export function TestNextcloud(arg1:string,arg2:string,arg3:string):Promise<tester.Result>;
 
 export function TestNexum(arg1:string,arg2:string):Promise<string>;
 
 export function TestOneFichier(arg1:string):Promise<tester.Result>;
-
-export function TestQBit(arg1:string,arg2:string,arg3:string):Promise<tester.Result>;
-
-export function TestSFTP(arg1:string,arg2:number,arg3:string,arg4:string):Promise<tester.Result>;
-
-export function TestSeedbox(arg1:string,arg2:string,arg3:string):Promise<tester.Result>;
-
-export function TestSendCm(arg1:string):Promise<tester.Result>;
 
 export function TestTMDB(arg1:string):Promise<tester.Result>;
 

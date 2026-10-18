@@ -111,17 +111,8 @@
   // trompera pareil sur EP2.
   let queueLangHint = null
   let queueSubHint = null
-  let postUploadTypes = { nzb: false, torrent_admin: false, torrent_modo: false, torrent_prive: false, ddl: false }
+  let postUploadTypes = { nzb: false, ddl: false }
   // Torrent ADMIN n'est visible que pour les admins (= ceux qui ont déverrouillé
-  // la section Seedbox dans Réglages avec le mdp partagé).
-  let adminAcknowledged = false
-  // Lit les permissions de l'user connecté (alimenté par App.svelte au login).
-  // "torrent_admin" = autorise l'utilisation du bouton "Torrent ADMIN".
-  $: hasTorrentAdminPerm = (() => {
-    if (typeof window === 'undefined') return false
-    const perms = /** @type {any} */ (window).__myPermissions
-    return Array.isArray(perms) && perms.includes('torrent_admin')
-  })()
 
   // Send.now retiré 2026-09-04 : Elysium n'accepte que 1Fichier, unique host DDL.
   let postSeason = 0
@@ -140,9 +131,6 @@
   // Fichiers sélectionnés pour l'upload
   let mkvFilePath = ''
   let dropDebounce = null  // debounce le loadFileFromPath après OnFileDrop pour ordre garanti
-  // Mode "torrent existant" (depuis Reseed) : on poste le .torrent tel quel à Hydracker
-  // (pas de FTP, pas de seedbox, pas de regénération depuis MKV)
-  let existingTorrentPath = ''
   let mediaInfoOpen = true   // MediaInfo dépliée par défaut
   let nfoOpen = true         // NFO dépliée par défaut (demande utilisateur)
   let recapOpen = true       // Récapitulatif déplié par défaut
@@ -292,15 +280,6 @@
   let nzbNyuuETA = ''
   let nzbNyuuArticles = ''
 
-  // Progression Torrent
-  let torrentState = {
-    stage: '',       // 'ftp' | 'create' | 'post' | 'download' | 'seedbox' | 'done'
-    msg: '',
-    ftpPct: 0, ftpSpeed: 0,
-    createPct: 0,
-    seedboxPct: 0, seedboxSpeed: 0,
-  }
-
   // Progression DDL — 1Fichier seul depuis 2026-09-04.
   let ddlHosts = {
     '1Fichier': { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' },
@@ -313,7 +292,6 @@
   let subOptions = []      // [{id, name}] — liste spécifique aux sous-titres
 
   onMount(async () => {
-    adminAcknowledged = false
     try { appVersion = await GetVersion() } catch(e) { appVersion = '' }
     // Chargement meta Elysium — remplacement direct des ex-appels
     // GetMetaQualities/Langs/Subs (Hydracker fermé 2026-09-03).
@@ -373,13 +351,6 @@
       ddlHosts = { ...ddlHosts, [host]: { ...ddlHosts[host], skipped: true, active: false, error: 'skippé par utilisateur' } }
       addLog('DDL', `⏭ ${host} skippé`)
     })
-    EventsOn('torrent:status', p => {
-      torrentState = { ...torrentState, stage: p.stage || '', msg: p.msg || '' }
-      addLog('TOR', p.msg || p.stage)
-    })
-    EventsOn('torrent:ftp',    p => { torrentState = { ...torrentState, ftpPct: p.percent ?? 0, ftpSpeed: p.speed_mb ?? 0 } })
-    EventsOn('torrent:create', p => { torrentState = { ...torrentState, createPct: p.percent ?? 0 } })
-    EventsOn('torrent:seedbox',p => { torrentState = { ...torrentState, seedboxPct: p.percent ?? 0, seedboxSpeed: p.speed_mb ?? 0 } })
     EventsOn('ddl:posting', p => {
       if (!p.host) return
       const id = p.id || 0
@@ -412,17 +383,8 @@
       }, 500)
     }, true)
     window.addEventListener('watch:newfile', onWatchNewFile)
-    window.addEventListener('hydracker:preload-torrent', onPreloadTorrent)
     window.addEventListener('keydown', onKeydown)
-    window.addEventListener('admin-unlocked', onAdminUnlocked)
   })
-
-  // Quand l'user déverrouille la section Seedbox dans Réglages avec le mdp
-  // partagé, App.svelte dispatch 'admin-unlocked' → on rafraîchit le flag
-  // pour que la checkbox Torrent ADMIN apparaisse immédiatement.
-  async function onAdminUnlocked() {
-    adminAcknowledged = true  // torrents désactivés (pivot Elysium 2026-09-03)
-  }
 
   // Raccourcis clavier globaux (hors champs texte)
   function onKeydown(e) {
@@ -464,23 +426,6 @@
       btn?.click()
       return
     }
-  }
-
-  // Quand Reseed envoie un .torrent existant à poster ici (sans FTP/seedbox)
-  function onPreloadTorrent(ev) {
-    const d = ev?.detail
-    if (!d?.torrentPath) return
-    existingTorrentPath = d.torrentPath
-    file = { name: d.torrentName || d.torrentPath.split(/[\\/]/).pop() }
-    if (d.hydrackerFiche) {
-      selectedHydracker = d.hydrackerFiche
-      if (d.hydrackerFiche.poster) {
-        FetchImageBase64(d.hydrackerFiche.poster).then(u => hydrackerPosterUrl = u).catch(() => {})
-      }
-    }
-    // Force type Torrent uniquement (pas de DDL/NZB puisqu'on n'a pas de MKV)
-    postUploadTypes = { torrent_admin: true, torrent_modo: false, nzb: false, ddl: false }
-    addLog('TOR', `📂 .torrent existant chargé depuis Reseed — ${file.name}`)
   }
 
   function onWatchNewFile(ev) {
@@ -640,12 +585,9 @@
 
   onDestroy(() => {
     if (debitTimer) { clearInterval(debitTimer); debitTimer = null }
-    EventsOff('nzb:status', 'nzb:parpar', 'nzb:nyuu', 'ddl:progress', 'ddl:done', 'ddl:posting',
-              'torrent:status', 'torrent:ftp', 'torrent:create', 'torrent:seedbox')
+    EventsOff('nzb:status', 'nzb:parpar', 'nzb:nyuu', 'ddl:progress', 'ddl:done', 'ddl:posting')
     OnFileDropOff()
     window.removeEventListener('watch:newfile', onWatchNewFile)
-    window.removeEventListener('hydracker:preload-torrent', onPreloadTorrent)
-    window.removeEventListener('admin-unlocked', onAdminUnlocked)
     window.removeEventListener('keydown', onKeydown)
   })
 
@@ -1865,7 +1807,6 @@
     postResult = null
     nzbStatus = ''; nzbParparPct = 0; nzbNyuuPct = 0; nzbNyuuSpeed = ''; nzbNyuuETA = ''; nzbNyuuArticles = ''
     ddlHosts = { '1Fichier': { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' } }
-    torrentState = { stage: '', msg: '', ftpPct: 0, ftpSpeed: 0, createPct: 0, seedboxPct: 0, seedboxSpeed: 0 }
 
     // Pivot Elysium : les workflows Post{Nzb,DDL}Workflow prennent maintenant
     // (tmdbID, mediaType, quality, langues, subs, mkvPath, nfo, ...).
@@ -1903,10 +1844,6 @@
         }
       }
     }
-
-    // Torrents désactivés depuis le pivot Elysium (2026-09-03) — Elysium
-    // n'accepte que NZB + DDL 1Fichier. Les toggles torrent_admin/modo/prive
-    // sont ignorés silencieusement en attendant leur retrait complet de l'UI.
 
     const tasks = []
     if (postUploadTypes.nzb) {
@@ -1959,7 +1896,6 @@
     ddlHosts = {
       '1Fichier': { active: false, filename: '', pct: 0, speed: '', done: false, posting: false, posted: false, hydrackerID: 0, error: '' },
     }
-    torrentState = { stage: '', msg: '', ftpPct: 0, ftpSpeed: 0, createPct: 0, seedboxPct: 0, seedboxSpeed: 0 }
   }
 
   async function stopPost() {
@@ -2435,8 +2371,6 @@
                 <span class="recap-val">
                   {(() => {
                     const parts = []
-                    if (postUploadTypes.torrent_admin) parts.push('Torrent ADMIN')
-                    if (postUploadTypes.torrent_modo) parts.push('Torrent MODO')
                     if (postUploadTypes.nzb) parts.push('NZB')
                     if (postUploadTypes.ddl) parts.push('DDL (1Fichier)')
                     return parts.join(' + ') || '—'
@@ -2498,11 +2432,8 @@
 
       <!-- Fichier détecté -->
       <div class="file-badge">
-        {existingTorrentPath ? '🧲' : '📄'} {file.name}
-        {#if existingTorrentPath}
-          <span style="color:#ffe066;font-size:10px;margin-left:6px">mode .torrent existant (pas de FTP/seedbox)</span>
-        {/if}
-        <button class="btn-x" on:click={() => { file = null; fileInfo = null; selectedTMDB = null; existingTorrentPath = '' }}>✕</button>
+        <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.25 3.75H6.75A1.5 1.5 0 0 0 5.25 5.25v13.5a1.5 1.5 0 0 0 1.5 1.5h10.5a1.5 1.5 0 0 0 1.5-1.5V8.25l-4.5-4.5ZM14.25 3.75V8.25h4.5"/></svg>{file.name}
+        <button class="btn-x" on:click={() => { file = null; fileInfo = null; selectedTMDB = null }}>✕</button>
       </div>
 
       <!-- Actions principales (Lancer / Stop / Réinitialiser) juste sous le fichier -->
@@ -2523,7 +2454,7 @@
           selectedHydracker = null; mediaInfo = null; posterDataUrl = ''; hydrackerPosterUrl = '';
           postQuality = ''; postLanguages = []; postSubs = [];
           postSeason = 0; postEpisode = 0; postFullSaison = false;
-          mkvFilePath = ''; existingTorrentPath = ''; postResult = null;
+          mkvFilePath = ''; postResult = null;
         }}>↺ Réinitialiser</button>
       </div>
 
@@ -2697,7 +2628,6 @@
             <div class="post-field">
               <div class="post-field-label">Uploader via</div>
               <div class="upload-pills">
-                <!-- Torrent ADMIN/MODO/Privé retirés : Hydracker ne fait plus de torrent -->
                 <button type="button"
                   class="upload-pill"
                   class:active={postUploadTypes.nzb}
@@ -2766,57 +2696,6 @@
                   </div>
                 {/if}
               {/each}
-            </div>
-          {/if}
-
-          <!-- Barres Torrent -->
-          {#if (postUploadTypes.torrent_admin || postUploadTypes.torrent_modo) && (torrentState.stage || torrentState.ftpPct > 0)}
-            <div class="ddl-bars">
-              <div class="ddl-bar-card">
-                <div class="ddl-bar-header">
-                  <span class="ddl-bar-host">Torrent</span>
-                  <span class="ddl-bar-speed">{torrentState.msg}</span>
-                </div>
-
-                <div class="ddl-step">
-                  <div class="ddl-step-label">
-                    <span>1. {postUploadTypes.torrent_modo ? 'Upload FTP Modérateur' : 'Upload SFTP Hetzner'}</span>
-                    <span class="ddl-bar-speed">{torrentState.ftpSpeed.toFixed(1)} MB/s · {torrentState.ftpPct.toFixed(0)}%</span>
-                  </div>
-                  <div class="progress-bar"><div class="progress-fill" style="width:{torrentState.ftpPct}%"></div></div>
-                </div>
-
-                {#if torrentState.createPct > 0 || ['create','post','download','seedbox','done'].includes(torrentState.stage)}
-                  <div class="ddl-step">
-                    <div class="ddl-step-label">
-                      <span>2. Création .torrent</span>
-                      <span class="ddl-bar-speed">{torrentState.createPct.toFixed(0)}%</span>
-                    </div>
-                    <div class="progress-bar"><div class="progress-fill" style="width:{torrentState.createPct}%"></div></div>
-                  </div>
-                {/if}
-
-                {#if ['post','post_done','download','download_done','seedbox','done'].includes(torrentState.stage)}
-                  <div class="ddl-step">
-                    <div class="ddl-step-label">
-                      <span>3. Post Elysium</span>
-                      <span class="ddl-bar-status {['post_done','download','download_done','seedbox','done'].includes(torrentState.stage) ? 'ok' : 'posting'}">
-                        {['post_done','download','download_done','seedbox','done'].includes(torrentState.stage) ? '✓ Posté' : '⬆ Envoi…'}
-                      </span>
-                    </div>
-                  </div>
-                {/if}
-
-                {#if ['seedbox','done'].includes(torrentState.stage)}
-                  <div class="ddl-step">
-                    <div class="ddl-step-label">
-                      <span>4. Upload seedbox</span>
-                      <span class="ddl-bar-speed">{torrentState.seedboxSpeed.toFixed(1)} MB/s · {torrentState.seedboxPct.toFixed(0)}%</span>
-                    </div>
-                    <div class="progress-bar"><div class="progress-fill" class:hydone={torrentState.stage === 'done'} style="width:{torrentState.seedboxPct}%"></div></div>
-                  </div>
-                {/if}
-              </div>
             </div>
           {/if}
 
@@ -2949,23 +2828,7 @@
   {/if}
 </div>
 
-<style>
-  .admin-modal-bg {
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,0.6);
-    backdrop-filter: blur(4px);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 1000;
-  }
-  .admin-modal-card {
-    background: var(--paper, #1e1e24);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px 24px;
-    max-width: 420px;
-    width: 90%;
-  }
-  .hydracker-tab { height: 100%; overflow-y: auto; padding: 24px; }
+<style>  .hydracker-tab { height: 100%; overflow-y: auto; padding: 24px; }
 
   .queue-bar {
     margin-bottom: 18px;
@@ -3072,15 +2935,6 @@
   @media (max-width: 900px) { .queue-list { grid-template-columns: 1fr; max-height: 200px; } }
   .queue-idx { font-size: 10px; color: var(--text3); width: 30px; flex: none; font-variant-numeric: tabular-nums; }
   .queue-name { flex: 1; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  /* Shared card surface */
-  .card-surface {
-    background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 2px rgba(0,0,0,0.4);
-  }
-
   /* Drop zone */
   .dropzone {
     border: 2px dashed var(--border-strong); border-radius: 16px;
@@ -3141,33 +2995,7 @@
     cursor: pointer;
     font-size: 12px;
   }
-  .multi-cancel:hover { color: var(--text); border-color: var(--text3); }
-
-  .dropdown-wrapper { position: relative; display: inline-block; }
-  .dropdown-menu {
-    position: absolute;
-    top: calc(100% + 4px); left: 0;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 4px;
-    display: flex; flex-direction: column;
-    min-width: 160px;
-    z-index: 10;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-  }
-  .dropdown-menu button {
-    background: transparent;
-    border: none;
-    color: var(--text);
-    padding: 8px 12px;
-    text-align: left;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-  }
-  .dropdown-menu button:hover { background: rgba(255,255,255,0.05); }
-  .btn-browse {
+  .multi-cancel:hover { color: var(--text); border-color: var(--text3); }  .btn-browse {
     display: inline-block; margin-top: 14px;
     color: #fff; background: var(--grad-primary);
     border: 1px solid rgba(0,0,0,0.25);
@@ -3212,10 +3040,6 @@
   @media (prefers-reduced-motion: reduce) {
     .reveal > * { animation: none; }
   }
-
-  /* ── Télémétrie : le débit et l'ETA deviennent les héros ──────────── */
-  .ddl-step-label, .nzb-step-label { font-family: var(--font-mono); }
-
   .main-grid { display: grid; grid-template-columns: 1fr 340px; gap: 18px; align-items: start; }
   .col-left  { order: 2; }
   .col-right { order: 1; min-width: 0; }
@@ -3283,13 +3107,7 @@
     background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%);
     border: 1px solid var(--border);
     border-radius: 12px; padding: 13px; font-size: 11px;
-  }
-  .mi-title {
-    font-weight: 600; color: var(--text2);
-    margin-bottom: 10px; font-size: 10px;
-    text-transform: uppercase; letter-spacing: 1.2px;
-  }
-  .mi-row {
+  }  .mi-row {
     display: flex; justify-content: space-between;
     padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
     color: var(--text3);
@@ -3377,34 +3195,6 @@
   }
   .ambig-name { font-size: 13px; font-weight: 500; color: var(--text); }
   .ambig-year { font-size: 11px; color: var(--text3); }
-
-  /* Recherches */
-  /* ── Panneaux d'instrument ─────────────────────────────────────
-     Équerres de viseur sur DEUX coins opposés seulement (haut-gauche
-     et bas-droite) : l'asymétrie évite l'effet « cadre de jeu vidéo »
-     des quatre coins et laisse le panneau respirer. Purement
-     décoratif, donc pointer-events:none. */
-  .search-section, .post-options, .recap-box, .mi-details, .card-surface {
-    position: relative;
-  }
-  .search-section::before, .post-options::before, .recap-box::before,
-  .mi-details::before, .card-surface::before,
-  .search-section::after, .post-options::after, .recap-box::after,
-  .mi-details::after, .card-surface::after {
-    content: ""; position: absolute; width: 13px; height: 13px;
-    border: 1.5px solid var(--ember); opacity: .45; pointer-events: none;
-  }
-  .search-section::before, .post-options::before, .recap-box::before,
-  .mi-details::before, .card-surface::before {
-    top: -1px; left: -1px; border-right: 0; border-bottom: 0;
-    border-radius: 12px 0 0 0;
-  }
-  .search-section::after, .post-options::after, .recap-box::after,
-  .mi-details::after, .card-surface::after {
-    bottom: -1px; right: -1px; border-left: 0; border-top: 0;
-    border-radius: 0 0 12px 0;
-  }
-
   .search-section {
     background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%);
     border: 1px solid var(--border);
@@ -3484,14 +3274,7 @@
   .hydracker-item:hover {
     background: rgba(255,255,255,0.06);
     border-color: rgba(255, 107, 26, 0.35);
-  }
-  .hyd-create-btn {
-    background: rgba(255, 214, 10, 0.05);
-    border: 1px dashed rgba(255, 214, 10, 0.4);
-  }
-  .hyd-create-btn:hover { background: rgba(255, 214, 10, 0.1); border-color: rgba(255, 214, 10, 0.6); }
-  .hyd-create-btn .hyd-name { color: var(--yellow); }
-  .hyd-name { flex: 1; font-size: 13px; color: var(--text); }
+  }  .hyd-name { flex: 1; font-size: 13px; color: var(--text); }
   .hyd-year { font-size: 11px; color: var(--text3); }
   .hyd-type { font-size: 10px; padding: 2px 7px; border-radius: 9999px; margin-left: 6px; font-weight: 500; }
   .badge-movie { background: rgba(0, 180, 216, 0.15); color: var(--blue-hot); }
@@ -3546,16 +3329,7 @@
     color: var(--text2); border-radius: 5px; padding: 3px 7px;
     cursor: pointer; font-size: 13px; flex: none;
   }
-  .btn-copy:hover { background: rgba(255,255,255,0.08); color: var(--text); }
-  .btn-open-admin {
-    color: #fff; background: linear-gradient(180deg, #f77f00 0%, #d85e00 100%);
-    border: 1px solid rgba(0,0,0,0.25);
-    border-radius: 9px; padding: 8px 14px;
-    cursor: pointer; font-size: 12px; font-weight: 600; text-align: center;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 6px 18px -6px rgba(247, 127, 0, 0.4);
-  }
-  .btn-open-admin:hover { filter: brightness(1.08); }
-  .hyd-id-row { display: flex; gap: 6px; }
+  .btn-copy:hover { background: rgba(255,255,255,0.08); color: var(--text); }  .hyd-id-row { display: flex; gap: 6px; }
   .hyd-type-toggle {
     display: flex; gap: 6px; margin: 6px 0 8px;
   }
@@ -3703,19 +3477,6 @@
     font-weight: 700;
     border-color: transparent;
   }
-  .upload-pill[data-color="gold"].active {
-    background: linear-gradient(135deg, #fbbf24, #f59e0b);
-    box-shadow: 0 4px 16px -4px rgba(251,191,36,0.5), inset 0 1px 0 rgba(255,255,255,0.3);
-  }
-  .upload-pill[data-color="silver"].active {
-    background: linear-gradient(135deg, #cbd5e1, #94a3b8);
-    box-shadow: 0 4px 16px -4px rgba(203,213,225,0.5), inset 0 1px 0 rgba(255,255,255,0.3);
-  }
-  .upload-pill[data-color="blue"].active {
-    background: linear-gradient(135deg, #60a5fa, #3b82f6);
-    color: #fff;
-    box-shadow: 0 4px 16px -4px rgba(96,165,250,0.5), inset 0 1px 0 rgba(255,255,255,0.25);
-  }
   .upload-pill[data-color="purple"].active {
     background: linear-gradient(135deg, #a78bfa, #8b5cf6);
     color: #fff;
@@ -3788,9 +3549,6 @@
     border-color: rgba(255, 107, 26, 0.35);
     color: var(--text);
   }
-
-  .nzb-info { font-size: 11px; color: var(--text3); margin-bottom: 8px; }
-
   /* Recherches TMDB + Hydracker côte à côte */
   .searches-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 1100px) { .searches-row { grid-template-columns: 1fr; } }
@@ -3933,9 +3691,6 @@
     background: linear-gradient(180deg, var(--success) 0%, #2bb972 100%);
     box-shadow: 0 0 10px rgba(61, 220, 132, 0.45);
   }
-  .nzb-progress-block { display: flex; flex-direction: column; gap: 4px; }
-  .nzb-step-label { font-size: 11px; color: var(--text2); }
-
   /* ── Bandeau de diodes ──────────────────────────────────────────
      La barre est découpée en segments par un MASQUE CSS, sans aucun
      changement de balisage : les 6 barres de l'app en héritent.

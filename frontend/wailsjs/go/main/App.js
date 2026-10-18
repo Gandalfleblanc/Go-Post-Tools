@@ -126,10 +126,6 @@ export function FetchImageBase64(arg1) {
   return window['go']['main']['App']['FetchImageBase64'](arg1);
 }
 
-export function FicheGetContent(arg1) {
-  return window['go']['main']['App']['FicheGetContent'](arg1);
-}
-
 export function FicheGetNfo(arg1, arg2) {
   return window['go']['main']['App']['FicheGetNfo'](arg1, arg2);
 }
@@ -170,20 +166,8 @@ export function GetFileSize(arg1) {
   return window['go']['main']['App']['GetFileSize'](arg1);
 }
 
-export function GetMetaLangs() {
-  return window['go']['main']['App']['GetMetaLangs']();
-}
-
 export function GetMetaQualities() {
   return window['go']['main']['App']['GetMetaQualities']();
-}
-
-export function GetMetaSubs() {
-  return window['go']['main']['App']['GetMetaSubs']();
-}
-
-export function GetMyUsername() {
-  return window['go']['main']['App']['GetMyUsername']();
 }
 
 export function GetNexumIndex() {
@@ -200,10 +184,6 @@ export function GetSeedboxNexumIndex() {
 
 export function GetTeamConfig() {
   return window['go']['main']['App']['GetTeamConfig']();
-}
-
-export function GetUploaderStats(arg1) {
-  return window['go']['main']['App']['GetUploaderStats'](arg1);
 }
 
 export function GetUserProfile(arg1) {
@@ -278,20 +258,12 @@ export function IsLihdlPasswordManaged() {
   return window['go']['main']['App']['IsLihdlPasswordManaged']();
 }
 
-export function IsSeedboxPasswordManaged() {
-  return window['go']['main']['App']['IsSeedboxPasswordManaged']();
-}
-
 export function IsTorrentAdminAcknowledged() {
   return window['go']['main']['App']['IsTorrentAdminAcknowledged']();
 }
 
 export function IsWatching() {
   return window['go']['main']['App']['IsWatching']();
-}
-
-export function ListCheckTorrents(arg1) {
-  return window['go']['main']['App']['ListCheckTorrents'](arg1);
 }
 
 export function ListMyElyDdls(arg1) {
@@ -366,20 +338,8 @@ export function PostExistingTorrent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ar
   return window['go']['main']['App']['PostExistingTorrent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
 }
 
-export function PostLien(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
-  return window['go']['main']['App']['PostLien'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
-}
-
-export function PostNzb(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
-  return window['go']['main']['App']['PostNzb'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
-}
-
 export function PostNzbWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
   return window['go']['main']['App']['PostNzbWorkflow'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
-}
-
-export function PostTorrent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
-  return window['go']['main']['App']['PostTorrent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
 }
 
 export function PostTorrentWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
@@ -394,24 +354,12 @@ export function ReadFileChunk(arg1, arg2, arg3) {
   return window['go']['main']['App']['ReadFileChunk'](arg1, arg2, arg3);
 }
 
-export function ReseedExecute(arg1, arg2) {
-  return window['go']['main']['App']['ReseedExecute'](arg1, arg2);
-}
-
 export function ReseedFromLihdl(arg1, arg2, arg3) {
   return window['go']['main']['App']['ReseedFromLihdl'](arg1, arg2, arg3);
 }
 
-export function ReseedPrepare(arg1) {
-  return window['go']['main']['App']['ReseedPrepare'](arg1);
-}
-
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
-}
-
-export function SelectAnyTorrentFile() {
-  return window['go']['main']['App']['SelectAnyTorrentFile']();
 }
 
 export function SelectArchiveFile() {
@@ -428,14 +376,6 @@ export function SelectMkvFile() {
 
 export function SelectMkvFiles() {
   return window['go']['main']['App']['SelectMkvFiles']();
-}
-
-export function SelectNzbFile() {
-  return window['go']['main']['App']['SelectNzbFile']();
-}
-
-export function SelectTorrentFile() {
-  return window['go']['main']['App']['SelectTorrentFile']();
 }
 
 export function SetLihdlSettingsPassword(arg1, arg2) {
@@ -482,28 +422,8 @@ export function TestElysium(arg1) {
   return window['go']['main']['App']['TestElysium'](arg1);
 }
 
-export function TestFTP(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['TestFTP'](arg1, arg2, arg3, arg4);
-}
-
-export function TestHydracker(arg1, arg2) {
-  return window['go']['main']['App']['TestHydracker'](arg1, arg2);
-}
-
 export function TestIgdb(arg1, arg2) {
   return window['go']['main']['App']['TestIgdb'](arg1, arg2);
-}
-
-export function TestLihdl(arg1, arg2, arg3) {
-  return window['go']['main']['App']['TestLihdl'](arg1, arg2, arg3);
-}
-
-export function TestModSeedbox(arg1, arg2, arg3) {
-  return window['go']['main']['App']['TestModSeedbox'](arg1, arg2, arg3);
-}
-
-export function TestNextcloud(arg1, arg2, arg3) {
-  return window['go']['main']['App']['TestNextcloud'](arg1, arg2, arg3);
 }
 
 export function TestNexum(arg1, arg2) {
@@ -512,22 +432,6 @@ export function TestNexum(arg1, arg2) {
 
 export function TestOneFichier(arg1) {
   return window['go']['main']['App']['TestOneFichier'](arg1);
-}
-
-export function TestQBit(arg1, arg2, arg3) {
-  return window['go']['main']['App']['TestQBit'](arg1, arg2, arg3);
-}
-
-export function TestSFTP(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['TestSFTP'](arg1, arg2, arg3, arg4);
-}
-
-export function TestSeedbox(arg1, arg2, arg3) {
-  return window['go']['main']['App']['TestSeedbox'](arg1, arg2, arg3);
-}
-
-export function TestSendCm(arg1) {
-  return window['go']['main']['App']['TestSendCm'](arg1);
 }
 
 export function TestTMDB(arg1) {

@@ -163,22 +163,6 @@ export namespace api {
 	        this.icon = source["icon"];
 	    }
 	}
-	export class Lang {
-	    id: number;
-	    name: string;
-	    code?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Lang(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.code = source["code"];
-	    }
-	}
 	export class LangPivot {
 	    id: number;
 	    name: string;
@@ -317,42 +301,6 @@ export namespace api {
 		    return a;
 		}
 	}
-	export class LiensResult {
-	    liens: Lien[];
-	    count: number;
-	    charged: number;
-	    already_paid: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new LiensResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.liens = this.convertValues(source["liens"], Lien);
-	        this.count = source["count"];
-	        this.charged = source["charged"];
-	        this.already_paid = source["already_paid"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class Nzb {
 	    id: number;
 	    title_id?: number;
@@ -393,42 +341,6 @@ export namespace api {
 	        this.qual = this.convertValues(source["qual"], QualDetails);
 	        this.langues_compact = this.convertValues(source["langues_compact"], LangPivot);
 	        this.subs_compact = this.convertValues(source["subs_compact"], LangPivot);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class NzbsResult {
-	    nzbs: Nzb[];
-	    count: number;
-	    charged: number;
-	    already_paid: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new NzbsResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.nzbs = this.convertValues(source["nzbs"], Nzb);
-	        this.count = source["count"];
-	        this.charged = source["charged"];
-	        this.already_paid = source["already_paid"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -743,164 +655,6 @@ export namespace api {
 	        this.qual = this.convertValues(source["qual"], QualDetails);
 	        this.langues_compact = this.convertValues(source["langues_compact"], LangPivot);
 	        this.subs_compact = this.convertValues(source["subs_compact"], LangPivot);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class TorrentsResult {
-	    torrents: TorrentItem[];
-	    count: number;
-	    charged: number;
-	    already_paid: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new TorrentsResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.torrents = this.convertValues(source["torrents"], TorrentItem);
-	        this.count = source["count"];
-	        this.charged = source["charged"];
-	        this.already_paid = source["already_paid"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class UploadLienItem {
-	    id: number;
-	    active: any;
-	    lien: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new UploadLienItem(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.active = source["active"];
-	        this.lien = source["lien"];
-	    }
-	}
-	export class UploadLienResult {
-	    status: string;
-	    liens: UploadLienItem[];
-	
-	    static createFrom(source: any = {}) {
-	        return new UploadLienResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.status = source["status"];
-	        this.liens = this.convertValues(source["liens"], UploadLienItem);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class UploadNzbResult {
-	    success: boolean;
-	    message: string;
-	    // Go type: struct { ID int "json:\"id\""; Active interface {} "json:\"active\"" }
-	    nzb: any;
-	
-	    static createFrom(source: any = {}) {
-	        return new UploadNzbResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.success = source["success"];
-	        this.message = source["message"];
-	        this.nzb = this.convertValues(source["nzb"], Object);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class UploadTorrentResult {
-	    success: boolean;
-	    message: string;
-	    download_url: string;
-	    expires_at: string;
-	    // Go type: struct { ID int "json:\"id\""; Hash string "json:\"hash\""; Active bool "json:\"active\"" }
-	    torrent: any;
-	
-	    static createFrom(source: any = {}) {
-	        return new UploadTorrentResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.success = source["success"];
-	        this.message = source["message"];
-	        this.download_url = source["download_url"];
-	        this.expires_at = source["expires_at"];
-	        this.torrent = this.convertValues(source["torrent"], Object);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1533,38 +1287,6 @@ export namespace main {
 	        this.seedbox_path = source["seedbox_path"];
 	    }
 	}
-	export class CheckTorrentEntry {
-	    hash: string;
-	    name: string;
-	    file_name: string;
-	    has_error: boolean;
-	    message: string;
-	    is_active: number;
-	    state: number;
-	    size: number;
-	    done: number;
-	    lihdl_url: string;
-	    lihdl_name: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CheckTorrentEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.hash = source["hash"];
-	        this.name = source["name"];
-	        this.file_name = source["file_name"];
-	        this.has_error = source["has_error"];
-	        this.message = source["message"];
-	        this.is_active = source["is_active"];
-	        this.state = source["state"];
-	        this.size = source["size"];
-	        this.done = source["done"];
-	        this.lihdl_url = source["lihdl_url"];
-	        this.lihdl_name = source["lihdl_name"];
-	    }
-	}
 	export class DDLResolved {
 	    url: string;
 	    filename: string;
@@ -1622,42 +1344,6 @@ export namespace main {
 	        this.used_ftp = source["used_ftp"];
 	        this.siblings_erased = source["siblings_erased"];
 	    }
-	}
-	export class FicheContent {
-	    torrents?: api.TorrentsResult;
-	    nzbs?: api.NzbsResult;
-	    liens?: api.LiensResult;
-	    charged_total: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new FicheContent(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.torrents = this.convertValues(source["torrents"], api.TorrentsResult);
-	        this.nzbs = this.convertValues(source["nzbs"], api.NzbsResult);
-	        this.liens = this.convertValues(source["liens"], api.LiensResult);
-	        this.charged_total = source["charged_total"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class FindHydrackerSourcesResult {
 	    liens: api.Lien[];
@@ -1744,46 +1430,6 @@ export namespace main {
 	        this.nzb_path = source["nzb_path"];
 	        this.elysium_id = source["elysium_id"];
 	    }
-	}
-	export class ReseedPrepareResult {
-	    torrent_name: string;
-	    first_file_name: string;
-	    size: number;
-	    info_hash: string;
-	    search?: mediasearch.SearchResult;
-	    hydracker_fiche?: api.PartialTitle;
-	
-	    static createFrom(source: any = {}) {
-	        return new ReseedPrepareResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.torrent_name = source["torrent_name"];
-	        this.first_file_name = source["first_file_name"];
-	        this.size = source["size"];
-	        this.info_hash = source["info_hash"];
-	        this.search = this.convertValues(source["search"], mediasearch.SearchResult);
-	        this.hydracker_fiche = this.convertValues(source["hydracker_fiche"], api.PartialTitle);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class RoleDef {
 	    badge: string;
@@ -1891,71 +1537,6 @@ export namespace main {
 	        this.latest = source["latest"];
 	        this.url = source["url"];
 	    }
-	}
-	export class UploaderRow {
-	    author: string;
-	    torrents: number;
-	    nzbs: number;
-	    liens: number;
-	    total: number;
-	    total_size: number;
-	    last_upload_at: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new UploaderRow(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.author = source["author"];
-	        this.torrents = source["torrents"];
-	        this.nzbs = source["nzbs"];
-	        this.liens = source["liens"];
-	        this.total = source["total"];
-	        this.total_size = source["total_size"];
-	        this.last_upload_at = source["last_upload_at"];
-	    }
-	}
-	export class UploaderScanResult {
-	    uploaders: UploaderRow[];
-	    scanned_titles: number;
-	    // Go type: struct { Torrents int "json:\"torrents\""; Nzbs int "json:\"nzbs\""; Liens int "json:\"liens\"" }
-	    scanned_items: any;
-	    oldest_scanned: string;
-	    newest_scanned: string;
-	    duration_sec: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new UploaderScanResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.uploaders = this.convertValues(source["uploaders"], UploaderRow);
-	        this.scanned_titles = source["scanned_titles"];
-	        this.scanned_items = this.convertValues(source["scanned_items"], Object);
-	        this.oldest_scanned = source["oldest_scanned"];
-	        this.newest_scanned = source["newest_scanned"];
-	        this.duration_sec = source["duration_sec"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 
 }

@@ -35,7 +35,6 @@ import (
 	"go-post-tools/internal/ftpup"
 	"go-post-tools/internal/history"
 	"go-post-tools/internal/igdb"
-	"go-post-tools/internal/lihdl"
 	"go-post-tools/internal/mediasearch"
 	"go-post-tools/internal/nexum"
 	"go-post-tools/internal/nyuu"
@@ -61,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "9.5.0"
+const Version = "9.5.1"
 
 type App struct {
 	ctx         context.Context
@@ -814,10 +813,6 @@ func (a *App) HasSeedboxSettingsPassword() bool {
 	return a.activeSeedboxHash() != ""
 }
 
-func (a *App) IsSeedboxPasswordManaged() bool {
-	return config.DefaultSeedboxUnlockHash != ""
-}
-
 func (a *App) SetSeedboxSettingsPassword(currentPassword, newPassword string) error {
 	if config.DefaultSeedboxUnlockHash != "" {
 		return fmt.Errorf("mot de passe géré par le build, modification impossible")
@@ -952,48 +947,12 @@ func (a *App) SaveConfig(cfg config.Config) error {
 
 // --- Tests de connexion (reçoivent les valeurs directement du frontend) ---
 
-func (a *App) TestLihdl(baseURL, user, password string) tester.Result {
-	return tester.TestLihdl(baseURL, user, password)
-}
-
-func (a *App) TestHydracker(baseURL, token string) tester.Result {
-	return tester.TestHydracker(baseURL, token)
-}
-
 func (a *App) TestTMDB(apiKey string) tester.Result {
 	return tester.TestTMDB(apiKey)
 }
 
 func (a *App) TestOneFichier(apiKey string) tester.Result {
 	return tester.TestOneFichier(apiKey)
-}
-
-func (a *App) TestSendCm(apiKey string) tester.Result {
-	return tester.TestSendCm(apiKey)
-}
-
-func (a *App) TestFTP(host string, port int, user, password string) tester.Result {
-	return tester.TestFTP(host, port, user, password)
-}
-
-func (a *App) TestSeedbox(url, user, password string) tester.Result {
-	return tester.TestSeedbox(url, user, password)
-}
-
-func (a *App) TestSFTP(host string, port int, user, password string) tester.Result {
-	return tester.TestSFTP(host, port, user, password)
-}
-
-func (a *App) TestQBit(url, user, password string) tester.Result {
-	return tester.TestQBit(url, user, password)
-}
-
-func (a *App) TestModSeedbox(url, user, password string) tester.Result {
-	return tester.TestModSeedbox(url, user, password)
-}
-
-func (a *App) TestNextcloud(url, user, password string) tester.Result {
-	return tester.TestNextcloud(url, user, password)
 }
 
 func (a *App) TestUsenet(host string, port int) tester.Result {
@@ -1062,16 +1021,6 @@ func (a *App) ParseFilename(filename string) *parser.FileInfo {
 func (a *App) GetMetaQualities() ([]api.Quality, error) {
 	a.resetCancellation()
 	return a.client.GetQualities()
-}
-
-func (a *App) GetMetaLangs() ([]api.Lang, error) {
-	a.resetCancellation()
-	return a.client.GetLangs()
-}
-
-func (a *App) GetMetaSubs() ([]api.Lang, error) {
-	a.resetCancellation()
-	return a.client.GetSubs()
 }
 
 // --- Hydracker search ---
@@ -1315,39 +1264,7 @@ func (a *App) SelectArchiveFile() (string, error) {
 	return path, err
 }
 
-func (a *App) SelectTorrentFile() (string, error) {
-	path, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title: "Sélectionner un fichier .torrent",
-		Filters: []wailsruntime.FileFilter{
-			{DisplayName: "Fichiers Torrent", Pattern: "*.torrent"},
-		},
-	})
-	return path, err
-}
-
-func (a *App) SelectNzbFile() (string, error) {
-	path, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title: "Sélectionner un fichier .nzb",
-		Filters: []wailsruntime.FileFilter{
-			{DisplayName: "Fichiers NZB", Pattern: "*.nzb"},
-		},
-	})
-	return path, err
-}
-
 // --- Upload Hydracker ---
-
-func (a *App) PostTorrent(titleID, qualite int, langues, subs []string, torrentPath, nfo string, saison, episode int, fullSaison bool) (*api.UploadTorrentResult, error) {
-	return a.client.UploadTorrent(titleID, qualite, langues, subs, torrentPath, nfo, saison, episode, fullSaison)
-}
-
-func (a *App) PostNzb(titleID, qualite int, langues, subs []string, nzbPath, nfo string, saison, episode int, fullSaison bool) (*api.UploadNzbResult, error) {
-	return a.client.UploadNzb(titleID, qualite, langues, subs, nzbPath, nfo, saison, episode, fullSaison)
-}
-
-func (a *App) PostLien(titleID, qualite int, langues, subs []string, lien, nfo string, saison, episode int, fullSaison bool) (*api.UploadLienResult, error) {
-	return a.client.UploadLien(titleID, qualite, langues, subs, lien, nfo, saison, episode, fullSaison)
-}
 
 // --- Reseed (MKV + .torrent → FTP + ruTorrent + re-check) ---
 
@@ -1358,38 +1275,6 @@ type ReseedPrepareResult struct {
 	InfoHash       string                    `json:"info_hash"`
 	Search         *mediasearch.SearchResult `json:"search"`
 	HydrackerFiche *api.PartialTitle         `json:"hydracker_fiche"`
-}
-
-func (a *App) ReseedPrepare(torrentPath string) (*ReseedPrepareResult, error) {
-	mi, err := metainfo.LoadFromFile(torrentPath)
-	if err != nil {
-		return nil, fmt.Errorf("lecture .torrent : %w", err)
-	}
-	info, err := mi.UnmarshalInfo()
-	if err != nil {
-		return nil, fmt.Errorf("parse info : %w", err)
-	}
-	result := &ReseedPrepareResult{
-		TorrentName: info.Name,
-		InfoHash:    mi.HashInfoBytes().HexString(),
-	}
-	if len(info.Files) > 0 {
-		result.FirstFileName = info.Files[0].DisplayPath(&info)
-		result.Size = info.Files[0].Length
-	} else {
-		result.FirstFileName = info.Name
-		result.Size = info.Length
-	}
-	// Recherche TMDB via le proxytmdb Elysium (prend le 1er résultat)
-	if results, err := a.MediaSearch(info.Name); err == nil && len(results) > 0 {
-		result.Search = &results[0]
-		if results[0].TmdbID > 0 {
-			if fiche, err := a.client.GetTitleByTmdbID(results[0].TmdbID); err == nil {
-				result.HydrackerFiche = fiche
-			}
-		}
-	}
-	return result, nil
 }
 
 // MediaSearch : recherche via le proxytmdb Elysium. Convertit les tmdb.Movie
@@ -1445,54 +1330,11 @@ type FicheContent struct {
 	Charged  float64             `json:"charged_total"`
 }
 
-func (a *App) GetMyUsername() (string, error) {
-	u, err := a.client.GetMe()
-	if err != nil {
-		return "", err
-	}
-	return u.Username, nil
-}
-
 // GetUserProfile retourne le profil complet (stats incluses) pour un user.
 // idOrUsername : "me", ID numérique ou pseudo — selon ce que l'API accepte.
 func (a *App) GetUserProfile(idOrUsername string) (*api.User, error) {
 	a.resetCancellation()
 	return a.client.GetUser(idOrUsername)
-}
-
-func (a *App) FicheGetContent(titleID int) (*FicheContent, error) {
-	a.resetCancellation()
-	f := api.ContentFilter{}
-	out := &FicheContent{}
-	logErr := func(kind string, err error) {
-		wailsruntime.EventsEmit(a.ctx, "check:log", "[fiche "+kind+" ERR] "+err.Error())
-	}
-	if t, err := a.client.GetTorrents(titleID, f); err != nil {
-		logErr("torrents", err)
-	} else {
-		out.Torrents = t
-		out.Charged += t.Charged
-	}
-	if n, err := a.client.GetNzbs(titleID, f); err != nil {
-		logErr("nzbs", err)
-	} else {
-		out.Nzbs = n
-		out.Charged += n.Charged
-	}
-	if l, err := a.client.GetLiens(titleID, f); err != nil {
-		logErr("liens", err)
-	} else {
-		out.Liens = l
-		out.Charged += l.Charged
-	}
-	if api.LastRawTorrents != "" {
-		raw := api.LastRawTorrents
-		if len(raw) > 400 {
-			raw = raw[:400] + "…"
-		}
-		wailsruntime.EventsEmit(a.ctx, "check:log", "[torrents raw] "+raw)
-	}
-	return out, nil
 }
 
 // --- Team gating : login pseudo + bcrypt ---
@@ -2127,146 +1969,6 @@ type UploaderScanResult struct {
 	DurationSec   int    `json:"duration_sec"`
 }
 
-// GetTopUploaders construit un classement site-wide en :
-//  1. Listant les N fiches les plus populaires (`/titles?order=popularity:desc`)
-//  2. Pour chaque fiche, fetchant ses torrents/nzbs/liens via les endpoints
-//     documentés `/titles/{id}/content/{type}` (qui exposent l'auteur)
-//  3. Agrégeant par uploader, retournant top topN par type
-//
-// Coût : 1 + 3*scanTitles requêtes, sérialisées par le rate limit (1 req/s).
-// Avec scanTitles=30 → ~91 req → ~95 secondes.
-func (a *App) GetUploaderStats(daysSince int) (*UploaderScanResult, error) {
-	if daysSince <= 0 {
-		daysSince = 30
-	}
-	startTime := time.Now()
-	cutoff := time.Now().UTC().AddDate(0, 0, -daysSince).Format(time.RFC3339)
-	result := &UploaderScanResult{}
-
-	uploaders := map[string]*UploaderRow{}
-	getOrCreate := func(name string) *UploaderRow {
-		if u, ok := uploaders[name]; ok {
-			return u
-		}
-		u := &UploaderRow{Author: name}
-		uploaders[name] = u
-		return u
-	}
-	updateLast := func(u *UploaderRow, ts string) {
-		if ts > u.LastUploadAt {
-			u.LastUploadAt = ts
-		}
-	}
-
-	// 1) TORRENTS : endpoint global /torrents (perPage=100, sorted desc).
-	//    On paginate jusqu'à hit créé avant le cutoff.
-	page := 1
-	for {
-		r, err := a.client.GetGlobalTorrents(page, 100)
-		if err != nil || len(r.Pagination.Data) == 0 {
-			break
-		}
-		stop := false
-		for _, item := range r.Pagination.Data {
-			if item.CreatedAt < cutoff {
-				stop = true
-				continue
-			}
-			if item.Author == "" {
-				continue
-			}
-			u := getOrCreate(item.Author)
-			u.Torrents++
-			u.Total++
-			u.TotalSize += item.Size
-			updateLast(u, item.CreatedAt)
-			result.ScannedItems.Torrents++
-		}
-		if stop {
-			break
-		}
-		page++
-		if page > 200 {
-			break
-		} // safety
-	}
-
-	// 2) FICHES actives dans la fenêtre : on liste /titles ordonné par
-	//    last_content_added_at desc, et pour chacune on fetch ses NZB et DDL.
-	titlePage := 1
-	for {
-		titles, err := a.client.GetTitles(api.TitleFilter{Order: "last_content_added_at:desc", PerPage: 100, Page: titlePage})
-		if err != nil || len(titles.Data) == 0 {
-			break
-		}
-		stop := false
-		for _, t := range titles.Data {
-			if t.LastContentAddedAt < cutoff {
-				stop = true
-				break
-			}
-			result.ScannedTitles++
-			if result.NewestScanned == "" {
-				result.NewestScanned = t.LastContentAddedAt
-			}
-			result.OldestScanned = t.LastContentAddedAt
-
-			if r, err := a.client.GetNzbs(t.ID, api.ContentFilter{}); err == nil {
-				for _, item := range r.Nzbs {
-					if item.CreatedAt < cutoff {
-						continue
-					}
-					name := item.Author
-					if name == "" {
-						name = item.IDUser
-					}
-					if name == "" {
-						continue
-					}
-					u := getOrCreate(name)
-					u.Nzbs++
-					u.Total++
-					u.TotalSize += item.Size
-					updateLast(u, item.CreatedAt)
-					result.ScannedItems.Nzbs++
-				}
-			}
-			if r, err := a.client.GetLiens(t.ID, api.ContentFilter{}); err == nil {
-				for _, item := range r.Liens {
-					if item.CreatedAt < cutoff {
-						continue
-					}
-					if item.IDUser == "" {
-						continue
-					}
-					u := getOrCreate(item.IDUser)
-					u.Liens++
-					u.Total++
-					u.TotalSize += item.Size
-					updateLast(u, item.CreatedAt)
-					result.ScannedItems.Liens++
-				}
-			}
-		}
-		if stop {
-			break
-		}
-		titlePage++
-		if titlePage > 50 {
-			break
-		} // safety
-	}
-
-	rows := make([]UploaderRow, 0, len(uploaders))
-	for _, u := range uploaders {
-		rows = append(rows, *u)
-	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Total > rows[j].Total })
-	result.Uploaders = rows
-	result.DurationSec = int(time.Since(startTime).Seconds())
-	return result, nil
-}
-
 // GetDDLFilename résout le nom de fichier réel derrière une URL DDL (1fichier
 // pour l'instant). Utilisé dans la section Fiches pour afficher le vrai
 // filename à côté de chaque lien partagé.
@@ -2422,46 +2124,6 @@ func getFilenameFromHEAD(rawURL string) (string, error) {
 	return "", fmt.Errorf("filename absent de Content-Disposition")
 }
 
-func (a *App) ReseedExecute(torrentPath, mkvPath string) error {
-	if a.cfg.FTPHost == "" {
-		return fmt.Errorf("FTP non configuré")
-	}
-	if a.cfg.SeedboxURL == "" {
-		return fmt.Errorf("seedbox non configurée")
-	}
-	emit := func(stage, msg string) {
-		wailsruntime.EventsEmit(a.ctx, "reseed:status", map[string]interface{}{"stage": stage, "msg": msg})
-	}
-	// 1. Upload MKV sur FTP
-	emit("ftp", "Upload MKV sur FTP…")
-	remoteName, err := ftpup.Upload(a.workContext(), a.cfg.FTPHost, a.cfg.FTPPort, a.cfg.FTPUser, a.cfg.FTPPassword, a.cfg.FTPPath, mkvPath, func(p ftpup.Progress) {
-		wailsruntime.EventsEmit(a.ctx, "reseed:progress", p)
-	})
-	if err != nil {
-		emit("error", "ftp: "+err.Error())
-		return err
-	}
-	emit("ftp_done", "FTP OK : "+remoteName)
-
-	// 2. Upload .torrent sur ruTorrent (addtorrent.php)
-	emit("seedbox", "Ajout sur ruTorrent…")
-	if _, err := a.pushTorrent(a.workContext(), torrentPath, "admin", nil); err != nil {
-		emit("error", "seedbox: "+err.Error())
-		return err
-	}
-
-	// 3. Force re-check (le torrent vient d'être ajouté, il va check le MKV uploadé)
-	mi, err := metainfo.LoadFromFile(torrentPath)
-	if err == nil {
-		hash := mi.HashInfoBytes().HexString()
-		emit("recheck", "Re-check…")
-		time.Sleep(2 * time.Second)
-		_ = a.recheckTorrent(hash, "admin")
-	}
-	emit("done", "Terminé")
-	return nil
-}
-
 // --- Seedbox abstraction : choix explicite ou auto qBit vs ruTorrent ---
 //
 // seedboxType :
@@ -2609,16 +2271,6 @@ func (a *App) findExistingTorrent(titleID int, infoHash, torrentName string) (in
 	return bestID, nil
 }
 
-func (a *App) SelectAnyTorrentFile() (string, error) {
-	path, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title: "Sélectionner un fichier .torrent",
-		Filters: []wailsruntime.FileFilter{
-			{DisplayName: "Fichiers Torrent", Pattern: "*.torrent"},
-		},
-	})
-	return path, err
-}
-
 // --- Check Torrent (liste ruTorrent + matching LiHDL + re-seed auto) ---
 
 type CheckTorrentEntry struct {
@@ -2633,39 +2285,6 @@ type CheckTorrentEntry struct {
 	Done      int64  `json:"done"`
 	LihdlURL  string `json:"lihdl_url"`
 	LihdlName string `json:"lihdl_name"`
-}
-
-func (a *App) ListCheckTorrents(refreshIndex bool) ([]CheckTorrentEntry, error) {
-	if a.cfg.SeedboxURL == "" {
-		return nil, fmt.Errorf("seedbox non configurée")
-	}
-	list, err := rutorrent.List(a.cfg.SeedboxURL, a.cfg.SeedboxUser, a.cfg.SeedboxPassword)
-	if err != nil {
-		return nil, err
-	}
-	files, ferr := lihdl.FetchIndex(refreshIndex, a.cfg.LihdlBaseURL, a.cfg.LihdlUser, a.cfg.LihdlPassword)
-	if ferr != nil {
-		// on continue, juste pas de match possible
-		wailsruntime.EventsEmit(a.ctx, "check:log", "⚠ LiHDL index : "+ferr.Error())
-		files = nil
-	}
-	out := make([]CheckTorrentEntry, 0, len(list))
-	for _, t := range list {
-		entry := CheckTorrentEntry{
-			Hash: t.Hash, Name: t.Name, FileName: t.FileName,
-			HasError: t.HasError, Message: t.Message,
-			IsActive: t.IsActive, State: t.State,
-			Size: t.Size, Done: t.Done,
-		}
-		if files != nil {
-			if m := lihdl.Match(t.Name, files); m != nil {
-				entry.LihdlURL = m.URL
-				entry.LihdlName = m.Name
-			}
-		}
-		out = append(out, entry)
-	}
-	return out, nil
 }
 
 // ReseedFromLihdl : stream LiHDL → upload FTP → force re-check ruTorrent.

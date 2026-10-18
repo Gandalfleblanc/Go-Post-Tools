@@ -234,9 +234,6 @@
         if (!ok) { seedboxPwdError = 'Mot de passe incorrect'; return }
         seedboxUnlocked = true
         seedboxModal = null
-        // Notifie HydrackerTab que l'user vient d'être confirmé admin
-        // → Torrent ADMIN devient visible dans la section Uploader via.
-        window.dispatchEvent(new CustomEvent('admin-unlocked'))
       } else if (seedboxModal === 'create') {
         if (seedboxPwdNew.length < 4) { seedboxPwdError = 'Mot de passe trop court (4 min)'; return }
         if (seedboxPwdNew !== seedboxPwdConfirm) { seedboxPwdError = 'Les mots de passe ne correspondent pas'; return }
@@ -460,7 +457,6 @@
   let checkActionActiveID = 0       // ID du torrent en cours d'action (pour router les events)
 
 
-  let topSeedsSelected = new Set()
 
   // Index Nexum : map lowercase info_hash → {id, name, seeders, created_at, …}
   let nexumIndex = {}
@@ -680,7 +676,6 @@
   })
 
   let checkState = {}  // { [hash]: { stage, msg, percent, speed } }
-  let checkSelected = new Set() // hashes sélectionnés
   // Reset page sur changement de filtre ou tri
 
 
