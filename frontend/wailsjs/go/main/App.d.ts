@@ -190,6 +190,8 @@ export function PostNzbWorkflow(arg1:number,arg2:string,arg3:string,arg4:Array<s
 
 export function PostTorrentWorkflow(arg1:number,arg2:number,arg3:Array<string>,arg4:Array<string>,arg5:string,arg6:string,arg7:number,arg8:number,arg9:string,arg10:boolean):Promise<main.TorrentWorkflowResult>;
 
+export function PreflightGlobal(arg1:string,arg2:number):Promise<Array<main.PreflightCheck>>;
+
 export function PrepareSeasonFolder(arg1:Array<string>):Promise<string>;
 
 export function ReadFileChunk(arg1:string,arg2:number,arg3:number):Promise<Array<number>>;

@@ -1489,6 +1489,24 @@ export namespace main {
 	        this.elysium_id = source["elysium_id"];
 	    }
 	}
+	export class PreflightCheck {
+	    key: string;
+	    label: string;
+	    ok: boolean;
+	    detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PreflightCheck(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.ok = source["ok"];
+	        this.detail = source["detail"];
+	    }
+	}
 	export class RoleDef {
 	    badge: string;
 	    color: string;

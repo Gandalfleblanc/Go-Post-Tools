@@ -358,6 +358,10 @@ export function PostTorrentWorkflow(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ar
   return window['go']['main']['App']['PostTorrentWorkflow'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
+export function PreflightGlobal(arg1, arg2) {
+  return window['go']['main']['App']['PreflightGlobal'](arg1, arg2);
+}
+
 export function PrepareSeasonFolder(arg1) {
   return window['go']['main']['App']['PrepareSeasonFolder'](arg1);
 }

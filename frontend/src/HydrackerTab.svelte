@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime.js'
-  import { ParseFilename, TMDBSearch, TMDBGetByID, IgdbSearch, IgdbGetByID, OpenBrowser, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetFileSize, ReadFileChunk, MediaInfoNative, MediaSearch, ListMyElyNzbs, ListMyElyDdls, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, GetVersion, GetElysiumMeta, ElysiumSearchTitles, ElysiumGetTitleByTmdbID, ElysiumGetTitleByIgdbID, ElysiumImportTitle , OneFichierChoices, ActiveOneFichierLabel, SetActiveOneFichier} from '../wailsjs/go/main/App.js'
+  import { ParseFilename, TMDBSearch, TMDBGetByID, IgdbSearch, IgdbGetByID, OpenBrowser, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetFileSize, ReadFileChunk, MediaInfoNative, MediaSearch, ListMyElyNzbs, ListMyElyDdls, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, GetVersion, GetElysiumMeta, ElysiumSearchTitles, ElysiumGetTitleByTmdbID, ElysiumGetTitleByIgdbID, ElysiumImportTitle , OneFichierChoices, ActiveOneFichierLabel, SetActiveOneFichier, PreflightGlobal} from '../wailsjs/go/main/App.js'
 
   // Adapter Elysium Title → forme "PartialTitle Hydracker" attendue par le reste
   // de la UI (variable historique `selectedHydracker`). L'app a pivoté sur Elysium
@@ -116,6 +116,112 @@
 
   // Comptes 1Fichier : plusieurs clés possibles, une seule sert par post.
   // Le choix est mémorisé côté Go, donc il survit au redémarrage.
+  // --- Contrôle avant décollage ---------------------------------------
+  // Tout est consultatif : « Lancer quand même » reste toujours accessible.
+  // Un contrôle ne doit jamais empêcher de poster, seulement prévenir.
+  let preflight = null        // { global: [], fichiers: [], pretsCount, alertesCount }
+  let preflightEnCours = false
+  let preflightProgres = ''
+
+  // Exécute `taches` par lots de `largeur` : 50 recherches de fiche en série
+  // prendraient une minute, toutes en parallèle noieraient le proxy.
+  async function parLots(elements, largeur, fn) {
+    const out = []
+    for (let i = 0; i < elements.length; i += largeur) {
+      const lot = elements.slice(i, i + largeur)
+      out.push(...await Promise.all(lot.map(fn)))
+      preflightProgres = `${Math.min(i + largeur, elements.length)} / ${elements.length}`
+    }
+    return out
+  }
+
+  async function controleAvantDecollage() {
+    preflightEnCours = true
+    preflight = null
+    preflightProgres = ''
+    try {
+      const chemins = queue.length ? [...queue] : (mkvFilePath ? [mkvFilePath] : [])
+      if (!chemins.length) { preflightEnCours = false; return }
+
+      // Tailles : servent au besoin disque. Les PAR2 sont créés puis effacés
+      // fichier par fichier, donc le pic est celui du PLUS GROS, pas la somme.
+      const tailles = await parLots(chemins, 8, async c => {
+        try { return await GetFileSize(c) } catch (_) { return 0 }
+      })
+      const plusGros = Math.max(0, ...tailles)
+      const besoin = postUploadTypes.nzb ? Math.round(plusGros * 1.15) : 0
+
+      // Déjà posté ? Même méthode que le bilan de session : on compare les
+      // noms normalisés aux 3 premières pages de mes NZB et DDL Elysium.
+      const prendre = async (fn) => {
+        const vus = []
+        for (let page = 1; page <= 3; page++) {
+          const r = await fn(page)
+          const lot = r?.data || []
+          vus.push(...lot)
+          if (lot.length === 0) break
+        }
+        return new Set(vus.map(x => _normNom(x.file_name)))
+      }
+      const [dejaNzb, dejaDdl] = await Promise.all([
+        postUploadTypes.nzb ? prendre(ListMyElyNzbs).catch(() => new Set()) : new Set(),
+        postUploadTypes.ddl ? prendre(ListMyElyDdls).catch(() => new Set()) : new Set(),
+      ])
+
+      const nomsLangOk = new Set(langOptions.map(o => o.name))
+      const fichiers = await parLots(chemins, 5, async (chemin) => {
+        const nom = chemin.split(/[\\/]/).pop()
+        const alertes = []
+
+        // 1. Langues tirées du nom : c'est ce repli qui a envoyé « VOSTFR »
+        //    et fait refuser le post entier en HTTP 422.
+        let info = null
+        try { info = await ParseFilename(nom) } catch (_) {}
+        for (const l of (info?.languages || [])) {
+          if (l && !nomsLangOk.has(l)) {
+            alertes.push({ niveau: 'warn', texte: `Langue « ${l} » hors liste Elysium — elle sera écartée` })
+          }
+        }
+
+        // 2. Fiche : les deux échecs du 18/10 étaient détectables ici.
+        const titre = (info?.title || '').trim()
+        if (!titre) {
+          alertes.push({ niveau: 'warn', texte: 'Aucun titre extrait du nom — fiche à choisir à la main' })
+        } else {
+          const q = info?.year ? `${titre} ${info.year}` : titre
+          try {
+            const r = await MediaSearch(q)
+            if (!r || r.length === 0) {
+              alertes.push({ niveau: 'warn', texte: `Aucune fiche trouvée pour « ${q} »` })
+            }
+          } catch (e) {
+            alertes.push({ niveau: 'warn', texte: 'Recherche de fiche indisponible : ' + (e?.message || e) })
+          }
+        }
+
+        // 3. Doublon
+        const k = _normNom(nom)
+        if (dejaNzb.has(k)) alertes.push({ niveau: 'info', texte: 'NZB déjà présent sur Elysium' })
+        if (dejaDdl.has(k)) alertes.push({ niveau: 'info', texte: 'DDL déjà présent sur Elysium' })
+
+        return { nom, alertes }
+      })
+
+      const global = await PreflightGlobal(chemins[0], besoin)
+      preflight = {
+        global,
+        fichiers,
+        pretsCount: fichiers.filter(f => !f.alertes.length).length,
+        alertesCount: fichiers.filter(f => f.alertes.length).length,
+      }
+      addLog('PREVOL', `${preflight.pretsCount} prêt(s) · ${preflight.alertesCount} à voir`)
+    } catch (e) {
+      addLog('PREVOL', '✗ ' + (e?.message || e))
+    }
+    preflightEnCours = false
+    preflightProgres = ''
+  }
+
   let comptes1F = []
   let compte1FActif = ''
   async function chargerComptes1F() {
@@ -141,6 +247,20 @@
   // les fichiers suivants héritent : rawEp N > anchor.rawEp ⇒ postSeason =
   // anchor.saison, postEpisode = anchor.episode + (N - anchor.rawEp).
   let queueEpisodeAnchor = null  // { rawEp: int, saison: int, episode: int } | null
+
+  // Pose le repère de numérotation après une correction manuelle, pour que
+  // les fichiers suivants de la queue héritent de l'écart. Sans numéro
+  // d'épisode lisible dans le nom, il n'y a rien sur quoi caler l'offset :
+  // on le DIT, au lieu de ne rien faire en silence.
+  function poserAncreQueue() {
+    if (!(queue.length > 0 || queueProcessing)) return
+    if (!fileInfo?.episode) {
+      addLog('QUEUE', `⚠ numérotation non propagée : aucun numéro d'épisode lu dans « ${file?.name || ''} »`)
+      return
+    }
+    queueEpisodeAnchor = { rawEp: fileInfo.episode, saison: postSeason, episode: postEpisode }
+    addLog('QUEUE', `↺ repère posé : raw ${fileInfo.episode} → S${String(postSeason).padStart(2,'0')}E${String(postEpisode).padStart(2,'0')}`)
+  }
   let postFullSaison = false  // toggle "Saison complète" — désactive le numéro d'épisode
   let postNfoManual = ''      // NFO custom écrit par l'user (override la génération auto)
   let nfoEditMode = false     // true = textarea éditable, false = preview readonly
@@ -1098,7 +1218,13 @@
     // parsé, on l'utilise comme épisode et on nettoie le titre pour que la
     // recherche TMDB matche « One Piece » et pas « One Piece 010 ».
     if (!postEpisode && !isFolder && !isArchive && fileInfo?.title) {
+      // Deux écritures courantes de la numérotation absolue :
+      //   « One Piece 590 … »              → nombre en fin de titre
+      //   « One.Piece.E935.CUSTOM… »       → nombre préfixé d'un E, au milieu
+      // La seconde manquait, et comme l'ancre de queue exige un épisode non
+      // nul, la numérotation manuelle ne se propageait pas au fichier suivant.
       const m = fileInfo.title.match(/^(.+?)[\s._-]+(\d{1,4})$/)
+                || fileInfo.title.match(/^(.+?)[\s._-]+E(\d{2,4})\b/i)
       if (m) {
         const n = parseInt(m[2])
         if (n > 0 && n < 1900) {
@@ -2512,11 +2638,64 @@
       </div>
 
       <!-- Actions principales (Lancer / Stop / Réinitialiser) juste sous le fichier -->
+      {#if preflight}
+        <div class="pv">
+          <div class="pv-head">
+            <span class="pv-title">Contrôle avant décollage</span>
+            <span class="pv-score">
+              <b class="mono">{preflight.pretsCount}</b> prêt{preflight.pretsCount > 1 ? 's' : ''}
+              {#if preflight.alertesCount}· <b class="mono pv-warn">{preflight.alertesCount}</b> à voir{/if}
+            </span>
+          </div>
+
+          <div class="pv-global">
+            {#each preflight.global as c}
+              <div class="pv-g" class:pv-g-ko={!c.ok}>
+                <span class="pv-dot"></span>
+                <span class="pv-g-label">{c.label}</span>
+                <span class="pv-g-detail">{c.detail}</span>
+              </div>
+            {/each}
+          </div>
+
+          {#if preflight.alertesCount}
+            <div class="pv-files">
+              {#each preflight.fichiers.filter(f => f.alertes.length) as f}
+                <div class="pv-f">
+                  <div class="pv-f-nom" title={f.nom}>{f.nom}</div>
+                  {#each f.alertes as a}
+                    <div class="pv-a" class:pv-a-info={a.niveau === 'info'}>{a.texte}</div>
+                  {/each}
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <div class="pv-ok">Rien à signaler sur les {preflight.fichiers.length} fichiers.</div>
+          {/if}
+
+          <div class="pv-actions">
+            <button class="btn-test" on:click={() => preflight = null}>Corriger</button>
+            <button class="btn-start pv-go" on:click={() => { preflight = null; processQueue() }}>
+              ▶ Lancer quand même ({queue.length})
+            </button>
+          </div>
+        </div>
+      {/if}
+
       <div class="post-actions">
         <button class="btn-start" title={!postUploadTypes.nzb && !postUploadTypes.ddl ? 'Choisis NZB ou DDL avant de lancer' : '⌘↵'}
           disabled={postLoading || queueProcessing || (!postUploadTypes.nzb && !postUploadTypes.ddl) || (queue.length === 0 && (!postQuality || !postLanguages.length || !selectedHydracker))}
-          on:click={() => queue.length > 0 ? processQueue() : lancerPost()}>
-          {postLoading || queueProcessing ? '…' : (queue.length > 0 ? `▶ Lancer la queue (${queue.length})` : '▶ Lancer')}
+          on:click={() => {
+            // Une queue passe d'abord au contrôle. Un fichier seul part
+            // directement : vérifier ce qu'on a sous les yeux n'apporte rien.
+            if (queue.length > 1 && !preflight && !preflightEnCours) { controleAvantDecollage(); return }
+            queue.length > 0 ? processQueue() : lancerPost()
+          }}>
+          {#if postLoading || queueProcessing}…
+          {:else if preflightEnCours}Vérification… {preflightProgres}
+          {:else if queue.length > 1 && !preflight}▶ Vérifier et lancer ({queue.length})
+          {:else if queue.length > 0}▶ Lancer la queue ({queue.length})
+          {:else}▶ Lancer{/if}
         </button>
         {#if postLoading || queueProcessing}
           <button class="btn-cancel" on:click={stopPost}>■ Stop</button>
@@ -2653,15 +2832,11 @@
                     on:change={() => {
                       // Ancre queue : mémorise le mapping raw→(S,E) tant qu'on
                       // est en batch, pour propager l'offset aux fichiers suivants.
-                      if ((queue.length > 0 || queueProcessing) && fileInfo?.episode) {
-                        queueEpisodeAnchor = { rawEp: fileInfo.episode, saison: postSeason, episode: postEpisode }
-                      }
+                      poserAncreQueue()
                     }} /></label>
                   <label class="se-label">Épisode <input type="number" min="0" class="se-input" bind:value={postEpisode} disabled={postFullSaison} title={postFullSaison ? 'Désactivé : saison complète' : ''}
                     on:change={() => {
-                      if ((queue.length > 0 || queueProcessing) && fileInfo?.episode) {
-                        queueEpisodeAnchor = { rawEp: fileInfo.episode, saison: postSeason, episode: postEpisode }
-                      }
+                      poserAncreQueue()
                     }} /></label>
                 </div>
                 <label class="full-saison-toggle">
@@ -3697,6 +3872,49 @@
     font-size: 11px; color: var(--text3); padding: 2px 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+
+  /* ---------- Contrôle avant décollage ---------- */
+  .pv {
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .pv-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+  .pv-title {
+    font-family: var(--font-display); font-size: 9.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .2em; color: var(--text3);
+  }
+  .pv-score { margin-left: auto; font-size: 11px; color: var(--text3); }
+  .pv-score b { color: var(--success); }
+  .pv-warn { color: var(--warning) !important; }
+
+  .pv-global { display: grid; gap: 4px; margin-bottom: 12px; }
+  .pv-g { display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--text2); }
+  .pv-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex: none; }
+  .pv-g-ko .pv-dot { background: var(--danger); }
+  .pv-g-ko { color: var(--red-hot); }
+  .pv-g-label { min-width: 132px; flex: none; }
+  .pv-g-detail { color: var(--text3); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .pv-files { max-height: 230px; overflow: auto; }
+  .pv-f {
+    border-left: 2px solid var(--warning);
+    background: rgba(255,200,61,.05);
+    border-radius: 0 7px 7px 0;
+    padding: 7px 10px; margin-bottom: 6px;
+  }
+  .pv-f-nom {
+    font-size: 11.5px; font-weight: 600; color: var(--text1);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pv-a { font-size: 11px; color: var(--warning); margin-top: 2px; }
+  .pv-a-info { color: var(--text3); }
+  .pv-ok { font-size: 11.5px; color: var(--success); padding: 4px 0; }
+
+  .pv-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+  .pv-go { margin-left: auto; }
 
   .post-actions { display: flex; gap: 10px; margin-top: 16px; }
   .btn-start {

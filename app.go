@@ -30,6 +30,7 @@ import (
 	"go-post-tools/internal/alldebrid"
 	"go-post-tools/internal/binutil"
 	"go-post-tools/internal/config"
+	"go-post-tools/internal/disque"
 	"go-post-tools/internal/downloader"
 	"go-post-tools/internal/elysium"
 	"go-post-tools/internal/ftpup"
@@ -60,7 +61,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "10.1.0"
+const Version = "10.2.1"
 
 type App struct {
 	ctx         context.Context
@@ -948,6 +949,80 @@ func (a *App) SetActiveOneFichier(label string) error {
 		}
 	}
 	return fmt.Errorf("compte 1Fichier « %s » introuvable", label)
+}
+
+// ---------------------------------------------------------------------------
+// Contrôle avant décollage
+//
+// Lancer 50 épisodes puis découvrir deux heures plus tard qu'il en manque deux
+// coûte une soirée. Ces vérifications tiennent en quelques secondes et se font
+// AVANT le premier octet. Elles sont consultatives : rien n'empêche de poster.
+// ---------------------------------------------------------------------------
+
+type PreflightCheck struct {
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Ok     bool   `json:"ok"`
+	Detail string `json:"detail"`
+}
+
+// PreflightGlobal : les contrôles qui ne dépendent pas d'un fichier précis.
+// cheminExemple sert à savoir sur quel volume les PAR2 seront écrits ;
+// besoinOctets est la place qu'ils demanderont.
+func (a *App) PreflightGlobal(cheminExemple string, besoinOctets int64) []PreflightCheck {
+	out := []PreflightCheck{}
+
+	// Usenet : une connexion de test suffit à distinguer « compte valide » de
+	// « serveur injoignable ». On ne mesure PAS les créneaux libres : chaque
+	// sonde en consomme un, et c'est exactement ce qui nous a coûté des NZB.
+	if a.cfg.UsenetHost == "" {
+		out = append(out, PreflightCheck{"usenet", "Compte Usenet", false, "aucun serveur configuré"})
+	} else {
+		r := a.TestUsenet(a.cfg.UsenetHost, a.cfg.UsenetPort)
+		out = append(out, PreflightCheck{"usenet", "Compte Usenet", r.OK,
+			strings.TrimSpace(r.Message) + fmt.Sprintf(" · %d connexions configurées", a.cfg.UsenetConns)})
+	}
+
+	// 1Fichier : on teste la clé DU COMPTE SÉLECTIONNÉ, pas une autre.
+	c1f := a.cfg.ActiveOneFichier()
+	if c1f.ApiKey == "" {
+		out = append(out, PreflightCheck{"onefichier", "Compte 1Fichier", false, "aucune clé configurée"})
+	} else {
+		r := a.TestOneFichier(c1f.ApiKey)
+		out = append(out, PreflightCheck{"onefichier", "Compte 1Fichier", r.OK,
+			c1f.Label + " · " + strings.TrimSpace(r.Message)})
+	}
+
+	// Elysium : sans token valide, tout le reste est inutile.
+	if msg, err := a.TestElysium(a.cfg.ElysiumApiToken); err != nil {
+		out = append(out, PreflightCheck{"elysium", "Token Elysium", false, err.Error()})
+	} else {
+		out = append(out, PreflightCheck{"elysium", "Token Elysium", true, strings.TrimSpace(msg)})
+	}
+
+	// Disque : les PAR2 sont écrits à côté du MKV.
+	if cheminExemple != "" {
+		dossier := filepath.Dir(cheminExemple)
+		if libre, err := disque.Libre(dossier); err != nil {
+			out = append(out, PreflightCheck{"disque", "Espace disque", true, "non vérifiable (" + err.Error() + ")"})
+		} else {
+			ok := besoinOctets <= 0 || libre > besoinOctets
+			out = append(out, PreflightCheck{"disque", "Espace disque", ok,
+				fmt.Sprintf("%s libres · %s nécessaires", formatOctets(libre), formatOctets(besoinOctets))})
+		}
+	}
+	return out
+}
+
+func formatOctets(n int64) string {
+	switch {
+	case n <= 0:
+		return "0"
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f Go", float64(n)/float64(1<<30))
+	default:
+		return fmt.Sprintf("%d Mo", n/(1<<20))
+	}
 }
 
 // outilsEmbarques : les exécutables compilés dans l'app.
