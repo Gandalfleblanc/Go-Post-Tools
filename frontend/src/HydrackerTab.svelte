@@ -121,6 +121,7 @@
   // Un contrôle ne doit jamais empêcher de poster, seulement prévenir.
   let preflight = null        // { global: [], fichiers: [], pretsCount, alertesCount }
   let preflightEnCours = false
+  $: if (preflight && !queue.length && !queueProcessing) preflight = null
   let preflightProgres = ''
 
   // Exécute `taches` par lots de `largeur` : 50 recherches de fiche en série
@@ -183,19 +184,42 @@
           }
         }
 
-        // 2. Fiche : les deux échecs du 18/10 étaient détectables ici.
-        const titre = (info?.title || '').trim()
-        if (!titre) {
+        // 2. Fiche. On reproduit EXACTEMENT le chemin réel : nettoyage de la
+        //    numérotation, mediasearch, puis repli TMDB. Et si une fiche est
+        //    déjà retenue — sélectionnée ou héritée de la queue — il n'y a
+        //    rien à chercher : tous les épisodes d'une série la partagent.
+        const dejaUneFiche = !!selectedHydracker || !!selectedTMDB || !!queueTMDBHint
+        const dec = decouperNumerotation(info?.title)
+        const titreBrut = (info?.title || '').trim()
+        const titre = (dec?.titre || titreBrut).trim()
+        if (dejaUneFiche) {
+          // Une fiche est déjà retenue : tous les épisodes d'une série la
+          // partagent, il n'y a rien à chercher.
+        } else if (!titre) {
           alertes.push({ niveau: 'warn', texte: 'Aucun titre extrait du nom — fiche à choisir à la main' })
         } else {
-          const q = info?.year ? `${titre} ${info.year}` : titre
-          try {
-            const r = await MediaSearch(q)
-            if (!r || r.length === 0) {
-              alertes.push({ niveau: 'warn', texte: `Aucune fiche trouvée pour « ${q} »` })
-            }
-          } catch (e) {
-            alertes.push({ niveau: 'warn', texte: 'Recherche de fiche indisponible : ' + (e?.message || e) })
+          // Le proxy TMDB EXIGE une année ou un marqueur d'épisode : « One
+          // Piece » seul renvoie « Year or episode not found in query », alors
+          // que « One Piece E965 CUSTOM » rend 8 résultats. On essaie donc la
+          // requête nettoyée PUIS le titre brut, et on ne s'alarme que si les
+          // deux échouent — sinon le contrôle crie au loup sur des épisodes
+          // parfaitement trouvables.
+          const essais = []
+          essais.push(info?.year ? `${titre} ${info.year}` : titre)
+          if (titreBrut && titreBrut !== titre) essais.push(titreBrut)
+          let trouve = false
+          let erreur = ''
+          for (const q of essais) {
+            try {
+              let r = await MediaSearch(q)
+              if (!r || r.length === 0) r = await TMDBSearch(q).catch(() => [])
+              if (r && r.length > 0) { trouve = true; break }
+            } catch (e) { erreur = e?.message || String(e) }
+          }
+          if (!trouve) {
+            alertes.push({ niveau: 'warn', texte: erreur
+              ? 'Recherche de fiche indisponible : ' + erreur
+              : `Aucune fiche trouvée pour « ${essais[0]} »` })
           }
         }
 
@@ -246,6 +270,23 @@
   // sans saison où l'user re-mappe : fichier ...062 → S02E01). Une fois posé,
   // les fichiers suivants héritent : rawEp N > anchor.rawEp ⇒ postSeason =
   // anchor.saison, postEpisode = anchor.episode + (N - anchor.rawEp).
+  // Numérotation absolue : « One Piece 590 » (nombre en fin de titre) ou
+  // « One.Piece.E935.CUSTOM » (nombre préfixé d'un E, au milieu). Renvoie le
+  // titre nettoyé et le numéro, ou null.
+  //
+  // ⚠ Fonction PARTAGÉE entre la recherche réelle et le contrôle avant
+  // décollage : les avoir écrites deux fois faisait signaler « aucune fiche »
+  // sur des épisodes parfaitement trouvables, le contrôle cherchant
+  // « One Piece E965 CUSTOM » là où la recherche cherchait « One Piece ».
+  function decouperNumerotation(titreBrut) {
+    const t = String(titreBrut || '')
+    const m = t.match(/^(.+?)[\s._-]+(\d{1,4})$/) || t.match(/^(.+?)[\s._-]+E(\d{2,4})\b/i)
+    if (!m) return null
+    const n = parseInt(m[2])
+    if (!(n > 0 && n < 1900)) return null
+    return { titre: m[1].trim(), episode: n }
+  }
+
   let queueEpisodeAnchor = null  // { rawEp: int, saison: int, episode: int } | null
 
   // Pose le repère de numérotation après une correction manuelle, pour que
@@ -643,6 +684,8 @@
   $: hydrackerManualType = (postSeason > 0 || postEpisode > 0) ? 'tv' : (selectedTMDB?.media_type === 'movie' ? 'movie' : hydrackerManualType)
 
   async function processQueue() {
+    preflight = null
+
     if (queueProcessing) return
     // Inclut le fichier de preview dans la queue pour qu'il soit processé
     // (cas où l'user drop E1 seul d'abord, puis E2/E3 ensuite — sinon E1 skip)
@@ -1223,16 +1266,11 @@
       //   « One.Piece.E935.CUSTOM… »       → nombre préfixé d'un E, au milieu
       // La seconde manquait, et comme l'ancre de queue exige un épisode non
       // nul, la numérotation manuelle ne se propageait pas au fichier suivant.
-      const m = fileInfo.title.match(/^(.+?)[\s._-]+(\d{1,4})$/)
-                || fileInfo.title.match(/^(.+?)[\s._-]+E(\d{2,4})\b/i)
-      if (m) {
-        const n = parseInt(m[2])
-        if (n > 0 && n < 1900) {
-          const cleanTitle = m[1].trim()
-          fileInfo = { ...fileInfo, title: cleanTitle, episode: n }
-          postEpisode = n
-          addLog('TMDB', `↺ anime numéroté détecté : titre="${cleanTitle}" ep=${n}`)
-        }
+      const dec = decouperNumerotation(fileInfo.title)
+      if (dec) {
+        fileInfo = { ...fileInfo, title: dec.titre, episode: dec.episode }
+        postEpisode = dec.episode
+        addLog('TMDB', `↺ anime numéroté détecté : titre="${dec.titre}" ep=${dec.episode}`)
       }
     }
     // Ancre de numérotation manuelle : si l'user a re-mappé un épisode précédent
@@ -2674,9 +2712,16 @@
           {/if}
 
           <div class="pv-actions">
-            <button class="btn-test" on:click={() => preflight = null}>Corriger</button>
-            <button class="btn-start pv-go" on:click={() => { preflight = null; processQueue() }}>
-              ▶ Lancer quand même ({queue.length})
+            <button class="btn-test" on:click={() => preflight = null}>
+              {preflight.alertesCount ? 'Corriger' : 'Fermer'}
+            </button>
+            <button class="btn-start pv-go" disabled={!queue.length}
+                    on:click={() => { preflight = null; processQueue() }}>
+              {#if preflight.alertesCount}
+                ▶ Lancer quand même ({queue.length})
+              {:else}
+                ▶ Lancer la queue ({queue.length})
+              {/if}
             </button>
           </div>
         </div>
