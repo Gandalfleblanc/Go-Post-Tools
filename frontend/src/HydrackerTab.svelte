@@ -684,7 +684,10 @@
   $: hydrackerManualType = (postSeason > 0 || postEpisode > 0) ? 'tv' : (selectedTMDB?.media_type === 'movie' ? 'movie' : hydrackerManualType)
 
   async function processQueue() {
+    // Le panneau de contrôle et le bilan décrivent la file PRÉCÉDENTE : les
+    // laisser affichés pendant une nouvelle série donne des chiffres faux.
     preflight = null
+    sessionReport = null
 
     if (queueProcessing) return
     // Inclut le fichier de preview dans la queue pour qu'il soit processé
@@ -2061,9 +2064,15 @@
     const errors = []
     const successes = []
 
-    // Scroll vers les barres de progression dès le lancement
+    // Cadrage au lancement : on amène le bloc NFO au RAS DU BAS de la fenêtre.
+    // Viser l'ancre des barres avec block:'start' la collait en haut, ce qui
+    // poussait tout le reste vers le haut et remplissait l'écran de NFO.
+    // Avec block:'end' sur le NFO, les barres et le suivi restent visibles et
+    // le NFO s'arrête juste en dessous. Repli sur l'ancre s'il n'y a pas de
+    // NFO affiché (aucun fichier chargé).
     requestAnimationFrame(() => {
-      document.getElementById('progress-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const cible = document.getElementById('nfo-anchor') || document.getElementById('progress-anchor')
+      cible?.scrollIntoView({ behavior: 'smooth', block: cible.id === 'nfo-anchor' ? 'end' : 'start' })
     })
 
     // Helper : relance une fois si l'appel échoue (sauf si l'utilisateur a cliqué Stop).
@@ -2754,6 +2763,10 @@
           postQuality = ''; postLanguages = []; postSubs = [];
           postSeason = 0; postEpisode = 0; postFullSaison = false;
           mkvFilePath = ''; postResult = null;
+          // Ces trois-là survivaient à la remise à zéro : le bilan de la
+          // session précédente restait affiché, le panneau de contrôle aussi,
+          // et le repère de numérotation aurait décalé la file suivante.
+          sessionReport = null; preflight = null; queueEpisodeAnchor = null;
         }}>↺ Réinitialiser</button>
       </div>
 
@@ -3142,7 +3155,7 @@
 
 
         {#if file}
-          <div class="nfo-preview" class:open={nfoOpen}>
+          <div class="nfo-preview" id="nfo-anchor" class:open={nfoOpen}>
             <button type="button" class="nfo-preview-header" on:click={() => nfoOpen = !nfoOpen}>
               <span class="mi-chevron">{nfoOpen ? '▾' : '▸'}</span>
               <span><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.25 3.75H6.75A1.5 1.5 0 0 0 5.25 5.25v13.5a1.5 1.5 0 0 0 1.5 1.5h10.5a1.5 1.5 0 0 0 1.5-1.5V8.25l-4.5-4.5ZM14.25 3.75V8.25h4.5"/></svg>NFO (inclus dans NZB + DDL + Torrent){postNfoManual.trim() ? ' — édité' : ''}</span>
