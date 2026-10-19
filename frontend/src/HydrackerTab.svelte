@@ -62,6 +62,7 @@
   // TMDB
   let tmdbResults = []
   let tmdbAmbiguous = false
+  let rechercheMessage = ''   // message visible quand la recherche ne donne rien
   let selectedTMDB = null
   let tmdbSearchQuery = ''
   let tmdbSearchId = ''
@@ -1338,6 +1339,7 @@
   // --- TMDB ---
   async function autoSearchTMDB(query) {
     tmdbSearchLoading = true
+    rechercheMessage = ''
     // Shortcut queue SÉRIES uniquement : on hérite la fiche TMDB du 1er
     // épisode de la queue pour les suivants (EP001→EP002→…), ce qui évite
     // le prompt manuel de recherche entre chaque épisode d'une série. NE PAS
@@ -1435,6 +1437,8 @@
           media_type: r.media_type,
           title: r.title_fr || r.title_vo,
           name: r.title_fr || r.title_vo,
+          original_title: r.title_vo || '',
+          original_name: r.title_vo || '',
           release_date: r.year ? r.year + '-01-01' : '',
           first_air_date: r.year ? r.year + '-01-01' : '',
           poster_path: '',
@@ -1443,21 +1447,33 @@
         }))
       }
 
-      if (tmdbResults.length === 1) {
+      if (tmdbResults.length === 0) {
+        // Ne jamais rester muet : sans ce message, l'écran reste vide et on
+        // attend une fiche qui ne viendra pas (constaté sur Herbie 1977).
+        rechercheMessage = `Aucune fiche trouvée pour « ${query} »${fileInfo?.year ? ' (' + fileInfo.year + ')' : ''}. Cherche à la main ou colle un ID TMDB.`
+        addLog('TMDB', '⚠ ' + rechercheMessage)
+      } else if (tmdbResults.length === 1) {
         // Un résultat unique n'est pas forcément le bon : pour « One Piece »
         // le proxy a renvoyé la série « Piece » (tmdb 46131), sélectionnée
         // d'office, ce qui envoyait la saison sur la mauvaise fiche. On
         // n'accepte en automatique que si le titre ressemble vraiment à ce
         // qu'on cherchait ; sinon on laisse l'utilisateur trancher.
+        //
+        // ⚠ Comparer AUSSI le titre original : les noms de fichiers portent le
+        // titre VO, alors que le proxy renvoie le titre français. « Herbie Goes
+        // To Monte Carlo » contre « La Coccinelle à Monte-Carlo » était rejeté
+        // alors que c'était la bonne fiche.
         const nrm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
         const seul = tmdbResults[0]
         const cible = nrm(query)
-        const trouve = nrm(seul.title || seul.name)
-        if (trouve === cible || trouve.includes(cible) || cible.includes(trouve)) {
+        const candidats = [seul.title, seul.name, seul.original_title, seul.original_name]
+          .map(nrm).filter(Boolean)
+        const proche = candidats.some(t => t === cible || t.includes(cible) || cible.includes(t))
+        if (proche) {
           await selectTMDB(seul)
         } else {
-          addLog('TMDB', `⚠ résultat unique « ${seul.title || seul.name} » trop éloigné de `
-            + `« ${query} » — à toi de choisir`)
+          rechercheMessage = `Un seul résultat, « ${seul.title || seul.name} », trop éloigné de « ${query} » — choisis toi-même.`
+          addLog('TMDB', '⚠ ' + rechercheMessage)
           tmdbAmbiguous = true
         }
       } else if (tmdbResults.length > 1) {
@@ -1475,7 +1491,9 @@
           // c'est évident (ex : "Ted Lasso" vs "The Glass Box" / "The Class").
           const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
           const target = norm(query)
-          const exact = tmdbResults.filter(r => norm(r.title || r.name) === target)
+          // Titre français OU titre original : voir plus haut.
+          const exact = tmdbResults.filter(r =>
+            [r.title, r.name, r.original_title, r.original_name].map(norm).includes(target))
           if (exact.length === 1) {
             addLog('TMDB', `↺ match exact "${query}" — auto-sélection`)
             await selectTMDB(exact[0])
@@ -1484,13 +1502,20 @@
           }
         }
       }
-    } catch(e) { console.error(e) }
+    } catch (e) {
+      // Ne plus avaler l'erreur : un échec silencieux laissait l'écran vide
+      // sans la moindre trace, ni à l'écran ni au Journal.
+      rechercheMessage = `Recherche impossible : ${e?.message || e}`
+      addLog('TMDB', '✗ ' + rechercheMessage)
+      console.error(e)
+    }
     tmdbSearchLoading = false
   }
 
   async function manualTMDBSearch() {
     tmdbSearchLoading = true
     tmdbAmbiguous = false
+    rechercheMessage = ''
     try {
       // ===== Mode Jeu : recherche IGDB =====
       if (gameMode) {
@@ -2503,9 +2528,12 @@
       {/if}
 
       <!-- Ambiguïté TMDB -->
-      {#if tmdbAmbiguous && tmdbResults.length > 1}
+      {#if tmdbAmbiguous && tmdbResults.length > 0}
         <div class="ambig-box">
-          <div class="ambig-title">⚠️ Plusieurs résultats — choisissez la bonne fiche :</div>
+          <div class="ambig-title">
+            <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v3.75m0 3.5h.008M10.34 3.94 2.7 16.12A1.5 1.5 0 0 0 4 18.4h16a1.5 1.5 0 0 0 1.3-2.28L13.66 3.94a1.5 1.5 0 0 0-2.62 0Z"/></svg>
+            {tmdbResults.length > 1 ? 'Plusieurs résultats — choisis la bonne fiche :' : 'Vérifie que c’est bien la bonne fiche :'}
+          </div>
           <div class="ambig-list">
             {#each tmdbResults.slice(0,8) as m}
               <button class="ambig-item" on:click={() => selectTMDB(m)}>
@@ -2545,6 +2573,13 @@
               {unifiedLoading ? '…' : 'Chercher'}
             </button>
           </div>
+          {#if rechercheMessage}
+            <div class="search-msg">
+              <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v3.75m0 3.5h.008M10.34 3.94 2.7 16.12A1.5 1.5 0 0 0 4 18.4h16a1.5 1.5 0 0 0 1.3-2.28L13.66 3.94a1.5 1.5 0 0 0-2.62 0Z"/></svg>
+              <span>{rechercheMessage}</span>
+              <button type="button" class="search-msg-x" on:click={() => rechercheMessage = ''}>✕</button>
+            </div>
+          {/if}
           {#if unifiedResults.length > 0}
             <div class="hydracker-results">
               {#each unifiedResults as r}
@@ -3237,7 +3272,8 @@
     border: 1px solid rgba(255, 214, 10, 0.25);
     border-radius: 12px; padding: 14px;
   }
-  .ambig-title { font-size: 12px; color: var(--yellow); margin-bottom: 10px; }
+  .ambig-title { font-size: 12px; color: var(--yellow); margin-bottom: 10px;   display: flex; align-items: center; gap: 7px;
+  }
   .ambig-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
   .ambig-item {
     display: flex; align-items: center; gap: 10px;
@@ -3276,6 +3312,20 @@
   .search-label::after, .post-label::after {
     content: ""; flex: 1; height: 1px; background: var(--border);
   }
+  .search-msg {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 9px; padding: 8px 11px;
+    background: rgba(255,200,61,.07);
+    border: 1px solid rgba(255,200,61,.3);
+    border-radius: 8px;
+    font-size: 11.5px; color: var(--warning);
+  }
+  .search-msg span { flex: 1; min-width: 0; }
+  .search-msg-x {
+    background: none; border: none; color: var(--warning);
+    cursor: pointer; font-size: 12px; padding: 0 2px; opacity: .7;
+  }
+  .search-msg-x:hover { opacity: 1; }
   .search-row { display: flex; gap: 8px; }
   .search-row input { flex: 1; }
   .btn-search {

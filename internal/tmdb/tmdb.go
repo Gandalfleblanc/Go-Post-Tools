@@ -34,16 +34,33 @@ func NewClient(_ string) *Client {
 	return NewClientWithBase("")
 }
 
+// normaliserBase : le proxy sert sa PAGE WEB à la racine et son API sur
+// /api. Une URL configurée sans chemin (« https://tmdb.uklm.xyz ») recevait
+// donc du HTML, que le parseur JSON rejetait après coup — sans message, et
+// après avoir laissé l'utilisateur attendre. On complète le chemin manquant.
+func normaliserBase(raw string) string {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	if strings.Trim(u.Path, "/") == "" {
+		u.Path = "/api"
+		return strings.TrimRight(u.String(), "/")
+	}
+	return raw
+}
+
 // NewClientWithBase : accepte un override d'URL. Vide → DefaultProxyURL.
 func NewClientWithBase(baseURL string) *Client {
 	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
 		baseURL = DefaultProxyURL
 	}
-	baseURL = strings.TrimRight(baseURL, "/")
+	baseURL = normaliserBase(baseURL)
 	return &Client{
-		base:       baseURL,
-		token:      DefaultProxyToken,
+		base:  baseURL,
+		token: DefaultProxyToken,
 		// 45 s et pas 15 : une recherche jamais faite oblige le proxy à balayer
 		// sa base complète quand le nom de fichier ne contient pas d'année.
 		// Mesuré à froid : Boston Blue 0,5 s, Dallas S08E01 9,8 s, True Detective
@@ -166,7 +183,7 @@ type searchHit struct {
 	NoteImdb      float64 `json:"note_imdb"`
 	VoteImdb      int     `json:"vote_imdb"`
 	TmdbID        int     `json:"tmdb_id"`
-	TmdbURL       string  `json:"tmdb_url"`             // ex: https://www.themoviedb.org/tv/254528 → detect movie vs tv
+	TmdbURL       string  `json:"tmdb_url"` // ex: https://www.themoviedb.org/tv/254528 → detect movie vs tv
 	NoteTmdb      float64 `json:"note_tmdb"`
 	Overview      string  `json:"overview"`
 	Season        string  `json:"season"`               // ex: "S01E10" si série
@@ -247,7 +264,19 @@ func (c *Client) doGet(params url.Values) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("proxytmdb HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
+	// Une page HTML en guise de réponse = mauvaise URL (la racine du proxy
+	// sert son interface web). Le dire tout de suite et nommer le réglage
+	// fautif, plutôt que de laisser le parseur JSON échouer sans contexte.
+	if estHTML(body) {
+		return nil, fmt.Errorf("le proxy TMDB a répondu une page web au lieu de données (URL %s) — "+
+			"corrige « Index de recherche TMDB » dans Réglages, le chemin /api manque probablement", c.base)
+	}
 	return body, nil
+}
+
+func estHTML(body []byte) bool {
+	t := strings.ToLower(strings.TrimSpace(string(body)))
+	return strings.HasPrefix(t, "<!doctype html") || strings.HasPrefix(t, "<html")
 }
 
 // Search : proxytmdb /api?t=search&q=<query>. Retourne les hits parsés
@@ -328,11 +357,11 @@ type Provider struct {
 
 // CountryProviders : ce qui est dispo dans un pays donné.
 type CountryProviders struct {
-	Link      string     `json:"link"`
-	Flatrate  []Provider `json:"flatrate,omitempty"` // streaming inclus dans abonnement
-	Buy       []Provider `json:"buy,omitempty"`
-	Rent      []Provider `json:"rent,omitempty"`
-	Free      []Provider `json:"free,omitempty"`
+	Link     string     `json:"link"`
+	Flatrate []Provider `json:"flatrate,omitempty"` // streaming inclus dans abonnement
+	Buy      []Provider `json:"buy,omitempty"`
+	Rent     []Provider `json:"rent,omitempty"`
+	Free     []Provider `json:"free,omitempty"`
 }
 
 // GetProviders : proxytmdb /api?t=providers&type=movie|tv&q=<id>.
