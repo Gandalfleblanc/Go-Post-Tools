@@ -6,6 +6,10 @@ export function AcknowledgeTorrentAdmin(arg1) {
   return window['go']['main']['App']['AcknowledgeTorrentAdmin'](arg1);
 }
 
+export function ActiveOneFichierLabel() {
+  return window['go']['main']['App']['ActiveOneFichierLabel']();
+}
+
 export function AllDebridUnlock(arg1) {
   return window['go']['main']['App']['AllDebridUnlock'](arg1);
 }
@@ -322,6 +326,10 @@ export function Notify(arg1, arg2) {
   return window['go']['main']['App']['Notify'](arg1, arg2);
 }
 
+export function OneFichierChoices() {
+  return window['go']['main']['App']['OneFichierChoices']();
+}
+
 export function OpenBrowser(arg1) {
   return window['go']['main']['App']['OpenBrowser'](arg1);
 }
@@ -380,6 +388,10 @@ export function SelectMkvFile() {
 
 export function SelectMkvFiles() {
   return window['go']['main']['App']['SelectMkvFiles']();
+}
+
+export function SetActiveOneFichier(arg1) {
+  return window['go']['main']['App']['SetActiveOneFichier'](arg1);
 }
 
 export function SetLihdlSettingsPassword(arg1, arg2) {

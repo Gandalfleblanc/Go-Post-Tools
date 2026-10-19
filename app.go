@@ -60,7 +60,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "10.0.4"
+const Version = "10.1.0"
 
 type App struct {
 	ctx         context.Context
@@ -918,6 +918,36 @@ func (a *App) startup(ctx context.Context) {
 	// hors de l'app est anormale et doit se voir, pas se découvrir après
 	// des heures de panne (cf. le parpar x86 du PATH, utilisé via Rosetta).
 	go a.logBinaries()
+}
+
+// OneFichierChoices : libellés des comptes 1Fichier configurés, pour le
+// sélecteur de l'écran Publier. Les clés ne sortent pas d'ici.
+func (a *App) OneFichierChoices() []string {
+	out := []string{}
+	for _, c := range a.cfg.OneFichierAccounts {
+		if strings.TrimSpace(c.ApiKey) != "" && strings.TrimSpace(c.Label) != "" {
+			out = append(out, c.Label)
+		}
+	}
+	return out
+}
+
+// ActiveOneFichierLabel : compte sur lequel partira le prochain upload.
+func (a *App) ActiveOneFichierLabel() string {
+	return a.cfg.ActiveOneFichier().Label
+}
+
+// SetActiveOneFichier : change le compte de destination et le mémorise, pour
+// que le choix survive au redémarrage.
+func (a *App) SetActiveOneFichier(label string) error {
+	label = strings.TrimSpace(label)
+	for _, c := range a.cfg.OneFichierAccounts {
+		if c.Label == label {
+			a.cfg.OneFichierActive = label
+			return config.Save(a.cfg)
+		}
+	}
+	return fmt.Errorf("compte 1Fichier « %s » introuvable", label)
 }
 
 // outilsEmbarques : les exécutables compilés dans l'app.
@@ -4511,8 +4541,10 @@ func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, su
 	if mkvPath == "" {
 		return nil, fmt.Errorf("chemin MKV manquant")
 	}
-	if a.cfg.OneFichierApiKey == "" {
-		return nil, fmt.Errorf("clé 1Fichier manquante — renseignez les Settings")
+	// Compte 1Fichier choisi pour CE post (sélecteur de l'écran Publier).
+	compte1F := a.cfg.ActiveOneFichier()
+	if compte1F.ApiKey == "" {
+		return nil, fmt.Errorf("clé 1Fichier manquante — ajoute un compte dans Réglages → 1Fichier")
 	}
 
 	filename := filepath.Base(mkvPath)
@@ -4552,8 +4584,8 @@ func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, su
 	registerHostCancel("1Fichier", hostCancel)
 	defer unregisterHostCancel("1Fichier")
 	defer hostCancel()
-	logEvent("1Fichier : connexion au serveur…")
-	res, err := uploader.UploadOneFichier(hostCtx, a.cfg.OneFichierApiKey, mkvPath, func(p uploader.UploadProgress) {
+	logEvent(fmt.Sprintf("1Fichier : connexion au serveur… (compte « %s »)", compte1F.Label))
+	res, err := uploader.UploadOneFichier(hostCtx, compte1F.ApiKey, mkvPath, func(p uploader.UploadProgress) {
 		emitProgress("1Fichier", p)
 	})
 	emitDone("1Fichier", err)
@@ -4573,11 +4605,11 @@ func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, su
 	// le tier 1F de l'user ne permet pas la gestion API de dossiers, on log
 	// un message clair et le fichier reste à la racine — l'upload lui-même
 	// a bien réussi.
-	if folder := strings.TrimSpace(a.cfg.OneFichierFolder); folder != "" {
-		fid, ferr := uploader.EnsureOneFichierFolder(hostCtx, a.cfg.OneFichierApiKey, folder)
+	if folder := strings.TrimSpace(compte1F.Folder); folder != "" {
+		fid, ferr := uploader.EnsureOneFichierFolder(hostCtx, compte1F.ApiKey, folder)
 		switch {
 		case ferr == nil && fid > 0:
-			if merr := uploader.MoveToOneFichierFolder(hostCtx, a.cfg.OneFichierApiKey, []string{res.URL}, fid); merr == nil {
+			if merr := uploader.MoveToOneFichierFolder(hostCtx, compte1F.ApiKey, []string{res.URL}, fid); merr == nil {
 				logEvent(fmt.Sprintf("1Fichier : rangé dans « %s » (id %d) ✓", folder, fid))
 			} else if _, isUnsupported := merr.(*uploader.FolderAPIUnsupportedError); isUnsupported {
 				logEvent(fmt.Sprintf("1Fichier : ✓ fichier posté à la racine de ton compte (gestion dossier « %s » indisponible sur ton tier 1F)", folder))

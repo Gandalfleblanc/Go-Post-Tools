@@ -16,8 +16,13 @@ type Config struct {
 	TMDBProxyURL string `json:"tmdb_proxy_url"` // default https://tmdb.uklm.xyz
 
 	// 1Fichier
-	OneFichierApiKey    string `json:"one_fichier_api_key"`
-	OneFichierFolder    string `json:"one_fichier_folder"`     // nom dossier 1F pour ranger auto (vide = pas de rangement)
+	// Clé historique : conservée pour la compatibilité et comme repli quand
+	// aucun compte nommé n'est défini. Les comptes multiples vivent dans
+	// OneFichierAccounts, et OneFichierActive désigne celui qui sert à poster.
+	OneFichierApiKey   string              `json:"one_fichier_api_key"`
+	OneFichierFolder   string              `json:"one_fichier_folder"` // nom dossier 1F pour ranger auto (vide = pas de rangement)
+	OneFichierAccounts []OneFichierAccount `json:"one_fichier_accounts"`
+	OneFichierActive   string              `json:"one_fichier_active"` // libellé du compte sélectionné
 
 	// SEND.CM
 	SendCmApiKey string `json:"sendcm_api_key"`
@@ -71,10 +76,10 @@ type Config struct {
 	PrivateFTPPath     string `json:"private_ftp_path"`
 
 	// Seedbox ADMIN (team-shared ruTorrent, baked au build)
-	SeedboxURL      string `json:"seedbox_url"`      // ex: https://my-seedbox.example/rutorrent/
+	SeedboxURL      string `json:"seedbox_url"` // ex: https://my-seedbox.example/rutorrent/
 	SeedboxUser     string `json:"seedbox_user"`
 	SeedboxPassword string `json:"seedbox_password"`
-	SeedboxLabel    string `json:"seedbox_label"`    // label optionnel ajouté au torrent
+	SeedboxLabel    string `json:"seedbox_label"` // label optionnel ajouté au torrent
 
 	// Seedbox Privée ruTorrent (perso de chaque user)
 	PrivateSeedboxURL      string `json:"private_seedbox_url"`
@@ -146,8 +151,8 @@ type Config struct {
 	HydrackerBaseURL string `json:"hydracker_base_url"` // ex: https://exemple.tld
 
 	// LiHDL index + endpoint recherche TMDB (URLs + Basic Auth, à configurer)
-	LihdlBaseURL   string `json:"lihdl_base_url"`     // ex: https://exemple.tld/chemin/LiHDL/
-	MediaSearchURL string `json:"media_search_url"`   // ex: https://exemple.tld/search.php?query=
+	LihdlBaseURL   string `json:"lihdl_base_url"`   // ex: https://exemple.tld/chemin/LiHDL/
+	MediaSearchURL string `json:"media_search_url"` // ex: https://exemple.tld/search.php?query=
 	LihdlUser      string `json:"lihdl_user"`
 	LihdlPassword  string `json:"lihdl_password"`
 	// Hash sha256 du mot de passe qui protège la section LiHDL dans les Réglages UI.
@@ -249,28 +254,70 @@ var (
 	DefaultLihdlPassword = "rafael2012"
 )
 
+// OneFichierAccount : un compte 1Fichier nommé. Chaque compte a sa propre clé
+// API et son dossier de rangement, ce qui permet de choisir sur quel compte
+// part un upload sans retoucher les Réglages entre deux posts.
+//
+// ⚠ Une clé 1Fichier est liée à UNE adresse IP : plusieurs comptes utilisés
+// depuis la même machine ne posent pas de problème, mais la même clé utilisée
+// depuis deux machines sera rejetée.
+type OneFichierAccount struct {
+	Label  string `json:"label"`
+	ApiKey string `json:"api_key"`
+	Folder string `json:"folder"`
+}
+
+// Actif : le compte désigné par OneFichierActive, sinon le premier de la
+// liste, sinon la clé historique présentée comme un compte unique.
+func (c *Config) ActiveOneFichier() OneFichierAccount {
+	for _, a := range c.OneFichierAccounts {
+		if a.Label == c.OneFichierActive && a.ApiKey != "" {
+			return a
+		}
+	}
+	for _, a := range c.OneFichierAccounts {
+		if a.ApiKey != "" {
+			return a
+		}
+	}
+	return OneFichierAccount{Label: "Principal", ApiKey: c.OneFichierApiKey, Folder: c.OneFichierFolder}
+}
+
 func Load() *Config {
 	cfg := &Config{
-		UsenetPort:      119,
-		UsenetConns:     20,
-		UsenetGroup:     "alt.binaries.test",
+		UsenetPort:       119,
+		UsenetConns:      20,
+		UsenetGroup:      "alt.binaries.test",
 		ParParRedundancy: 5,
-		ParParThreads:   8,
-		ParParSliceSize: 768000,
+		ParParThreads:    8,
+		ParParSliceSize:  768000,
 		OneFichierFolder: "GO POST TOOLS", // dossier de rangement auto — vide = désactivé
-		FTPPort:         21,
-		PrivateFTPPort:  21,
-		FTPModPort:      21,
+		FTPPort:          21,
+		PrivateFTPPort:   21,
+		FTPModPort:       21,
 		TorrentPieceSize: 8 * 1024 * 1024, // 8 MiB
-		NexumBaseURL:    "https://nexum-core.com",
+		NexumBaseURL:     "https://nexum-core.com",
 		// TMDBProxyURL vide = API TMDB officielle (api.themoviedb.org).
 		// L'ancien proxy tmdb.uklm.xyz est mort — supprimé.
-		TMDBProxyURL:    "",
-		WatchFolder:     filepath.Join(func() string { h, _ := os.UserHomeDir(); return h }(), "Desktop", "LiHDL"),
+		TMDBProxyURL: "",
+		WatchFolder:  filepath.Join(func() string { h, _ := os.UserHomeDir(); return h }(), "Desktop", "LiHDL"),
 	}
 	data, err := os.ReadFile(configPath())
 	if err == nil {
 		_ = json.Unmarshal(data, cfg)
+	}
+	// Migration : une installation existante n'a qu'une clé. On la présente
+	// comme un premier compte nommé, pour que rien ne change à l'usage tant
+	// que l'utilisateur n'en ajoute pas d'autres.
+	if len(cfg.OneFichierAccounts) == 0 && strings.TrimSpace(cfg.OneFichierApiKey) != "" {
+		cfg.OneFichierAccounts = []OneFichierAccount{{
+			Label:  "Principal",
+			ApiKey: cfg.OneFichierApiKey,
+			Folder: cfg.OneFichierFolder,
+		}}
+		if cfg.OneFichierActive == "" {
+			cfg.OneFichierActive = "Principal"
+		}
 	}
 	// Override avec les defaults bakés au build SI ils sont définis (non-vides).
 	// Les secrets GitHub peuvent contenir des whitespaces/newlines parasites

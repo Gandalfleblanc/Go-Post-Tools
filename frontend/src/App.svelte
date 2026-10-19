@@ -44,6 +44,9 @@
   // Outils embarqués (parpar, nyuu, mediainfo) : l'app les contient, mais
   // il faut pouvoir le vérifier — un repli sur le PATH doit sauter aux yeux.
   let outils = []
+  // Comptes 1Fichier : on lie directement cfg.one_fichier_accounts. Un
+  // tableau local recopié dans cfg créait une dépendance circulaire
+  // (comptes1F → cfg → comptes1F), que Svelte refuse de compiler.
   $: if (activeTab === 'settings' && !outils.length) {
     BinariesStatus().then(r => outils = r || []).catch(() => {})
   }
@@ -166,6 +169,7 @@
     tmdb_proxy_url: 'https://tmdb.uklm.xyz',
     lihdl_base_url: '',
     one_fichier_api_key: '',
+    one_fichier_accounts: [],
     one_fichier_folder: 'GO POST TOOLS',
     sendcm_api_key: '',
     nexum_api_key: '',
@@ -1234,21 +1238,37 @@
           <div class="section">
             <div class="section-header">
               <span>1Fichier</span>
-              <button class="btn-test" on:click={() => runTest('onefichier', () => TestOneFichier(cfg.one_fichier_api_key))}>
+              <button class="btn-test" on:click={() => runTest('onefichier', () => TestOneFichier(((cfg.one_fichier_accounts || []).find(c => c.api_key) || {}).api_key || cfg.one_fichier_api_key))}>
                 {#if testLoading.onefichier}…{:else}Tester{/if}
               </button>
             </div>
             {#if testResults.onefichier}
               <div class="test-result" class:ok={testResults.onefichier.ok}>{testResults.onefichier.message}</div>
             {/if}
-            <div class="field">
-              <label>Clé API 1Fichier</label>
-              <input type="password" bind:value={cfg.one_fichier_api_key} placeholder="API key" />
+            <div class="field-hint" style="margin-bottom:10px">
+              Un compte par ligne. Celui qui sert à poster se choisit à côté de la pastille DDL,
+              sur l'écran Publier, sans repasser par ici.
             </div>
-            <div class="field">
-              <label>Dossier de rangement 1Fichier (optionnel)</label>
-              <input type="text" bind:value={cfg.one_fichier_folder} placeholder="ex : GO POST TOOLS (vide = pas de rangement)" />
-              <div class="field-hint">Après upload, le fichier est déplacé dans ce dossier à la racine de ton compte 1F (créé si absent). Vide = fichier laissé à la racine. Nécessite un tier 1F Premium/Gold pour la gestion API des dossiers.</div>
+            {#each cfg.one_fichier_accounts || [] as c, i}
+              <div class="c1f-row">
+                <input class="c1f-label" type="text" bind:value={c.label} placeholder="Nom (ex : GANDALF)" />
+                <input class="c1f-key" type="password" bind:value={c.api_key} placeholder="Clé API" />
+                <input class="c1f-folder" type="text" bind:value={c.folder} placeholder="Dossier (optionnel)" />
+                <button class="btn-test btn-danger c1f-del" title="Retirer ce compte"
+                        on:click={() => cfg.one_fichier_accounts = (cfg.one_fichier_accounts || []).filter((_, j) => j !== i)}>{@html ICO_TRASH}</button>
+              </div>
+            {/each}
+            <div class="chip-row" style="margin-top:8px">
+              <button class="btn-test" on:click={() => cfg.one_fichier_accounts = [...(cfg.one_fichier_accounts || []), { label: '', api_key: '', folder: 'GO POST TOOLS' }]}>
+                + Ajouter un compte
+              </button>
+            </div>
+            <div class="field-hint" style="margin-top:10px">
+              Le dossier de rangement est propre à chaque compte : après l'upload, le fichier y est
+              déplacé (créé si absent), ou laissé à la racine si le champ est vide. La gestion des
+              dossiers par l'API demande un tier 1F Premium ou Gold.
+              <br>⚠ Une clé 1Fichier est liée à <b>une seule adresse IP</b> : plusieurs comptes depuis
+              cette machine ne posent aucun problème, mais la même clé utilisée ailleurs sera refusée.
             </div>
           </div>
 
@@ -2115,6 +2135,12 @@
   .settings-hint { color: var(--text3); font-size: 12px; line-height: 1.5; margin-bottom: 8px; }
   .settings-hint-ok { display: inline-flex; align-items: center; gap: 6px; }
   .settings-hint-ok :global(.ui-ico) { color: var(--success); }
+
+  .c1f-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .c1f-row input { flex: 1; min-width: 0; }
+  .c1f-label  { max-width: 150px; }
+  .c1f-folder { max-width: 190px; }
+  .c1f-del { padding: 6px 9px !important; flex: none; }
 
   .outil {
     display: flex; align-items: baseline; gap: 12px;

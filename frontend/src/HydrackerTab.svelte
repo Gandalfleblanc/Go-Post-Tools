@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime.js'
-  import { ParseFilename, TMDBSearch, TMDBGetByID, IgdbSearch, IgdbGetByID, OpenBrowser, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetFileSize, ReadFileChunk, MediaInfoNative, MediaSearch, ListMyElyNzbs, ListMyElyDdls, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, GetVersion, GetElysiumMeta, ElysiumSearchTitles, ElysiumGetTitleByTmdbID, ElysiumGetTitleByIgdbID, ElysiumImportTitle } from '../wailsjs/go/main/App.js'
+  import { ParseFilename, TMDBSearch, TMDBGetByID, IgdbSearch, IgdbGetByID, OpenBrowser, SelectMkvFile, SelectMkvFiles, SelectFolder, SelectArchiveFile, PrepareSeasonFolder, FindFirstMkvInFolder, PostNzbWorkflow, PostDDLWorkflow, FetchImageBase64, GetFileSize, ReadFileChunk, MediaInfoNative, MediaSearch, ListMyElyNzbs, ListMyElyDdls, CancelAllWorkflows, Notify, CancelDDLHost, SkipCurrentEpisode, GetVersion, GetElysiumMeta, ElysiumSearchTitles, ElysiumGetTitleByTmdbID, ElysiumGetTitleByIgdbID, ElysiumImportTitle , OneFichierChoices, ActiveOneFichierLabel, SetActiveOneFichier} from '../wailsjs/go/main/App.js'
 
   // Adapter Elysium Title → forme "PartialTitle Hydracker" attendue par le reste
   // de la UI (variable historique `selectedHydracker`). L'app a pivoté sur Elysium
@@ -113,6 +113,24 @@
   let queueLangHint = null
   let queueSubHint = null
   let postUploadTypes = { nzb: false, ddl: false }
+
+  // Comptes 1Fichier : plusieurs clés possibles, une seule sert par post.
+  // Le choix est mémorisé côté Go, donc il survit au redémarrage.
+  let comptes1F = []
+  let compte1FActif = ''
+  async function chargerComptes1F() {
+    try {
+      comptes1F = await OneFichierChoices() || []
+      compte1FActif = await ActiveOneFichierLabel() || ''
+    } catch (e) { addLog('DDL', '⚠ comptes 1Fichier : ' + e) }
+  }
+  async function changerCompte1F(label) {
+    try {
+      await SetActiveOneFichier(label)
+      compte1FActif = label
+      addLog('DDL', `compte 1Fichier : « ${label} »`)
+    } catch (e) { addLog('DDL', '✗ ' + e) }
+  }
   // Torrent ADMIN n'est visible que pour les admins (= ceux qui ont déverrouillé
 
   // Send.now retiré 2026-09-04 : Elysium n'accepte que 1Fichier, unique host DDL.
@@ -294,6 +312,7 @@
   let subOptions = []      // [{id, name}] — liste spécifique aux sous-titres
 
   onMount(async () => {
+    chargerComptes1F()
     try { appVersion = await GetVersion() } catch(e) { appVersion = '' }
     // Chargement meta Elysium — remplacement direct des ex-appels
     // GetMetaQualities/Langs/Subs (Hydracker fermé 2026-09-03).
@@ -2709,6 +2728,14 @@
                   <span class="pill-icon"><svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.25 3.75h13.5v16.5H5.25zM8.25 3.75v5.25h7.5V3.75M9 15.75h6"/></svg></span><span class="pill-label">DDL</span>
                 </button>
               </div>
+              {#if postUploadTypes.ddl && comptes1F.length > 1}
+                <div class="compte1f">
+                  <span class="compte1f-k">Compte</span>
+                  <select bind:value={compte1FActif} on:change={e => changerCompte1F(e.target.value)}>
+                    {#each comptes1F as c}<option value={c}>{c}</option>{/each}
+                  </select>
+                </div>
+              {/if}
             </div>
 
             <div></div><!-- Send.now retiré 2026-09-04 : 1Fichier unique host DDL -->
@@ -3538,6 +3565,18 @@
   }
 
   /* Pills modernes "Uploader via" */
+  /* Sélecteur de compte 1Fichier : n'apparaît qu'avec plusieurs comptes
+     configurés, sinon il n'y a rien à choisir. */
+  .compte1f { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+  .compte1f-k {
+    font-family: var(--font-display); font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .18em; color: var(--text3);
+  }
+  .compte1f select {
+    padding: 5px 9px; font-size: 11.5px; border-radius: 7px;
+    background: rgba(61,220,132,.07); border: 1px solid rgba(61,220,132,.3);
+    color: var(--success); font-weight: 600;
+  }
   .upload-pills {
     display: flex;
     gap: 8px;

@@ -14,6 +14,8 @@ import {tester} from '../models';
 
 export function AcknowledgeTorrentAdmin(arg1:string):Promise<void>;
 
+export function ActiveOneFichierLabel():Promise<string>;
+
 export function AllDebridUnlock(arg1:string):Promise<alldebrid.UnlockedLink>;
 
 export function AutoReseedDDLFromHydracker(arg1:number,arg2:number,arg3:number,arg4:number,arg5:number):Promise<main.AutoReseedDDLResult>;
@@ -172,6 +174,8 @@ export function MediaSearch(arg1:string):Promise<Array<mediasearch.SearchResult>
 
 export function Notify(arg1:string,arg2:string):Promise<void>;
 
+export function OneFichierChoices():Promise<Array<string>>;
+
 export function OpenBrowser(arg1:string):Promise<void>;
 
 export function OpenHydrackerAdmin():Promise<void>;
@@ -201,6 +205,8 @@ export function SelectFolder():Promise<string>;
 export function SelectMkvFile():Promise<string>;
 
 export function SelectMkvFiles():Promise<Array<string>>;
+
+export function SetActiveOneFichier(arg1:string):Promise<void>;
 
 export function SetLihdlSettingsPassword(arg1:string,arg2:string):Promise<void>;
 
