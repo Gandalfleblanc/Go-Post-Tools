@@ -44,6 +44,12 @@
   // Outils embarqués (parpar, nyuu, mediainfo) : l'app les contient, mais
   // il faut pouvoir le vérifier — un repli sur le PATH doit sauter aux yeux.
   let outils = []
+  // Forme attendue d'une clé API 1Fichier. Un champ rempli avec autre chose
+  // — une URL, une liste de liens collée par mégarde — passait inaperçu : le
+  // test de clé validait tout, et l'envoi partait en anonyme, donc hors du
+  // compte. On ne bloque pas la saisie, on la signale.
+  const cleApparenteValide = k => /^[A-Za-z0-9_-]{20,80}$/.test(String(k || '').trim())
+
   // Comptes 1Fichier : on lie directement cfg.one_fichier_accounts. Un
   // tableau local recopié dans cfg créait une dépendance circulaire
   // (comptes1F → cfg → comptes1F), que Svelte refuse de compiler.
@@ -1257,6 +1263,13 @@
                 <button class="btn-test btn-danger c1f-del" title="Retirer ce compte"
                         on:click={() => cfg.one_fichier_accounts = (cfg.one_fichier_accounts || []).filter((_, j) => j !== i)}>{@html ICO_TRASH}</button>
               </div>
+              {#if c.api_key && !cleApparenteValide(c.api_key)}
+                <div class="c1f-alerte">
+                  Ceci ne ressemble pas à une clé API ({c.api_key.trim().length} caractères).
+                  Une clé 1Fichier fait une trentaine de caractères, lettres et chiffres uniquement —
+                  à récupérer sur 1fichier.com, Mon compte → Paramètres → API.
+                </div>
+              {/if}
             {/each}
             <div class="chip-row" style="margin-top:8px">
               <button class="btn-test" on:click={() => cfg.one_fichier_accounts = [...(cfg.one_fichier_accounts || []), { label: '', api_key: '', folder: 'GO POST TOOLS' }]}>
@@ -2141,6 +2154,11 @@
   .c1f-label  { max-width: 150px; }
   .c1f-folder { max-width: 190px; }
   .c1f-del { padding: 6px 9px !important; flex: none; }
+  .c1f-alerte {
+    font-size: 11px; color: var(--warning); line-height: 1.45;
+    background: rgba(255,200,61,.07); border: 1px solid rgba(255,200,61,.3);
+    border-radius: 7px; padding: 7px 10px; margin: -2px 0 8px;
+  }
 
   .outil {
     display: flex; align-items: baseline; gap: 12px;

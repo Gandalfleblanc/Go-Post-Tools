@@ -144,6 +144,35 @@ func UploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress f
 	}
 	c15 := &http.Client{Timeout: 15 * time.Second}
 
+	// 0. VÉRIFIER LA CLÉ AVANT D'ENVOYER QUOI QUE CE SOIT.
+	//
+	// get_upload_server.cgi répond un serveur et un identifiant même SANS clé
+	// valide — c'est le chemin des envois anonymes. Sans ce contrôle, une clé
+	// refusée laissait l'upload se dérouler normalement : le fichier partait
+	// en anonyme et n'atterrissait JAMAIS dans le compte. Deux épisodes ont
+	// disparu ainsi, sans le moindre message.
+	//
+	// ⚠ On ne bloque QUE sur un refus explicite (401/403). Un 429, une panne
+	// réseau ou une réponse inattendue laissent passer : 1Fichier limite le
+	// débit d'appels, et transformer ça en blocage coûterait plus cher que le
+	// problème qu'on corrige. Et surtout PAS account/info.cgi, qui répond 200
+	// avec la page HTML du site pour n'importe quelle clé — c'est ce qui
+	// rendait le bouton « Tester » incapable de repérer une clé morte.
+	reqAuth, _ := http.NewRequestWithContext(ctx, "POST",
+		"https://api.1fichier.com/v1/user/info.cgi", strings.NewReader("{}"))
+	reqAuth.Header.Set("Authorization", "Bearer "+apiKey)
+	reqAuth.Header.Set("Content-Type", "application/json")
+	if authResp, err := c15.Do(reqAuth); err == nil {
+		authBody, _ := io.ReadAll(authResp.Body)
+		authResp.Body.Close()
+		if authResp.StatusCode == 401 || authResp.StatusCode == 403 {
+			return nil, fmt.Errorf("clé 1Fichier refusée (HTTP %d) — rien n'a été envoyé. "+
+				"Vérifie la clé du compte sélectionné dans Réglages. Rappel : une clé 1Fichier "+
+				"est liée à UNE adresse IP, donc si elle sert déjà ailleurs elle est rejetée ici. %s",
+				authResp.StatusCode, truncateStr(string(authBody), 160))
+		}
+	}
+
 	// 1. Obtenir le serveur d'upload
 	reqServer, _ := http.NewRequestWithContext(ctx, "GET", "https://api.1fichier.com/v1/upload/get_upload_server.cgi", nil)
 	reqServer.Header.Set("Authorization", "Bearer "+apiKey)

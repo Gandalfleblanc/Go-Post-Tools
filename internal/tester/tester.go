@@ -109,8 +109,12 @@ func TestTMDB(apiKey string) Result {
 }
 
 func TestOneFichier(apiKey string) Result {
-	req, _ := http.NewRequest("GET", "https://api.1fichier.com/v1/account/info.cgi", nil)
+	// account/info.cgi répond 200 avec la PAGE HTML du site, quelle que soit la
+	// clé : le test validait donc n'importe quoi, clé morte comprise. Le vrai
+	// point d'API authentifié est un POST sur user/info.cgi.
+	req, _ := http.NewRequest("POST", "https://api.1fichier.com/v1/user/info.cgi", strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
 	c := &http.Client{Timeout: 10 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {
