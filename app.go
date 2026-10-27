@@ -61,7 +61,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "10.2.9"
+const Version = "10.3.0"
 
 type App struct {
 	ctx         context.Context
@@ -4662,7 +4662,7 @@ func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, su
 	logEvent(fmt.Sprintf("1Fichier : connexion au serveur… (compte « %s »)", compte1F.Label))
 	res, err := uploader.UploadOneFichier(hostCtx, compte1F.ApiKey, mkvPath, func(p uploader.UploadProgress) {
 		emitProgress("1Fichier", p)
-	})
+	}, logEvent)
 	emitDone("1Fichier", err)
 	if err != nil {
 		if hostCtx.Err() != nil && a.workContext().Err() == nil {

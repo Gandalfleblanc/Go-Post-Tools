@@ -8,11 +8,13 @@ import (
 	"io"
 	"math/rand"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,6 +23,45 @@ func truncateStr(s string, n int) string {
 		return s[:n] + "…"
 	}
 	return s
+}
+
+const (
+	// Nombre d'envois tentés avant d'abandonner un fichier, et délai entre deux.
+	oneFichierMaxTentatives = 3
+	oneFichierDelaiReprise  = 10 * time.Second
+	// Temps sans le moindre octet envoyé au bout duquel on considère l'envoi
+	// bloqué et on coupe. Sans ce garde-fou, un serveur upX qui ne répond plus
+	// laissait l'app figée à 0 % indéfiniment : le client d'upload n'a
+	// volontairement aucun Timeout global (un gros fichier dure longtemps).
+	oneFichierDelaiBlocage = 75 * time.Second
+)
+
+// lecteurSurveille : note l'heure du dernier octet réellement lu par le
+// client HTTP, pour que le chien de garde sache si l'envoi avance encore.
+type lecteurSurveille struct {
+	r       io.Reader
+	dernier *atomic.Int64
+}
+
+func (l *lecteurSurveille) Read(p []byte) (int, error) {
+	n, err := l.r.Read(p)
+	if n > 0 {
+		l.dernier.Store(time.Now().UnixNano())
+	}
+	return n, err
+}
+
+// patienter : attend d, ou rend la main tout de suite si le contexte est
+// annulé (Stop côté interface). Renvoie false quand l'attente a été coupée.
+func patienter(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 type OneFichierResult struct {
@@ -138,7 +179,7 @@ func MoveToOneFichierFolder(ctx context.Context, apiKey string, fileURLs []strin
 	}, nil)
 }
 
-func UploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress func(UploadProgress)) (*OneFichierResult, error) {
+func UploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress func(UploadProgress), onLog func(string)) (*OneFichierResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -172,6 +213,43 @@ func UploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress f
 				authResp.StatusCode, truncateStr(string(authBody), 160))
 		}
 	}
+
+	// Reprise : jusqu'ici la moindre coupure réseau pendant l'envoi — ou un
+	// serveur upX.1fichier.com saturé — remontait l'erreur telle quelle et le
+	// post était perdu. On redemande un serveur d'upload à chaque tentative :
+	// 1Fichier en attribue généralement un autre, au lieu de s'acharner sur
+	// celui qui vient de lâcher.
+	var dernierErr error
+	for essai := 1; essai <= oneFichierMaxTentatives; essai++ {
+		res, err := tentativeUploadOneFichier(ctx, apiKey, filePath, onProgress)
+		if err == nil {
+			return res, nil
+		}
+		dernierErr = err
+		// Annulation par l'utilisateur : on ne relance pas.
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		if essai == oneFichierMaxTentatives {
+			break
+		}
+		if onLog != nil {
+			onLog(fmt.Sprintf("1Fichier : tentative %d/%d échouée (%s) — nouvel essai sur un autre serveur dans %s…",
+				essai, oneFichierMaxTentatives, err, oneFichierDelaiReprise))
+		}
+		if onProgress != nil {
+			onProgress(UploadProgress{Percent: 0})
+		}
+		if !patienter(ctx, oneFichierDelaiReprise) {
+			return nil, dernierErr
+		}
+	}
+	return nil, fmt.Errorf("%d tentatives échouées — %w", oneFichierMaxTentatives, dernierErr)
+}
+
+// tentativeUploadOneFichier : un envoi complet, du serveur d'upload au lien.
+func tentativeUploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress func(UploadProgress)) (*OneFichierResult, error) {
+	c15 := &http.Client{Timeout: 15 * time.Second}
 
 	// 1. Obtenir le serveur d'upload
 	reqServer, _ := http.NewRequestWithContext(ctx, "GET", "https://api.1fichier.com/v1/upload/get_upload_server.cgi", nil)
@@ -214,6 +292,7 @@ func UploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress f
 	contentLength := int64(measure.Len()) + totalSize
 
 	// Pipe : goroutine écrit, HTTP client lit via progressReader
+	var envoiFini atomic.Bool
 	pr, pw := io.Pipe()
 	w := multipart.NewWriter(pw)
 	_ = w.SetBoundary(boundary)
@@ -243,6 +322,7 @@ func UploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress f
 		}
 		w.Close()
 		pw.Close()
+		envoiFini.Store(true)
 	}()
 
 	// progressReader sur le côté réseau (ce que le HTTP client lit réellement)
@@ -251,14 +331,53 @@ func UploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress f
 		body = newProgressReader(pr, contentLength, onProgress)
 	}
 
+	// Chien de garde : surveille l'heure du dernier octet parti. Tant que le
+	// corps n'est pas entièrement écrit, un silence prolongé veut dire que le
+	// serveur d'upload ne répond plus — on coupe, et la boucle de reprise
+	// redemande un autre serveur. Une fois le corps envoyé on désarme : 1F
+	// prend son temps pour digérer le fichier avant de répondre.
+	var dernierOctet atomic.Int64
+	dernierOctet.Store(time.Now().UnixNano())
+	body = &lecteurSurveille{r: body, dernier: &dernierOctet}
+
+	ctxUp, annulerUp := context.WithCancel(ctx)
+	defer annulerUp()
+	var bloque atomic.Bool
+	go func() {
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctxUp.Done():
+				return
+			case <-t.C:
+				if envoiFini.Load() {
+					return
+				}
+				if time.Since(time.Unix(0, dernierOctet.Load())) > oneFichierDelaiBlocage {
+					bloque.Store(true)
+					annulerUp()
+					return
+				}
+			}
+		}
+	}()
+
+	// Timeouts de transport : un serveur injoignable doit échouer vite, pas
+	// au bout du chien de garde. Pas de Timeout global sur le client — il
+	// couperait les gros envois en plein milieu.
+	trUp := http.DefaultTransport.(*http.Transport).Clone()
+	trUp.DialContext = (&net.Dialer{Timeout: 20 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	trUp.TLSHandshakeTimeout = 20 * time.Second
 	noRedirect := &http.Client{
-		Timeout: 0,
+		Timeout:   0,
+		Transport: trUp,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
 
-	reqUp, _ := http.NewRequestWithContext(ctx, "POST", uploadURL, body)
+	reqUp, _ := http.NewRequestWithContext(ctxUp, "POST", uploadURL, body)
 	reqUp.Header.Set("Content-Type", w.FormDataContentType())
 	reqUp.Header.Set("Authorization", "Bearer "+apiKey)
 	// JSON: 1 pour forcer 1Fichier à répondre en JSON au lieu de HTML (sinon
@@ -269,6 +388,10 @@ func UploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress f
 
 	upResp, err := noRedirect.Do(reqUp)
 	if err != nil {
+		if bloque.Load() {
+			return nil, fmt.Errorf("envoi bloqué : plus aucun octet accepté par %s depuis %s",
+				serverResp.URL, oneFichierDelaiBlocage)
+		}
 		return nil, fmt.Errorf("upload: %w", err)
 	}
 	upBody, _ := io.ReadAll(upResp.Body)
@@ -329,18 +452,34 @@ func UploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress f
 		return nil, fmt.Errorf("upload 1Fichier HTTP %d (aucun lien détecté dans le body) : %s", upResp.StatusCode, truncateStr(string(upBody), 400))
 	}
 
+	// Récupération du lien : le fichier est déjà parti, il ne manque plus que
+	// son URL de partage. Le handshake TLS avec upX.1fichier.com peut traîner
+	// quand le serveur est chargé — 15 s pour TOUTE la requête ne laissait
+	// aucune marge, et un envoi entier finissait à la poubelle pour un simple
+	// lien non récupéré. Donc : handshake au large, et trois essais.
 	endURL := "https://" + serverResp.URL + "/end.pl?xid=" + xid
-	reqEnd, _ := http.NewRequestWithContext(ctx, "GET", endURL, nil)
-	reqEnd.Header.Set("JSON", "1")
-	reqEnd.Header.Set("Authorization", "Bearer "+apiKey)
-	reqEnd.Header.Set("Content-Type", "application/json")
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSHandshakeTimeout = 30 * time.Second
+	cEnd := &http.Client{Timeout: 90 * time.Second, Transport: transport}
 
-	endResp, err := c15.Do(reqEnd)
-	if err != nil {
-		return nil, fmt.Errorf("récupération liens: %w", err)
+	var endBody []byte
+	for essai := 1; essai <= 3; essai++ {
+		reqEnd, _ := http.NewRequestWithContext(ctx, "GET", endURL, nil)
+		reqEnd.Header.Set("JSON", "1")
+		reqEnd.Header.Set("Authorization", "Bearer "+apiKey)
+		reqEnd.Header.Set("Content-Type", "application/json")
+
+		endResp, err := cEnd.Do(reqEnd)
+		if err != nil {
+			if essai == 3 || ctx.Err() != nil || !patienter(ctx, 5*time.Second) {
+				return nil, fmt.Errorf("récupération liens (%d tentatives): %w", essai, err)
+			}
+			continue
+		}
+		endBody, _ = io.ReadAll(endResp.Body)
+		endResp.Body.Close()
+		break
 	}
-	endBody, _ := io.ReadAll(endResp.Body)
-	endResp.Body.Close()
 
 	if r := tryParseLinks(endBody); r != nil {
 		return r, nil

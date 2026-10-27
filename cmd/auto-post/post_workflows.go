@@ -513,7 +513,7 @@ func runDDLWorkflow(cfg *Config, hyd *api.Client, mkvPath string, titleID, quali
 
 	if cfg.OneFichier.APIKey != "" {
 		log.Printf("[auto-post] DDL upload 1Fichier (%s)...", filepath.Base(mkvPath))
-		res, err := uploader.UploadOneFichier(ctx, cfg.OneFichier.APIKey, mkvPath, nil)
+		res, err := uploader.UploadOneFichier(ctx, cfg.OneFichier.APIKey, mkvPath, nil, nil)
 		if err != nil {
 			return urls, fmt.Errorf("1Fichier upload: %w", err)
 		}
