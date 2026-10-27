@@ -169,20 +169,23 @@
         postUploadTypes.ddl ? prendre(ListMyElyDdls).catch(() => new Set()) : new Set(),
       ])
 
-      const nomsLangOk = new Set(langOptions.map(o => o.name))
       const fichiers = await parLots(chemins, 5, async (chemin) => {
         const nom = chemin.split(/[\\/]/).pop()
         const alertes = []
 
-        // 1. Langues tirées du nom : c'est ce repli qui a envoyé « VOSTFR »
-        //    et fait refuser le post entier en HTTP 422.
+        // 1. PAS de contrôle des langues ici.
+        //
+        //    Le parseur de nom en déduit « VOSTFR », « MULTi » et consorts,
+        //    mais ces valeurs ne sont JAMAIS envoyées : les langues réelles
+        //    viennent de MediaInfo, lu au moment du post. Alerter là-dessus
+        //    faisait crier au loup sur chaque release VOSTFR dont l'audio est
+        //    pourtant correctement détecté en anglais ou en japonais.
+        //
+        //    Le vrai garde-fou est ailleurs et suffit : les noms hors liste
+        //    Elysium sont écartés juste avant l'envoi, ce qui supprime le
+        //    HTTP 422 sans rien avoir à prédire.
         let info = null
         try { info = await ParseFilename(nom) } catch (_) {}
-        for (const l of (info?.languages || [])) {
-          if (l && !nomsLangOk.has(l)) {
-            alertes.push({ niveau: 'warn', texte: `Langue « ${l} » hors liste Elysium — elle sera écartée` })
-          }
-        }
 
         // 2. Fiche. On reproduit EXACTEMENT le chemin réel : nettoyage de la
         //    numérotation, mediasearch, puis repli TMDB. Et si une fiche est
