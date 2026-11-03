@@ -281,6 +281,10 @@
   // décollage : les avoir écrites deux fois faisait signaler « aucune fiche »
   // sur des épisodes parfaitement trouvables, le contrôle cherchant
   // « One Piece E965 CUSTOM » là où la recherche cherchait « One Piece ».
+  function normTitre(t) {
+    return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  }
+
   function decouperNumerotation(titreBrut) {
     const t = String(titreBrut || '')
     const m = t.match(/^(.+?)[\s._-]+(\d{1,4})$/) || t.match(/^(.+?)[\s._-]+E(\d{2,4})\b/i)
@@ -693,6 +697,11 @@
 
   let queueTMDBHint = 0  // id TMDB à réutiliser pour les items suivants d'une même queue
   let queueTMDBHintType = '' // 'tv' ou 'movie' — survit au reset selectedTMDB fait par loadFileFromPath
+  // Titre de release auquel ce repère appartient. Sans lui, une file contenant
+  // plusieurs séries (CIA, FBI, Phony…) collait la fiche du PREMIER show à
+  // tous les épisodes suivants : tout partait sur la mauvaise fiche, sans un
+  // mot. Le repère ne vaut donc que pour les fichiers du même titre.
+  let queueTMDBHintTitle = ''
   // Paire {wrongTmdbId → correctHydrackerId} : si l'auto-detect TMDB d'un futur
   // épisode donne le même MAUVAIS tmdb_id, on bascule direct sur la fiche corrigée.
   // Évite que le hint contamine des épisodes d'autres shows.
@@ -724,6 +733,7 @@
     // les 10 épisodes droppés) → réutilisée sur tous les items suivants.
     queueTMDBHint = selectedTMDB?.id || 0
     queueTMDBHintType = selectedTMDB?.media_type || ''
+    queueTMDBHintTitle = queueTMDBHint ? normTitre(fileInfo?.title) : ''
     // Reset du hint Hydracker au début de chaque queue (évite de propager
     // une correction d'une queue précédente).
     queueHydrackerHint = { wrongTmdbId: 0, correctHydrackerId: 0 }
@@ -766,6 +776,7 @@
     queueProcessing = false
     queueTMDBHint = 0
     queueTMDBHintType = ''
+    queueTMDBHintTitle = ''
     queueHydrackerHint = { wrongTmdbId: 0, correctHydrackerId: 0 }
     queueQualityHint = ''
     queueLangHint = null
@@ -1556,7 +1567,14 @@
     // Le type doit venir du hint (queueTMDBHintType), PAS de selectedTMDB : ce
     // dernier vient d'être resetté à null par loadFileFromPath juste avant.
     const hintIsSeries = queueTMDBHintType === 'tv'
-    if (queueTMDBHint && hintIsSeries && currentIsEpisode && (queue.length > 0 || queueProcessing)) {
+    // ⚠ Le repère ne vaut que pour la série qui l'a posé : une file mélangeant
+    // plusieurs shows postait tout sur la fiche du premier.
+    const memeSerie = !queueTMDBHintTitle || normTitre(fileInfo?.title) === queueTMDBHintTitle
+    if (queueTMDBHint && hintIsSeries && currentIsEpisode && !memeSerie) {
+      addLog('QUEUE', `↺ série différente (« ${fileInfo?.title} » ≠ « ${queueTMDBHintTitle} ») — `
+        + `fiche #${queueTMDBHint} NON héritée, recherche relancée`)
+    }
+    if (queueTMDBHint && hintIsSeries && currentIsEpisode && memeSerie && (queue.length > 0 || queueProcessing)) {
       try {
         const movie = await TMDBGetByID(queueTMDBHint, 'tv')
         if (movie) {
@@ -1675,7 +1693,7 @@
         // En mode queue, si on a un hint (fiche TMDB sélectionnée pour un épisode
         // précédent du même show), on l'applique automatiquement sans reposer la
         // question à l'utilisateur.
-        const hinted = queueTMDBHint ? tmdbResults.find(r => r.id === queueTMDBHint) : null
+        const hinted = (queueTMDBHint && memeSerie) ? tmdbResults.find(r => r.id === queueTMDBHint) : null
         if (hinted) {
           addLog('TMDB', `↺ fiche réutilisée depuis la queue (id ${queueTMDBHint})`)
           await selectTMDB(hinted)
@@ -1831,6 +1849,7 @@
         addLog('QUEUE', `↺ hint TMDB resync : #${queueTMDBHint || '?'} → #${movie.id} (correction manuelle)`)
         queueTMDBHint = movie.id
         queueTMDBHintType = 'tv'
+        queueTMDBHintTitle = normTitre(fileInfo?.title)
       }
     }
     posterDataUrl = ''
@@ -1942,6 +1961,7 @@
                 addLog('QUEUE', `↺ hint TMDB resync : #${queueTMDBHint || '?'} → #${movie.id} (fiche Elysium manuelle)`)
                 queueTMDBHint = movie.id
                 queueTMDBHintType = 'tv'
+                queueTMDBHintTitle = normTitre(fileInfo?.title)
               }
               posterDataUrl = ''
               if (movie.poster_path) {
@@ -2163,6 +2183,7 @@
     queue = []
     queueTMDBHint = 0
     queueTMDBHintType = ''
+    queueTMDBHintTitle = ''
     queueQualityHint = ''
     queueLangHint = null
     queueSubHint = null

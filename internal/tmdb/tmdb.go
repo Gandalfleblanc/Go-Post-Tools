@@ -25,8 +25,22 @@ var (
 
 type Client struct {
 	base       string
+	secours    string
 	token      string
 	httpClient *http.Client
+}
+
+// AvecSecours : index de repli, utilisé quand le proxy principal est en
+// panne. Le proxy par défaut est hébergé sur le serveur Elysium : le jour où
+// il tombe (migration, fichier de notes manquant…), plus AUCUNE fiche n'est
+// détectable et l'app devient inutilisable. Le champ « Index de recherche
+// TMDB » des Réglages sert désormais de roue de secours.
+func (c *Client) AvecSecours(baseURL string) *Client {
+	baseURL = normaliserBase(strings.TrimSpace(baseURL))
+	if baseURL != "" && baseURL != c.base {
+		c.secours = baseURL
+	}
+	return c
 }
 
 // NewClient : signature rétrocompat (apiKey ignoré — auth via token bakée).
@@ -248,7 +262,22 @@ func (h searchHit) toMovie() Movie {
 
 // doGet : GET sur le proxytmdb (format UKLM ?t=X&q=Y) avec header X-GPT-Token.
 func (c *Client) doGet(params url.Values) ([]byte, error) {
-	req, err := http.NewRequest("GET", c.base+"?"+params.Encode(), nil)
+	body, err := c.doGetSur(c.base, params)
+	if err == nil || c.secours == "" {
+		return body, err
+	}
+	// Le principal a échoué : on retente sur l'index de secours plutôt que de
+	// rendre l'app aveugle. L'erreur du principal reste dans le message si le
+	// secours échoue aussi, pour ne pas masquer la vraie panne.
+	body2, err2 := c.doGetSur(c.secours, params)
+	if err2 != nil {
+		return nil, fmt.Errorf("%w (secours %s : %v)", err, c.secours, err2)
+	}
+	return body2, nil
+}
+
+func (c *Client) doGetSur(base string, params url.Values) ([]byte, error) {
+	req, err := http.NewRequest("GET", base+"?"+params.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +298,7 @@ func (c *Client) doGet(params url.Values) ([]byte, error) {
 	// fautif, plutôt que de laisser le parseur JSON échouer sans contexte.
 	if estHTML(body) {
 		return nil, fmt.Errorf("le proxy TMDB a répondu une page web au lieu de données (URL %s) — "+
-			"corrige « Index de recherche TMDB » dans Réglages, le chemin /api manque probablement", c.base)
+			"corrige « Index de recherche TMDB » dans Réglages, le chemin /api manque probablement", base)
 	}
 	return body, nil
 }

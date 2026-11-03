@@ -61,7 +61,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "10.3.2"
+const Version = "10.4.0"
 
 type App struct {
 	ctx         context.Context
@@ -1157,7 +1157,10 @@ func (a *App) TestUsenet(host string, port int) tester.Result {
 // tmdb.uklm.xyz (mort) → causerait des HTML 404. Le proxy Elysium est
 // team-shared, aucune raison de laisser la valeur utilisateur gagner.
 func (a *App) tmdbClient() *tmdb.Client {
-	return tmdb.NewClientWithBase("")
+	// Proxy Elysium en principal, « Index de recherche TMDB » des Réglages en
+	// secours : le principal vit sur le serveur Elysium, et quand il tombe
+	// plus aucune fiche n'est détectable.
+	return tmdb.NewClientWithBase("").AvecSecours(a.cfg.TMDBProxyURL)
 }
 
 func (a *App) TMDBSearch(query string) ([]tmdb.Movie, error) {
