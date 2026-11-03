@@ -208,8 +208,8 @@
           // deux échouent — sinon le contrôle crie au loup sur des épisodes
           // parfaitement trouvables.
           const essais = []
-          essais.push(info?.year ? `${titre} ${info.year}` : titre)
-          if (titreBrut && titreBrut !== titre) essais.push(titreBrut)
+          essais.push(requeteFiche(titre, info))
+          if (titreBrut && titreBrut !== titre) essais.push(requeteFiche(titreBrut, info))
           let trouve = false
           let erreur = ''
           for (const q of essais) {
@@ -288,6 +288,22 @@
     const n = parseInt(m[2])
     if (!(n > 0 && n < 1900)) return null
     return { titre: m[1].trim(), episode: n }
+  }
+
+  // Requête envoyée au proxy TMDB. Le proxy EXIGE une année ou un marqueur
+  // d'épisode : « CIA » seul répond « Year or episode not found in query »,
+  // alors que « CIA S02E05 » rend 26 résultats. Les releases de séries n'ont
+  // presque jamais l'année dans le nom, donc sans le marqueur AUCUN épisode
+  // de série n'est trouvable. Partagée par la recherche réelle et le contrôle
+  // avant décollage : les deux avaient divergé, et le contrôle criait au loup
+  // sur des fiches que la recherche trouvait sans peine.
+  function requeteFiche(titre, info) {
+    const annee = info?.year || ''
+    const base = annee ? `${titre} ${annee}` : titre
+    if (!info?.season) return base
+    const s = String(info.season).padStart(2, '0')
+    const e = String(info.episode || 1).padStart(2, '0')
+    return `${base} S${s}E${e}`
   }
 
   let queueEpisodeAnchor = null  // { rawEp: int, saison: int, episode: int } | null
@@ -1599,18 +1615,8 @@
       // le nom contient l'année (ex : Truth.Be.Told.2019.S01E01 → query
       // « Truth Be Told 2019 » = 404 côté proxy, alors que « Truth Be Told
       // 2019 S01E01 » remonte la série).
-      const year = fileInfo?.year || ''
-      let q = query
-      if (fileInfo?.season && fileInfo?.episode) {
-        const s = String(fileInfo.season).padStart(2, '0')
-        const e = String(fileInfo.episode).padStart(2, '0')
-        q = year ? `${query} ${year} S${s}E${e}` : `${query} S${s}E${e}`
-      } else if (fileInfo?.season) {
-        const s = String(fileInfo.season).padStart(2, '0')
-        q = year ? `${query} ${year} S${s}E01` : `${query} S${s}E01`
-      } else if (year) {
-        q = `${query} ${year}`
-      }
+      const q = requeteFiche(query, fileInfo)
+      addLog('TMDB', `requête proxy : "${q}"`)
       let spResults = []
       try { spResults = await MediaSearch(q) || [] } catch(e) { addLog('TMDB', '⚠ mediasearch: ' + e) }
       addLog('TMDB', `mediasearch : ${spResults.length} résultat(s)`)
