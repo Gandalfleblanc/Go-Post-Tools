@@ -24,7 +24,9 @@ jobs:
           # c'est « bad CPU type in executable » et plus aucun NZB.
           # macos-arm64 n'existe qu'à partir de ParPar v0.4.6.
           - arch: arm64
-            runner: macos-14
+            # macos-14 a été retiré par GitHub (« configuration not supported ») :
+            # le job était annulé à la seconde. macos-latest est une image arm64.
+            runner: macos-latest
             parpar_asset: parpar-v0.4.6-macos-arm64.xz
             nyuu_asset: nyuu-v0.4.2-Obfuscate1.4-mac-arm64.txz
             bindir: darwin-arm64
