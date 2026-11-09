@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html"
 	"io"
 	"math/rand"
 	"mime/multipart"
@@ -12,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -99,6 +102,22 @@ func oneFichierAPI(ctx context.Context, apiKey, path string, body any, out any) 
 // les endpoints /folder/* (tier restreint, clé fraîche, IP-lock côté user).
 // L'upload lui-même a bien réussi — juste le rangement dossier qui ne
 // passe pas. Message court pour affichage frontend.
+// ErrIPBloquee : 1Fichier refuse les envois depuis cette adresse IP. Le
+// serveur d'upload répond alors 200 avec sa page web, dont le seul message
+// est « IP Locked. ». C'est un blocage d'adresse, pas de compte : tous les
+// comptes échouent pareil, le site aussi. Relancer ne fait qu'entretenir
+// l'anti-flood, donc on s'arrête net.
+var ErrIPBloquee = errors.New("1Fichier bloque ton adresse IP (« IP Locked ») — " +
+	"ni la clé ni le compte ne sont en cause, tous tes comptes échoueront pareil. " +
+	"Arrête les envois DDL une heure environ sans réessayer ; si ça persiste, " +
+	"vérifie la restriction d'IP dans Mon compte → Paramètres sur 1fichier.com, " +
+	"ou redémarre ta box pour changer d'IP")
+
+// estIPBloquee : repère le blocage d'IP dans une réponse 1Fichier.
+func estIPBloquee(body []byte) bool {
+	return strings.Contains(strings.ToLower(string(body)), "ip locked")
+}
+
 type FolderAPIUnsupportedError struct{ Raw string }
 
 func (e *FolderAPIUnsupportedError) Error() string {
@@ -226,8 +245,8 @@ func UploadOneFichier(ctx context.Context, apiKey, filePath string, onProgress f
 			return res, nil
 		}
 		dernierErr = err
-		// Annulation par l'utilisateur : on ne relance pas.
-		if ctx.Err() != nil {
+		// Annulation par l'utilisateur, ou IP bloquée : on ne relance pas.
+		if ctx.Err() != nil || errors.Is(err, ErrIPBloquee) {
 			return nil, err
 		}
 		if essai == oneFichierMaxTentatives {
@@ -436,6 +455,9 @@ func tentativeUploadOneFichier(ctx context.Context, apiKey, filePath string, onP
 	if r := tryParseLinks(upBody); r != nil {
 		return r, nil
 	}
+	if estIPBloquee(upBody) {
+		return nil, ErrIPBloquee
+	}
 
 	// Étape 2 : suivre un redirect 302 vers /end.pl?xid=<REAL_XID>. Le xid du
 	// Location diffère de serverResp.ID (qui n'est qu'un id de requête initial).
@@ -514,8 +536,23 @@ func tentativeUploadOneFichier(ctx context.Context, apiKey, filePath string, onP
 			}
 		}
 		// Body length + preview
-		return fmt.Sprintf("len=%d preview=%s", len(body), truncateStr(strings.ReplaceAll(string(body), "\n", " "), 400))
+		return fmt.Sprintf("len=%d texte=%s", len(body), truncateStr(texteVisible(body), 300))
 	}
 	return nil, fmt.Errorf("1Fichier a rejeté l'upload (HTTP %d) — %s · end.pl: %s",
 		upResp.StatusCode, extractErr(upBody), extractErr(endBody))
 }
+
+// texteVisible : le texte lisible d'une page HTML 1Fichier, sans balises ni
+// en-tête. L'erreur affichait 400 caractères de <!DOCTYPE…> où le vrai
+// message (« IP Locked. ») n'apparaissait même pas.
+func texteVisible(body []byte) string {
+	t := reTeteHTML.ReplaceAllString(string(body), " ")
+	t = reBalise.ReplaceAllString(t, " ")
+	t = html.UnescapeString(t)
+	return strings.Join(strings.Fields(t), " ")
+}
+
+var (
+	reTeteHTML = regexp.MustCompile(`(?is)<(head|script|style)\b.*?</(head|script|style)>`)
+	reBalise   = regexp.MustCompile(`<[^>]*>`)
+)
