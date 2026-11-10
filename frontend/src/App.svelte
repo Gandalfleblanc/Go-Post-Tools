@@ -53,7 +53,11 @@
   // Comptes 1Fichier : on lie directement cfg.one_fichier_accounts. Un
   // tableau local recopié dans cfg créait une dépendance circulaire
   // (comptes1F → cfg → comptes1F), que Svelte refuse de compiler.
-  $: if (activeTab === 'settings' && !outils.length) {
+  // Drapeau plutôt que « !outils.length » : une liste vide relançait sinon
+  // ce bloc à chaque réponse, sans fin.
+  let outilsDemandes = false
+  $: if (activeTab === 'settings' && !outilsDemandes) {
+    outilsDemandes = true
     BinariesStatus().then(r => outils = r || []).catch(() => {})
   }
 
@@ -207,7 +211,6 @@
   let watchRunning = false
   let updateInfo = null  // { available, current, latest, url }
   let cfgSaved = false
-  let sidebarCollapsed = false
   let updateChecking = false
   let updateCheckMsg = ''
 
@@ -600,7 +603,18 @@
     myLoading = false
   }
 
-  $: if (activeTab === 'myuploads') { loadMyUploads(); if (!qualityOptions.length) GetMetaQualities().then(q => qualityOptions = q || []).catch(() => {}) }
+  // Deux déclarations séparées. Réunies, la réponse de GetMetaQualities
+  // relançait le bloc entier (il dépendait de qualityOptions) : une liste
+  // vide renvoyée par Elysium déclenchait alors une boucle sans fin de
+  // requêtes, et chaque tour rechargeait aussi les uploads.
+  let qualitesDemandees = false
+  $: if (activeTab === 'myuploads') loadMyUploads()
+  $: if (activeTab === 'myuploads' && !qualitesDemandees) {
+    qualitesDemandees = true
+    // Pas de relance sur erreur : remettre le drapeau à false relancerait ce
+    // bloc aussitôt, et une API en panne recréerait la boucle.
+    GetMetaQualities().then(q => qualityOptions = q || []).catch(() => {})
+  }
   $: if (myTab) { myPage = 1 }
 
   function startEdit(item) {
@@ -886,58 +900,48 @@
 </script>
 
 <div class="layout">
-  <!-- Sidebar -->
-  <aside class="sidebar" class:collapsed={sidebarCollapsed}>
-    <button class="sidebar-toggle" on:click={() => sidebarCollapsed = !sidebarCollapsed} title={sidebarCollapsed ? 'Déplier la barre' : 'Replier la barre'}>
-      {sidebarCollapsed ? '›' : '‹'}
-    </button>
+  <!-- En-tête à onglets (v11) : même langage que GO Mux et LiHDL Post
+       Discord. La barre latérale verticale a disparu, l'écran récupère
+       toute sa largeur. -->
+  <header class="topbar">
     <div class="brand">
       <!-- Pivot 2026-09-03 : Hydracker fermé, Elysium devient la cible unique. -->
-      <!-- Losange en CSS pur. Le mot ELYSIUM est du texte HTML en Oxanium,
-           donc il suit la typographie de l'interface au lieu d'être gravé
-           dans un SVG avec une police système. -->
-      <div class="mark" aria-hidden="true"></div>
-      {#if !sidebarCollapsed}
-        <div class="wordmark">ELYSIUM</div>
+      <div class="brand-tile" aria-hidden="true"><div class="mark"></div></div>
+      <div class="brand-text">
         <div class="logo">GO Post Tools</div>
-        {#if appVersion}<div class="brand-version">v{appVersion}</div>{/if}
-        <div class="brand-author">By ASTROBOY</div>
-      {/if}
+        <div class="brand-meta">
+          Elysium{#if appVersion}{' · '}<b>v{appVersion}</b>{/if}{' · '}by Astroboy{#if myUsername}{' · '}{myUsername}{/if}
+        </div>
+      </div>
     </div>
 
-    <!-- Carte user retirée : plus d'auth (identité via token Hydracker) -->
-    {#if myUsername && !sidebarCollapsed}
-      <div style="text-align:center;font-size:11px;color:var(--text3);margin-bottom:8px">
-        Connecté : <b style="color:var(--text2)">{myUsername}</b>
-      </div>
-    {/if}
-
-    <nav>
+    <nav class="tabs" aria-label="Sections">
       {#each visibleTabs as tab}
-        <button class="nav-item" class:active={activeTab === tab.id}
-          on:click={() => activeTab = tab.id} title={sidebarCollapsed ? tab.label : ''}>
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <button class="tab" class:active={activeTab === tab.id}
+          aria-current={activeTab === tab.id ? 'page' : undefined}
+          on:click={() => activeTab = tab.id}>
+          <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d={tab.icon}/>
           </svg>
-          {#if !sidebarCollapsed}<span class="nav-text">{tab.label}</span>{/if}
+          <span>{tab.label}</span>
         </button>
       {/each}
     </nav>
-    <div class="sidebar-footer">
+
+    <div class="topbar-actions">
       {#if updateInfo?.available}
         <button class="btn-update" on:click={() => showUpdateModal = true} title="Télécharger la nouvelle version">
-          {@html ICO_SPARK}{#if !sidebarCollapsed}<span>Mise à jour v{updateInfo.latest}</span>{/if}
+          {@html ICO_SPARK}<span>Mise à jour v{updateInfo.latest}</span>
         </button>
       {:else}
         <button class="btn-check-update" on:click={recheckUpdate} disabled={updateChecking} title="Vérifier les mises à jour">
           <span class:up-spinning={updateChecking}>{@html ICO_REFRESH}</span>
-          {#if !sidebarCollapsed}<span>{updateCheckMsg || 'Vérifier maj'}</span>{/if}
+          <span>{updateCheckMsg || 'Vérifier maj'}</span>
         </button>
       {/if}
-      <!-- Bouton logout retiré : plus d'auth -->
     </div>
-  </aside>
+  </header>
 
   <!-- Main content -->
   <main class="content">
@@ -1706,7 +1710,7 @@
     transition: border-color 140ms, background 140ms;
   }
   :global(input:focus), :global(select:focus) {
-    border-color: rgba(255, 107, 26, 0.45);
+    border-color: rgba(var(--accent-rgb), 0.45);
     background: rgba(255,255,255,0.05);
   }
   :global(button) { cursor: pointer; border: none; border-radius: 8px; font-size: 13px; font-weight: 500; transition: all 140ms ease; }
@@ -1715,101 +1719,79 @@
   :global(::-webkit-scrollbar-thumb) { background: rgba(255,255,255,0.1); border-radius: 3px; }
   :global(::-webkit-scrollbar-thumb:hover) { background: rgba(255,255,255,0.2); }
 
-  .layout { display: flex; height: 100vh; position: relative; z-index: 2; }
+  .layout { display: flex; flex-direction: column; height: 100vh; position: relative; z-index: 2; }
 
-  .sidebar {
-    width: 200px; min-width: 200px;
-    background: rgba(20, 16, 26, 0.6);
-    backdrop-filter: blur(12px);
-    border-right: 1px solid var(--border);
-    display: flex; flex-direction: column;
-    padding: 18px 12px;
-    position: relative;
-    transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
-    height: 100vh;
-    overflow-y: auto;
-    overflow-x: hidden;
-    /* Scroll à la molette mais scrollbar invisible */
-    scrollbar-width: none;
+  /* ── En-tête : marque · onglets · mise à jour ── */
+  .topbar {
+    position: relative; flex: none;
+    display: flex; align-items: center; gap: 14px 22px; flex-wrap: wrap;
+    padding: 11px 20px;
+    background: rgba(10, 10, 12, 0.9);
+    border-bottom: 1px solid var(--border);
+    --wails-draggable: drag;
   }
-  .sidebar::-webkit-scrollbar { display: none; }
-  .sidebar.collapsed { width: 56px; min-width: 56px; padding: 18px 6px; }
-  .sidebar.collapsed .brand { margin-bottom: 14px; }  .sidebar.collapsed .nav-item {
-    padding: 9px 4px; justify-content: center; gap: 0;
-    white-space: nowrap; overflow: hidden;
+  /* Filet ambre qui s'éteint vers la droite, comme sur GO Mux. */
+  .topbar::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.55) 18%, rgba(var(--accent-rgb), 0.08) 55%, transparent);
   }
-  /* Le liseré se recentre quand la colonne est repliée. */
-  .sidebar.collapsed .nav-item.active::before { left: -5px; }
-  .sidebar.collapsed .btn-update { padding: 8px 4px; font-size: 14px; }
-
-  .sidebar-toggle {
-    position: absolute; top: 14px; right: -12px; z-index: 5;
-    width: 24px; height: 24px; border-radius: 50%;
-    background: var(--bg2); border: 1px solid var(--border);
-    color: var(--text2); cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px; line-height: 1; font-weight: 700;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-tile {
+    width: 38px; height: 38px; flex: none; border-radius: 10px;
+    display: grid; place-items: center;
+    background: linear-gradient(180deg, #1d1d22, #121215);
+    box-shadow: 0 0 0 1px var(--border-strong), 0 8px 20px -8px rgba(var(--accent-rgb), 0.5);
   }
-  .sidebar-toggle:hover { background: var(--bg3); color: var(--text); }
-  .brand {
-    display: flex; flex-direction: column; align-items: center;
-    gap: 10px; margin-bottom: 24px; padding: 4px 6px;
-  }  /* Losange Elysium — version de la maquette v10. */
+  /* Losange Elysium, réduit pour tenir dans la tuile. */
   .mark {
-    width: 46px; height: 46px; position: relative; flex: none;
-    background: linear-gradient(145deg, var(--ember-hi), var(--ember-deep));
+    width: 19px; height: 19px; position: relative;
+    background: var(--grad-primary);
     transform: rotate(45deg);
-    border-radius: 9px;
-    box-shadow: 0 0 26px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,.35);
-    margin: 2px auto 14px;
+    border-radius: 4px;
+    box-shadow: 0 0 14px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,.4);
   }
-  /* Creux central : carré assombri semi-opaque, pas un vrai trou — c'est ce
-     qui garde la lecture « losange » plutôt qu'« anneau » (essayé, raté). */
+  /* Creux central : carré assombri, pas un vrai trou — garde la lecture « losange ». */
   .mark::after {
-    content: ""; position: absolute; inset: 11px;
-    border-radius: 3px; background: var(--bg); opacity: .55;
+    content: ""; position: absolute; inset: 5px;
+    border-radius: 1.5px; background: var(--ink); opacity: .85;
   }
-  .sidebar.collapsed .mark { width: 30px; height: 30px; margin: 2px auto 8px; }
-  .sidebar.collapsed .mark::after { inset: 7px; }
-  .wordmark {
-    font-family: var(--font-display); font-size: 10px; font-weight: 700;
-    letter-spacing: .26em; color: var(--ember);
-    text-shadow: 0 0 14px var(--accent-glow);
-  }
+  .brand-text { display: flex; flex-direction: column; gap: 1px; }
   .logo {
     font-family: var(--font-display);
-    font-size: 12px; font-weight: 600;
-    letter-spacing: .14em;
-    text-transform: uppercase;
-    color: var(--text);
-    user-select: none;
-    text-align: center;
+    font-size: 14px; font-weight: 600; letter-spacing: -0.01em;
+    color: var(--text); user-select: none; white-space: nowrap;
   }
-  nav { display: flex; flex-direction: column; gap: 3px; }
-  .nav-item {
-    position: relative;
-    display: flex; align-items: center; gap: 11px;
-    text-align: left; padding: 9px 13px; border-radius: 8px;
-    background: transparent; color: var(--text2);
-    font-family: var(--font-body); font-size: 12.5px; font-weight: 500;
-    width: 100%; border: 0;
-    transition: background 140ms ease, color 140ms ease;
+  .brand-meta {
+    font-family: var(--font-mono); font-size: 10px; color: var(--text3);
+    letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
   }
-  .nav-icon { width: 16px; height: 16px; flex: none; }
-  .nav-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .nav-item:hover { background: rgba(255,255,255,0.035); color: var(--text); }
-  .nav-item.active { background: rgba(255, 107, 26, 0.09); color: var(--text); }
-  /* Liseré braise collé au bord : repère l'onglet courant sans cerner
-     le bouton d'une bordure, qui alourdirait la colonne. */
-  .nav-item.active::before {
-    content: ""; position: absolute; left: -9px; top: 50%;
-    transform: translateY(-50%);
-    width: 2px; height: 17px; border-radius: 0 2px 2px 0;
-    background: var(--ember); box-shadow: 0 0 9px var(--accent-glow);
-  }
+  .brand-meta b { color: var(--ember); font-weight: 500; text-transform: none; }
 
-  .content { flex: 1; overflow-y: auto; }
+  .tabs {
+    display: flex; flex-wrap: wrap; gap: 2px; padding: 3px;
+    background: #0c0c0f; border: 1px solid var(--border); border-radius: 10px;
+    --wails-draggable: no-drag;
+  }
+  .tab {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 12px; border-radius: 7px; border: 1px solid transparent;
+    background: transparent; color: var(--text2);
+    font-family: var(--font-body); font-size: 12.5px; font-weight: 600; letter-spacing: .01em;
+    transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+  }
+  .tab-icon { width: 14px; height: 14px; flex: none; }
+  .tab:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+  .tab.active {
+    color: var(--ink);
+    background: var(--grad-primary);
+    border-color: rgba(var(--accent-rgb), 0.9);
+    box-shadow: 0 6px 16px -8px rgba(var(--accent-rgb), 0.9);
+  }
+  .tab:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px rgba(var(--accent-rgb), 0.7); }
+
+  .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; --wails-draggable: no-drag; }
+
+  .content { flex: 1; min-height: 0; overflow-y: auto; }
 
   .hist-stats { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
   .hist-stat { padding:5px 12px; background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:6px; font-size:11.5px; color:var(--text2); }
@@ -1822,10 +1804,10 @@
   .hist-search { flex:1; min-width:0; padding:8px 12px 8px 32px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:var(--text1); font-size:13px; }
   .hist-type-btns { display:flex; gap:4px; }
   .hist-type-btns button { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:8px; color:var(--text2); font-size:12px; cursor:pointer; }
-  .hist-type-btns button.active { background:rgba(255,90,60,0.15); border-color:#ff5a3c; color:#ff5a3c; }
+  .hist-type-btns button.active { background:rgba(var(--accent-rgb),0.12); border-color:rgba(var(--accent-rgb),0.55); color:var(--ember); }
   .hist-list { display:flex; flex-direction:column; gap:6px; max-height:calc(100vh - 260px); overflow-y:auto; }
   .hist-row { display:grid; grid-template-columns:110px 70px 1fr 80px 24px; gap:12px; padding:10px 14px; background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:8px; align-items:start; transition:border-color .14s, background .14s; }
-  .hist-row:hover { border-color:rgba(255,107,26,0.3); background:rgba(255,107,26,0.03); }
+  .hist-row:hover { border-color:rgba(var(--accent-rgb), 0.3); background:rgba(var(--accent-rgb), 0.03); }
   .hist-row.err { border-color:rgba(239,68,68,0.3); background:rgba(239,68,68,0.05); }
   .hist-col-date { font-size:11px; color:var(--text3); font-family:monospace; }
   .hist-col-type { font-size:10px; font-weight:700; letter-spacing:0.5px; padding:2px 6px; border-radius:4px; text-align:center; align-self:start; }
@@ -1945,13 +1927,13 @@
     display: inline-flex; align-items: center; gap: 6px;
   }
   .btn-test:hover {
-    background: rgba(255, 107, 26, 0.08);
-    border-color: rgba(255, 107, 26, 0.35);
+    background: rgba(var(--accent-rgb), 0.08);
+    border-color: rgba(var(--accent-rgb), 0.35);
     color: var(--text);
   }
   .active-chip {
-    background: rgba(255, 107, 26, 0.18) !important;
-    border-color: rgba(255, 107, 26, 0.55) !important;
+    background: rgba(var(--accent-rgb), 0.18) !important;
+    border-color: rgba(var(--accent-rgb), 0.55) !important;
     color: var(--text) !important;
   }
   /* === Modale NFO === */
@@ -2010,14 +1992,14 @@
     padding: 11px 13px; margin-bottom: 7px;
     background: rgba(255,255,255,0.025);
     border: 1px solid var(--border);
-    border-left: 2px solid rgba(255,107,26,.3);
+    border-left: 2px solid rgba(var(--accent-rgb), .3);
     border-radius: 9px;
     transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
     animation: card-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
   .up-row:hover {
-    background: rgba(255,107,26,0.045);
-    border-color: rgba(255,107,26,.3);
+    background: rgba(var(--accent-rgb), 0.045);
+    border-color: rgba(var(--accent-rgb), .3);
     border-left-color: var(--ember);
     transform: translateX(2px);
   }
@@ -2064,7 +2046,7 @@
   .up-del-sub { color: var(--text3); font-size: 11px; margin-top: 4px; }
   .btn-save-danger {
     background: linear-gradient(180deg, #ff6b7a 0%, #e03346 100%) !important;
-    border-color: #ff4d5e !important;
+    border-color: var(--danger) !important;
   }
 
   .modal-backdrop {
@@ -2195,7 +2177,7 @@
   .field label { display: block; font-size: 11px; color: var(--text3); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.6px; }
   .field-checkbox label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text); margin-top: 8px; text-transform: none; letter-spacing: 0; }
   .field-hint { font-size: 11px; color: var(--text3); margin-top: 4px; }
-  .field-hint a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(255,107,26,.3); }
+  .field-hint a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(var(--accent-rgb), .3); }
   .field-hint a:hover { border-bottom-color: var(--ember); }  .field-checkbox input[type=checkbox] { width: auto; }
 
   .fields-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
@@ -2203,9 +2185,9 @@
   .btn-save {
     margin-top: 24px;
     display: inline-flex; align-items: center; gap: 8px;
-    color: #fff;
+    color: var(--ink);
     background: var(--grad-primary);
-    border: 1px solid rgba(0,0,0,0.25);
+    border: 1px solid rgba(var(--accent-rgb),0.9);
     padding: 11px 28px; font-size: 14px; font-weight: 600;
     letter-spacing: 0.2px;
     box-shadow:
@@ -2287,22 +2269,11 @@
      lisible quand on la copie, et l'œil accroche en balayant la colonne. */
   .log-line-err  { border-left: 2px solid var(--danger); background: rgba(255,77,94,.05); }
   .log-line-warn { border-left: 2px solid var(--warning); background: rgba(255,200,61,.04); }
-  .brand-version {
-    font-size: 10px; color: var(--text3);
-    font-family: ui-monospace, Menlo, monospace;
-    letter-spacing: 0.6px; user-select: none;
-  }
-  .brand-author {
-    font-size: 9px; color: var(--text3); opacity: 0.75;
-    letter-spacing: 1.2px; text-transform: uppercase;
-    margin-top: 2px; user-select: none;
-  }
-  .sidebar-footer { margin-top: auto; padding-top: 14px; }
   .btn-update {
-    width: 100%;
+    display: inline-flex; align-items: center; gap: 6px;
     background: var(--grad-primary);
-    color: #fff;
-    border: 1px solid rgba(0,0,0,0.25);
+    color: var(--ink);
+    border: 1px solid rgba(var(--accent-rgb),0.9);
     padding: 9px 12px;
     font-size: 11px; font-weight: 700;
     letter-spacing: 0.5px;
@@ -2314,7 +2285,6 @@
   .btn-update:hover { filter: brightness(1.1); }
 
   .btn-check-update {
-    width: 100%;
     background: rgba(255,255,255,0.04);
     color: var(--text3);
     border: 1px solid rgba(255,255,255,0.08);
@@ -2326,7 +2296,7 @@
   }
   .btn-check-update:hover { background: rgba(255,255,255,0.08); color: var(--text); }
   .btn-check-update:disabled { opacity: 0.5; cursor: not-allowed; }
-  .sidebar.collapsed .btn-check-update { padding: 7px 4px; }@keyframes nexum-float {
+@keyframes nexum-float {
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-8px); }
   }@keyframes bulk-slide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }@keyframes detail-slide { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }  /* Sous-onglets (Reseed, Logs) */

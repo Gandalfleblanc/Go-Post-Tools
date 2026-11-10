@@ -9,80 +9,74 @@
    garder son identité hors ligne.
    ============================================================ */
 
-/* — Azeret Mono : chiffres, noms de fichiers, télémétrie — */
-@font-face{font-family:'Azeret Mono';font-style:normal;font-weight:400;font-display:swap;
-  src:url(/fonts/3XFuErsiyJsY9O_Gepph-HHhZfn23vRK.woff2) format('woff2')}
-@font-face{font-family:'Azeret Mono';font-style:normal;font-weight:500;font-display:swap;
-  src:url(/fonts/3XFuErsiyJsY9O_Gepph-HHhZfn23vRK.woff2) format('woff2')}
-@font-face{font-family:'Azeret Mono';font-style:normal;font-weight:700;font-display:swap;
-  src:url(/fonts/3XFuErsiyJsY9O_Gepph-HHhZfn23vRK.woff2) format('woff2')}
+/* — Unbounded : titres, marque, en-têtes de cartes — */
+@font-face{font-family:'Unbounded';font-style:normal;font-weight:200 900;font-display:swap;
+  src:url(/fonts/unbounded-latin-wght-normal.woff2) format('woff2-variations')}
 
-/* — Oxanium : titres, étiquettes, chrome de l'interface — */
-@font-face{font-family:'Oxanium';font-style:normal;font-weight:500;font-display:swap;
-  src:url(/fonts/RrQQboN_4yJ0JmiMe2LE0ZJCZ4c.woff2) format('woff2')}
-@font-face{font-family:'Oxanium';font-style:normal;font-weight:600;font-display:swap;
-  src:url(/fonts/RrQQboN_4yJ0JmiMe2LE0ZJCZ4c.woff2) format('woff2')}
-@font-face{font-family:'Oxanium';font-style:normal;font-weight:700;font-display:swap;
-  src:url(/fonts/RrQQboN_4yJ0JmiMe2LE0ZJCZ4c.woff2) format('woff2')}
+/* — Hanken Grotesk : texte courant, contrôles — */
+@font-face{font-family:'Hanken Grotesk';font-style:normal;font-weight:100 900;font-display:swap;
+  src:url(/fonts/hanken-grotesk-latin-wght-normal.woff2) format('woff2-variations')}
 
-/* — Sora : texte courant — */
-@font-face{font-family:'Sora';font-style:normal;font-weight:400;font-display:swap;
-  src:url(/fonts/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-xo6eeIw.woff2) format('woff2')}
-@font-face{font-family:'Sora';font-style:normal;font-weight:500;font-display:swap;
-  src:url(/fonts/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-xo6eeIw.woff2) format('woff2')}
-@font-face{font-family:'Sora';font-style:normal;font-weight:600;font-display:swap;
-  src:url(/fonts/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-xo6eeIw.woff2) format('woff2')}
+/* — JetBrains Mono : chiffres, noms de fichiers, télémétrie — */
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:100 800;font-display:swap;
+  src:url(/fonts/jetbrains-mono-latin-wght-normal.woff2) format('woff2-variations')}
 
 :root{
   color-scheme: dark;
 
-  /* ── Socle : carbone chaud. Volontairement PAS bleu, pour ne pas
-     se confondre avec le cockpit d'encodage (cyan). ── */
-  --bg:            #08060a;
-  --bg-tint:       #0d0a0f;
-  --bg2:           #13101a;
-  --bg3:           #191520;
-  --surface:       rgba(25, 21, 32, .72);
+  /* ── Socle : graphite neutre, même langage que GO Mux et
+     LiHDL Post Discord (« console de post-prod »). ── */
+  --bg:            #08080a;
+  --bg-tint:       #0d0d10;
+  --bg2:           #121215;
+  --bg3:           #1a1a1f;
+  --surface:       rgba(20, 20, 24, .78);
   --border:        rgba(255, 255, 255, .07);
-  --border-strong: rgba(255, 255, 255, .13);
+  --border-strong: rgba(255, 255, 255, .15);
 
-  /* ── Accent unique : braise Elysium. Ne sert QUE pour l'action
-     en cours et le primaire — s'il est partout, il ne dit plus rien. ── */
-  --ember:         #ff6b1a;
-  --ember-hi:      #ff8c47;
-  --ember-deep:    #e8431a;
+  /* ── Accent unique : ambre tungstène. Les noms --ember* sont gardés
+     pour ne pas toucher aux composants : seule la valeur a changé. ── */
+  --accent-rgb:    255, 176, 32;
+  --ember:         #ffb020;
+  --ember-hi:      #ffc85a;
+  --ember-deep:    #f09a0c;
   --accent:        var(--ember);
-  --accent-glow:   rgba(255, 107, 26, .35);
+  --accent-glow:   rgba(var(--accent-rgb), .35);
   --orange:        var(--ember);
+  --ink:           #18120a;   /* texte posé sur l'ambre */
 
   /* ── Signaux d'état ── */
-  --success:  #3ddc84;
-  --ok:       #3ddc84;
-  --warning:  #ffc83d;
-  --yellow:   #ffc83d;
-  --danger:   #ff4d5e;
-  --red:      #ff4d5e;
-  --red-hot:  #ff6b7a;
-  --steel:    #5c7a99;
-  --blue:     #5c7a99;
-  --blue-hot: #a9c4de;
+  --success:  #3ddc97;
+  --ok:       #3ddc97;
+  --warning:  #ffc85a;
+  --yellow:   #ffc85a;
+  --danger:   #ff4a3d;
+  --red:      #ff4a3d;
+  --red-hot:  #ff8a80;
+  --steel:    #4fd1ff;
+  --blue:     #4fd1ff;
+  --blue-hot: #8fe2ff;
+  /* NZB / Usenet : violet, pour le distinguer d'un coup d'œil du DDL. */
+  --violet-rgb: 183, 155, 255;
+  --violet:   #b79bff;
 
-  /* ── Encre. --text1 était utilisé 7× sans jamais être défini. ── */
-  --text:   #f6f1ea;
-  --text1:  #f6f1ea;
-  --text2:  #a89d94;
-  --text3:  #6b625c;
+  /* ── Encre ── */
+  --text:   #ecebe7;
+  --text1:  #ecebe7;
+  --text2:  #9d9b96;
+  --text3:  #64625e;
 
-  --grad-primary:       linear-gradient(180deg, var(--ember-hi) 0%, var(--ember-deep) 100%);
-  --grad-primary-hover: linear-gradient(180deg, #ffa066 0%, #f14a24 100%);
+  --grad-primary:       linear-gradient(180deg, var(--ember-hi) 0%, var(--ember) 100%);
+  --grad-primary-hover: linear-gradient(180deg, #ffd47a 0%, var(--ember-hi) 100%);
 
   /* ── Typographie ── */
-  --font-display: 'Oxanium', system-ui, sans-serif;
-  --font-mono:    'Azeret Mono', ui-monospace, 'SF Mono', monospace;
-  --font-body:    'Sora', system-ui, -apple-system, sans-serif;
+  --font-display: 'Unbounded', 'Hanken Grotesk', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+  --font-body:    'Hanken Grotesk', system-ui, -apple-system, sans-serif;
 
-  --radius:    9px;
-  --radius-sm: 6px;
+  --radius:    14px;
+  --radius-sm: 9px;
+  --shadow:    0 1px 0 rgba(255,255,255,.035) inset, 0 18px 40px -24px rgba(0,0,0,.9);
 }
 
 *{ box-sizing: border-box; margin: 0; padding: 0; }
@@ -90,7 +84,8 @@
 html, body{
   color: var(--text);
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: 13.5px;
+  line-height: 1.45;
   height: 100vh;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -109,16 +104,16 @@ body::before{
   background-image:
     linear-gradient(var(--border) 1px, transparent 1px),
     linear-gradient(90deg, var(--border) 1px, transparent 1px);
-  background-size: 52px 52px;
-  opacity: .5;
+  background-size: 32px 32px;
+  opacity: .32;
   -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 10%, transparent 70%);
           mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 10%, transparent 70%);
 }
 body::after{
   content:""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
   background:
-    radial-gradient(ellipse 70% 50% at 18% -5%, rgba(255,107,26,.13), transparent 60%),
-    radial-gradient(ellipse 60% 45% at 95% 100%, rgba(92,122,153,.10), transparent 60%);
+    radial-gradient(ellipse 70% 50% at 8% -10%, rgba(var(--accent-rgb),.10), transparent 60%),
+    radial-gradient(ellipse 60% 45% at 105% 110%, rgba(255,74,61,.07), transparent 65%);
 }
 #app{ position: relative; z-index: 1; height: 100vh; }
 
@@ -126,21 +121,22 @@ body::after{
 button{
   cursor: pointer; border: none; border-radius: var(--radius-sm);
   padding: 8px 16px; font-size: 12.5px; font-weight: 600;
-  font-family: var(--font-display); letter-spacing: .06em;
+  font-family: var(--font-body); font-weight: 650; letter-spacing: .02em;
   transition: background .14s, border-color .14s, color .14s, transform .12s;
 }
 .btn-primary{
-  background: var(--grad-primary); color: #1a0d04; letter-spacing: .1em;
-  box-shadow: 0 4px 16px rgba(232,67,26,.28), inset 0 1px 0 rgba(255,255,255,.28);
+  background: var(--grad-primary); color: var(--ink); letter-spacing: .04em;
+  border: 1px solid rgba(var(--accent-rgb),.9);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 8px 22px -10px rgba(var(--accent-rgb),.9);
 }
 .btn-primary:hover{ background: var(--grad-primary-hover); transform: translateY(-1px); }
 .btn-ghost{ background: transparent; color: var(--text2); border: 1px solid var(--border-strong); }
 .btn-ghost:hover{ border-color: var(--text3); color: var(--text); }
-.btn-danger{ background: transparent; border: 1px solid rgba(255,77,94,.4); color: var(--danger); }
+.btn-danger{ background: transparent; border: 1px solid rgba(255,74,61,.4); color: var(--danger); }
 
 input, select, textarea{
-  background: rgba(0,0,0,.3);
-  border: 1px solid var(--border);
+  background: #0d0d10;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   color: var(--text);
   padding: 8px 11px;
@@ -152,21 +148,21 @@ input, select, textarea{
 }
 input:focus, select:focus, textarea:focus{
   border-color: var(--ember);
-  box-shadow: 0 0 0 3px rgba(255,107,26,.12);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb),.14);
 }
 
 /* Chiffres toujours en chasse fixe tabulaire : ils ne dansent plus
    quand une progression défile. */
-.num, .mono{ font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.num, .mono{ font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: "zero" 1; }
 
 .badge{
   display: inline-block; padding: 2.5px 8px; border-radius: 5px;
   font-family: var(--font-mono); font-size: 10px; font-weight: 500;
   border: 1px solid var(--border-strong); color: var(--text2);
 }
-.badge-movie  { border-color: rgba(92,122,153,.4);  color: var(--blue-hot); }
+.badge-movie  { border-color: rgba(79,209,255,.35); color: var(--blue-hot); }
 .badge-series { border-color: rgba(61,220,132,.35); color: var(--success); }
-.badge-nzb    { border-color: rgba(255,107,26,.4);  color: var(--ember-hi); }
+.badge-nzb    { border-color: rgba(var(--violet-rgb),.45); color: var(--violet); }
 .badge-ddl    { border-color: rgba(61,220,132,.35); color: var(--success); }
 .badge-torrent{ border-color: rgba(167,139,250,.35); color: #c4b5fd; }
 

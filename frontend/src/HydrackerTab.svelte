@@ -2419,14 +2419,14 @@
         // Multi-fichiers : ouvre le modal pour choisir queue ou saison
         pendingMultiPaths = paths
       }}><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.25 3.75H6.75A1.5 1.5 0 0 0 5.25 5.25v13.5a1.5 1.5 0 0 0 1.5 1.5h10.5a1.5 1.5 0 0 0 1.5-1.5V8.25l-4.5-4.5ZM14.25 3.75V8.25h4.5"/></svg>Parcourir MKV</button>
-      <button class="btn-browse" on:click={async () => {
+      <button class="btn-browse alt" on:click={async () => {
         const path = await SelectFolder()
         if (path) loadFileFromPath(path, null, { isFolder: true })
-      }}>📁 Dossier saison</button>
-      <button class="btn-browse" on:click={async () => {
+      }}><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 7.5V18a1.5 1.5 0 0 0 1.5 1.5h13.5a1.5 1.5 0 0 0 1.5-1.5V9.75a1.5 1.5 0 0 0-1.5-1.5h-6.44a1.5 1.5 0 0 1-1.06-.44L9.69 6.25a1.5 1.5 0 0 0-1.06-.44H5.25a1.5 1.5 0 0 0-1.5 1.69Z"/></svg>Dossier saison</button>
+      <button class="btn-browse alt" on:click={async () => {
         const path = await SelectArchiveFile()
         if (path) loadFileFromPath(path, null, { isArchive: true })
-      }}>📦 Archive (DDL)</button>
+      }}><svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.75 7.5h16.5v12a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-12ZM3 3.75h18V7.5H3zM10 11.25h4"/></svg>Archive (DDL)</button>
     </div>
   </div>
 
@@ -3015,7 +3015,7 @@
             <div class="ddl-bars">
               {#each Object.entries(ddlHosts) as [host, h]}
                 {#if h.active || h.done || h.error || h.posting || h.posted}
-                  <div class="ddl-bar-card" class:done={!!h.posted} class:error={!!h.error}>
+                  <div class="ddl-bar-card is-ddl" class:done={!!h.posted} class:error={!!h.error}>
                     <div class="ddl-bar-header">
                       <span class="ddl-bar-host">{host}</span>
                       {#if h.skipped}
@@ -3058,7 +3058,7 @@
           <!-- Barres NZB (à l'intérieur des post-options) -->
           {#if postUploadTypes.nzb && nzbStatus}
             <div class="ddl-bars">
-              <div class="ddl-bar-card" class:done={nzbStatus === 'Terminé'}>
+              <div class="ddl-bar-card is-nzb" class:done={nzbStatus === 'Terminé'}>
                 <div class="ddl-bar-header">
                   <span class="ddl-bar-host">NZB</span>
                   <span class="ddl-bar-speed">{nzbStatus}</span>
@@ -3220,8 +3220,8 @@
 
   .queue-bar {
     margin-bottom: 18px;
-    background: linear-gradient(180deg, rgba(255, 107, 26, 0.07) 0%, rgba(255, 107, 26, 0.02) 100%);
-    border: 1px solid rgba(255, 107, 26, 0.24);
+    background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.07) 0%, rgba(var(--accent-rgb), 0.02) 100%);
+    border: 1px solid rgba(var(--accent-rgb), 0.24);
     border-radius: 12px;
     padding: 12px 14px;
   }
@@ -3232,8 +3232,8 @@
   .release-current {
     display: flex; align-items: center; gap: 10px;
     padding: 8px 14px; margin-bottom: 8px;
-    background: linear-gradient(90deg, rgba(255,107,26,0.09), transparent 45%);
-    border: 1px solid rgba(255,107,26,0.26);
+    background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.09), transparent 45%);
+    border: 1px solid rgba(var(--accent-rgb), 0.26);
     border-radius: 10px;
   }
   /* Avec l'épine, le bloc passe sur deux lignes : grille au lieu de flex. */
@@ -3254,7 +3254,7 @@
   .spine {
     display: flex; flex-direction: column; align-items: center;
     justify-content: center;
-    border-right: 1px solid rgba(255,107,26,0.18);
+    border-right: 1px solid rgba(var(--accent-rgb), 0.18);
   }
   .ph { display: flex; flex-direction: column; align-items: center; }
   .ph-dot {
@@ -3266,7 +3266,7 @@
   .ph.done .ph-stem { background: var(--success); opacity: .5; }
   .ph.now .ph-dot {
     background: var(--ember); border-color: var(--ember);
-    box-shadow: 0 0 0 3px rgba(255,107,26,.18), 0 0 10px var(--accent-glow);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .18), 0 0 10px var(--accent-glow);
   }
 
   /* Rappel textuel des phases sous le nom de la release. */
@@ -3331,8 +3331,8 @@
     background: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.005) 100%);
   }
   .dropzone.drag {
-    border-color: rgba(255, 107, 26, 0.55);
-    background: rgba(255, 107, 26, 0.06);
+    border-color: rgba(var(--accent-rgb), 0.55);
+    background: rgba(var(--accent-rgb), 0.06);
     color: var(--blue-hot);
   }
   .drop-icon { font-size: 48px; margin-bottom: 12px; }
@@ -3385,8 +3385,8 @@
   }
   .multi-cancel:hover { color: var(--text); border-color: var(--text3); }  .btn-browse {
     display: inline-block; margin-top: 14px;
-    color: #fff; background: var(--grad-primary);
-    border: 1px solid rgba(0,0,0,0.25);
+    color: var(--ink); background: var(--grad-primary);
+    border: 1px solid rgba(var(--accent-rgb),0.9);
     padding: 10px 22px; border-radius: 10px;
     font-size: 13px; font-weight: 600; letter-spacing: 0.2px;
     box-shadow:
@@ -3467,8 +3467,8 @@
   }
   .btn-ghost-sm:hover {
     color: var(--text);
-    background: rgba(255, 107, 26, 0.08);
-    border-color: rgba(255, 107, 26, 0.35);
+    background: rgba(var(--accent-rgb), 0.08);
+    border-color: rgba(var(--accent-rgb), 0.35);
   }
 
   .mi-loading { font-size: 12px; color: var(--text3); }
@@ -3574,7 +3574,7 @@
   }
   .ambig-item:hover {
     background: rgba(255,255,255,0.06);
-    border-color: rgba(255, 107, 26, 0.35);
+    border-color: rgba(var(--accent-rgb), 0.35);
   }
   .ambig-item img { width: 36px; height: 54px; object-fit: cover; border-radius: 4px; }
   .ambig-no-poster {
@@ -3619,8 +3619,8 @@
   .search-row { display: flex; gap: 8px; }
   .search-row input { flex: 1; }
   .btn-search {
-    color: #fff; background: var(--grad-primary);
-    border: 1px solid rgba(0,0,0,0.25);
+    color: var(--ink); background: var(--grad-primary);
+    border: 1px solid rgba(var(--accent-rgb),0.9);
     padding: 8px 18px; flex: none; font-weight: 600;
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,0.25),
@@ -3662,7 +3662,7 @@
   }
   .tmdb-type-toggle button:hover { color: var(--text); }
   .tmdb-type-toggle button.active {
-    background: rgba(255, 107, 26, 0.13);
+    background: rgba(var(--accent-rgb), 0.13);
     color: var(--ember-hi);
   }
 
@@ -3676,7 +3676,7 @@
   }
   .hydracker-item:hover {
     background: rgba(255,255,255,0.06);
-    border-color: rgba(255, 107, 26, 0.35);
+    border-color: rgba(var(--accent-rgb), 0.35);
   }  .hyd-name { flex: 1; font-size: 13px; color: var(--text); }
   .hyd-year { font-size: 11px; color: var(--text3); }
   .hyd-type { font-size: 10px; padding: 2px 7px; border-radius: 9999px; margin-left: 6px; font-weight: 500; }
@@ -3794,8 +3794,8 @@
   .chips-empty { font-size: 11px; color: var(--text3); font-style: italic; }
   .chip {
     display: inline-flex; align-items: center; gap: 5px;
-    background: rgba(255, 107, 26, 0.1);
-    border: 1px solid rgba(255, 107, 26, 0.3);
+    background: rgba(var(--accent-rgb), 0.1);
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
     color: var(--blue-hot);
     padding: 4px 10px; font-size: 11px; border-radius: 7px;
     font-weight: 500;
@@ -3823,8 +3823,8 @@
     transition: all 160ms ease;
   }
   .btn-add:hover {
-    background: rgba(255, 107, 26, 0.08);
-    border-color: rgba(255, 107, 26, 0.35);
+    background: rgba(var(--accent-rgb), 0.08);
+    border-color: rgba(var(--accent-rgb), 0.35);
   }
 
   /* Pills modernes "Uploader via" */
@@ -4006,8 +4006,8 @@
 
   .post-actions { display: flex; gap: 10px; margin-top: 16px; }
   .btn-start {
-    color: #fff; background: var(--grad-primary);
-    border: 1px solid rgba(0,0,0,0.25);
+    color: var(--ink); background: var(--grad-primary);
+    border: 1px solid rgba(var(--accent-rgb),0.9);
     padding: 11px 24px; font-weight: 600;
     letter-spacing: 0.2px; font-size: 13px;
     box-shadow:
@@ -4047,7 +4047,7 @@
   }
   .btn-reset:hover {
     background: rgba(255,255,255,0.06);
-    border-color: rgba(255, 107, 26, 0.35);
+    border-color: rgba(var(--accent-rgb), 0.35);
     color: var(--text);
   }
   /* Recherches TMDB + Hydracker côte à côte */
@@ -4264,15 +4264,15 @@
   .bilan-fix {
     width: 100%; margin-top: 10px; padding: 9px;
     background: linear-gradient(180deg, var(--ember-hi), var(--ember-deep));
-    color: #1a0d04; border: 0; border-radius: 7px; cursor: pointer;
+    color: var(--ink); border: 0; border-radius: 7px; cursor: pointer;
     font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: .08em;
   }
   .bilan-fix:hover { filter: brightness(1.07); }
 
   /* Récapitulatif (repliable) */
   .recap-box {
-    background: linear-gradient(180deg, rgba(255, 107, 26, 0.05) 0%, rgba(255, 107, 26, 0.02) 100%);
-    border: 1px solid rgba(255, 107, 26, 0.2);
+    background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.05) 0%, rgba(var(--accent-rgb), 0.02) 100%);
+    border: 1px solid rgba(var(--accent-rgb), 0.2);
     border-radius: 14px; overflow: hidden;
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
   }
@@ -4284,7 +4284,7 @@
     cursor: pointer; text-align: left;
   }
   .recap-title:hover { background: rgba(255,255,255,0.02); }
-  .recap-box.open .recap-title { border-bottom: 1px solid rgba(255, 107, 26, 0.2); }
+  .recap-box.open .recap-title { border-bottom: 1px solid rgba(var(--accent-rgb), 0.2); }
   .recap-body { padding: 12px 18px 14px; }
   .recap-row {
     display: flex; justify-content: space-between; align-items: baseline;
@@ -4299,7 +4299,7 @@
   .recap-val { color: var(--text); text-align: right; flex: 1; }
   .recap-id { color: var(--red-hot); }
   .recap-type {
-    background: rgba(255, 107, 26, 0.15); color: var(--blue-hot);
+    background: rgba(var(--accent-rgb), 0.15); color: var(--blue-hot);
     font-size: 10px; padding: 1px 7px; border-radius: 9999px; margin-left: 4px;
   }
   .recap-file { color: var(--text2); font-size: 11px; word-break: break-all; }
@@ -4347,4 +4347,118 @@
     white-space: pre; overflow-x: auto;
     max-height: 360px; overflow-y: auto;
   }
+
+  /* ════════════════════════════════════════════════════════════════
+     HABILLAGE « CONSOLE » v11 — même langage que GO Mux et LiHDL Post
+     Discord. Couche posée PAR-DESSUS les règles d'origine (même
+     spécificité, plus bas dans la feuille) : la retirer rend l'ancien
+     rendu. Aucun flou, aucun mélange de calques, rien d'animé en
+     plein écran — la WebView tourne pendant parpar et nyuu.
+     ════════════════════════════════════════════════════════════════ */
+
+  /* Cartes : même matière partout */
+  .search-section, .post-options, .post-panel, .ddl-bar-card,
+  .mi-details, .recap-box, .pv {
+    background: linear-gradient(180deg, #141418, #111114);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .search-section, .post-options { padding: 16px 18px; }
+
+  /* Titres de carte : mono capitales + carré ambre lumineux */
+  .search-label, .post-label, .post-panel-title, .queue-title {
+    font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
+    letter-spacing: .16em; color: var(--text2);
+  }
+  .search-label::before, .post-label::before, .post-panel-title::before, .queue-title::before {
+    content: ""; display: inline-block; flex: none;
+    width: 6px; height: 6px; border-radius: 1px; margin-right: 2px;
+    background: var(--ember); box-shadow: 0 0 10px rgba(var(--accent-rgb), .8);
+  }
+  .post-panel-title { display: flex; align-items: center; gap: 8px; }
+  .queue-title { display: inline-flex; align-items: center; gap: 8px; }
+  .recap-title { font-family: var(--font-mono); letter-spacing: .14em; color: var(--ember); }
+
+  /* Zone de dépôt : hachures ambre, comme sur GO Mux */
+  .dropzone {
+    border: 1.5px dashed rgba(var(--accent-rgb), .35); border-radius: 16px;
+    background:
+      repeating-linear-gradient(135deg, rgba(var(--accent-rgb), .035) 0 10px, transparent 10px 20px),
+      #0f0f12;
+  }
+  .dropzone:hover { border-color: rgba(var(--accent-rgb), .7); }
+  .dropzone .drop-ico { color: var(--ember); opacity: .8; }
+  .dropzone p { font-family: var(--font-display); font-size: 14px; font-weight: 500; letter-spacing: -.01em; color: var(--text); }
+  .dropzone p.drop-sub { font-family: var(--font-body); font-size: 12px; color: var(--text2); }
+  .btn-browse { display: inline-flex; align-items: center; gap: 7px; border-radius: var(--radius-sm); font-size: 12.5px; }
+  .btn-browse.alt {
+    color: var(--text); background: linear-gradient(180deg, #1d1d22, #17171b);
+    border: 1px solid var(--border-strong);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 1px 2px rgba(0,0,0,.5);
+  }
+  .btn-browse.alt:hover { border-color: rgba(255,255,255,.26); background: linear-gradient(180deg, #24242a, #1b1b20); }
+
+  /* File d'envoi + release en cours */
+  .queue-bar {
+    background: linear-gradient(180deg, #141418, #111114);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .queue-item { background: #0f0f12; border: 1px solid var(--border); border-radius: 8px; }
+  .queue-name, .release-current-name { font-family: var(--font-mono); }
+  .release-current {
+    background: linear-gradient(90deg, rgba(var(--accent-rgb), .08), #111114 55%);
+    border-color: rgba(var(--accent-rgb), .3); border-radius: 12px;
+  }
+  .release-current-label { font-family: var(--font-mono); color: var(--ember); }
+  .release-current-name { color: var(--text); }
+  .btn-stop-inline { background: linear-gradient(180deg, #ff6c60, var(--red)); border: 1px solid var(--red); border-radius: 7px; }
+  .btn-stop-inline:hover { background: linear-gradient(180deg, #ff8378, #ff6c60); }
+  .btn-skip-ep { color: var(--warning); background: rgba(var(--accent-rgb), .1); border-color: rgba(var(--accent-rgb), .4); }
+
+  /* Langues / sous-titres */
+  .chip {
+    color: var(--ember-hi); font-weight: 600; font-size: 11.5px;
+    background: rgba(var(--accent-rgb), .08); border-color: rgba(var(--accent-rgb), .3);
+  }
+
+  /* Envoyer via : NZB violet, DDL vert */
+  .upload-pill { border-radius: var(--radius-sm); background: #0f0f12; border-color: var(--border-strong); color: var(--text3); }
+  .upload-pill.active[data-color="purple"] {
+    color: var(--violet); border-color: rgba(var(--violet-rgb), .55); background: rgba(var(--violet-rgb), .09);
+    box-shadow: 0 6px 18px -10px rgba(var(--violet-rgb), .8);
+  }
+  .upload-pill.active[data-color="green"] {
+    color: var(--success); border-color: rgba(61, 220, 151, .5); background: rgba(61, 220, 151, .08);
+    box-shadow: 0 6px 18px -10px rgba(61, 220, 151, .7);
+  }
+
+  /* Barres d'envoi : piste fine, NZB violet, DDL ambre */
+  .ddl-bar-host { font-family: var(--font-mono); letter-spacing: .14em; color: var(--text2); }
+  .ddl-bar-card.is-nzb .ddl-bar-host { color: var(--violet); }
+  .ddl-bar-card.is-ddl .ddl-bar-host { color: var(--success); }
+  .ddl-bar-card.is-nzb .progress-fill {
+    background: linear-gradient(90deg, #8f6bff, var(--violet));
+    box-shadow: 0 0 10px rgba(var(--violet-rgb), .6);
+  }
+  .ddl-bar-card.is-ddl .progress-fill {
+    background: linear-gradient(90deg, var(--ember), var(--ember-hi));
+    box-shadow: 0 0 10px rgba(var(--accent-rgb), .7);
+  }
+  .ddl-bar-card.is-nzb .ddl-bar-speed { color: var(--violet); }
+
+  /* Déroulé du post : pastilles carrées comme les étapes de GO Mux */
+  .pp-step { gap: 10px; padding: 2px 0; }
+  .pp-dot { width: 9px; height: 9px; border-radius: 3px; border-color: var(--border-strong); background: #16161a; }
+  .pp-now .pp-dot { animation: pp-pulse 1.6s ease-in-out infinite; }
+  @keyframes pp-pulse { 50% { box-shadow: 0 0 0 5px rgba(var(--accent-rgb), .08), 0 0 14px rgba(var(--accent-rgb), .5); } }
+
+  /* Colonne fiche */
+  .poster-wrap { border-radius: 10px; border-color: var(--border-strong); box-shadow: 0 0 0 1px #000, 0 14px 28px -14px #000; }
+  .fiche-title { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: -.015em; }
+  .fiche-year { font-family: var(--font-mono); }
+  .selected-hyd { color: var(--success); background: rgba(61, 220, 151, .07); border-color: rgba(61, 220, 151, .3); border-radius: 12px; }
+
+  @media (prefers-reduced-motion: reduce) { .pp-now .pp-dot { animation: none; } }
 </style>
