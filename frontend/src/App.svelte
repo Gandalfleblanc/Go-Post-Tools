@@ -1189,8 +1189,35 @@
 
     <!-- ===== RESEED : Depuis URL (sous-onglet) ===== -->
     {:else if activeTab === 'settings'}
-      <div class="tab-content">
+      <div class="tab-content tab-reglages">
         <h2>{@html ICO_COG}Réglages</h2>
+
+        <!-- Bandeau d'état : l'essentiel d'un coup d'œil, avant le détail. -->
+        <div class="etat-strip">
+          <div class="etat" class:etat-ok={!!cfg?.elysium_api_token} class:etat-ko={!cfg?.elysium_api_token}>
+            <span class="etat-k">Elysium</span>
+            <span class="etat-v">{cfg?.elysium_api_token ? (myUsername || 'Token enregistré') : 'Token manquant'}</span>
+            <span class="etat-d">API · posts NZB et DDL</span>
+          </div>
+          <div class="etat" class:etat-ok={!!cfg?.usenet_host} class:etat-ko={!cfg?.usenet_host}>
+            <span class="etat-k">Usenet</span>
+            <span class="etat-v mono">{cfg?.usenet_host || 'Non configuré'}</span>
+            <span class="etat-d">{cfg?.usenet_connections || '?'} connexions · {cfg?.usenet_ssl ? 'SSL' : 'sans SSL'} · port {cfg?.usenet_port || '?'}</span>
+          </div>
+          <div class="etat" class:etat-ok={(cfg?.one_fichier_accounts || []).length > 0} class:etat-ko={!(cfg?.one_fichier_accounts || []).length}>
+            <span class="etat-k">1Fichier</span>
+            <span class="etat-v">{(cfg?.one_fichier_accounts || []).length} compte{(cfg?.one_fichier_accounts || []).length > 1 ? 's' : ''}</span>
+            <span class="etat-d">{(cfg?.one_fichier_accounts || []).map(c => c.label).filter(Boolean).join(' · ') || 'Aucun compte'}</span>
+          </div>
+          <div class="etat" class:etat-ok={outils.length > 0 && outils.every(o => o.path && o.source === 'embarqué')}
+               class:etat-warn={outils.some(o => o.path && o.source !== 'embarqué')}
+               class:etat-ko={outils.some(o => !o.path)}>
+            <span class="etat-k">Outils</span>
+            <span class="etat-v">{outils.length ? outils.filter(o => o.path && o.source === 'embarqué').length + ' / ' + outils.length + ' embarqués' : 'Lecture…'}</span>
+            <span class="etat-d mono">{outils.map(o => o.name + (o.version ? ' ' + o.version : '')).join(' · ') || 'parpar · nyuu · mediainfo'}</span>
+          </div>
+        </div>
+
         <div class="sections">
 
           <!-- ===== Clés API ===== -->
@@ -1812,8 +1839,8 @@
   .hist-col-date { font-size:11px; color:var(--text3); font-family:monospace; }
   .hist-col-type { font-size:10px; font-weight:700; letter-spacing:0.5px; padding:2px 6px; border-radius:4px; text-align:center; align-self:start; }
   .hist-type-torrent { background:rgba(34,197,94,0.15); color:#22c55e; }
-  .hist-type-nzb { background:rgba(59,130,246,0.15); color:#3b82f6; }
-  .hist-type-ddl { background:rgba(168,85,247,0.15); color:#a855f7; }
+  .hist-type-nzb { background:rgba(var(--violet-rgb),0.12); color:var(--violet); }
+  .hist-type-ddl { background:rgba(61,220,151,0.10); color:var(--success); }
   .hist-col-main { min-width:0; }
   .hist-title { font-family: var(--font-display); font-size:13px; color:var(--text1); font-weight:600; }
   .hist-sub { font-size:11px; color:var(--text3); margin-top:2px; }
@@ -1838,17 +1865,20 @@
   .modal-body code { font-family:monospace; font-size:11px; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; color:var(--text1); word-break:break-all; }
   .update-progress { margin-top:12px; }
   .update-bar { height:8px; background:rgba(255,255,255,0.06); border-radius:4px; overflow:hidden; }
-  .update-bar-fill { height:100%; background:linear-gradient(90deg, #ff5a3c, #ff8b6b); transition:width 0.2s; }
+  .update-bar-fill { height:100%; background:linear-gradient(90deg, var(--ember), var(--ember-hi)); transition:width 0.2s; }
   .update-msg { margin-top:8px; font-size:12px; color:var(--text3); font-family:monospace; }
   .modal-actions { display:flex; gap:10px; justify-content:flex-end; padding:14px 20px; border-top:1px solid rgba(255,255,255,0.08); }
-  .btn-primary { background:#ff5a3c; border:0; color:white; padding:8px 18px; border-radius:8px; font-weight:600; cursor:pointer; font-size:13px; }
-  .btn-primary:hover { background:#ff6b4f; }
+  .btn-primary { background:var(--grad-primary); border:1px solid rgba(var(--accent-rgb),.9); color:var(--ink); padding:8px 18px; border-radius:8px; font-weight:600; cursor:pointer; font-size:13px; }
+  .btn-primary:hover { background:var(--grad-primary-hover); }
   .btn-secondary { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:var(--text1); padding:8px 18px; border-radius:8px; cursor:pointer; font-size:13px; }
   .btn-secondary:hover { background:rgba(255,255,255,0.1); }
 
-  .tab-content { padding: 28px 32px; max-width: 900px; }
+  /* Pleine largeur : limitées à 900 px, les pages laissaient la moitié
+     droite de la fenêtre vide. */
+  .tab-content { padding: 22px 24px 32px; max-width: none; }
   .tab-content h2 {
-    font-size: 18px; font-weight: 700; margin-bottom: 22px;
+    font-family: var(--font-display);
+    font-size: 17px; font-weight: 600; margin-bottom: 18px;
     color: var(--text); letter-spacing: -0.01em;
     display: flex; align-items: center; gap: 9px;
   }
@@ -1862,6 +1892,40 @@
   }
 
   .sections { display: flex; flex-direction: column; gap: 16px; }
+
+  /* ── Réglages : bandeau d'état + cartes sur deux colonnes ── */
+  .etat-strip {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+    gap: 1px; margin-bottom: 22px;
+    background: var(--border); border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; box-shadow: var(--shadow);
+  }
+  .etat {
+    position: relative; min-width: 0;
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 13px 16px 13px 18px;
+    background: linear-gradient(180deg, #141418, #111114);
+  }
+  /* Témoin d'état : liseré coloré à gauche + diode. */
+  .etat::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--text3); }
+  .etat-k {
+    display: flex; align-items: center; gap: 7px;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    letter-spacing: .16em; text-transform: uppercase; color: var(--text3);
+  }
+  .etat-k::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--text3); }
+  .etat-v { font-size: 14px; font-weight: 650; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .etat-d { font-size: 11px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .etat-ok::before, .etat-ok .etat-k::after { background: var(--success); box-shadow: 0 0 8px var(--success); }
+  .etat-warn::before, .etat-warn .etat-k::after { background: var(--warning); box-shadow: 0 0 8px var(--warning); }
+  .etat-ko::before, .etat-ko .etat-k::after { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+
+  .tab-reglages .sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr));
+    gap: 16px; align-items: start;
+  }
+  .tab-reglages .settings-group { grid-column: 1 / -1; }
 
   /* Équerres de viseur sur deux coins opposés — même vocabulaire que
      les panneaux de l'écran Publier (voir HydrackerTab.svelte). */

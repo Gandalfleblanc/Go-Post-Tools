@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sort"
+	"strconv"
 	"time"
 
 	"os"
@@ -167,7 +168,10 @@ func (a *App) CheckForUpdate() (*UpdateInfo, error) {
 	latest := stripTagPrefix(tag)
 	info.Latest = latest
 	info.URL = htmlURL
-	info.Available = latest != "" && latest != Version
+	// « Plus récente », pas « différente » : une build locale en avance sur
+	// la dernière release (11.0.0 contre 10.4.2) proposait sinon de
+	// redescendre en 10.4.2, présenté comme une mise à jour.
+	info.Available = latest != "" && versionPlusRecente(latest, Version)
 	return info, nil
 }
 
@@ -4736,4 +4740,24 @@ func (a *App) PostDDLWorkflow(tmdbID int, mediaType, quality string, langues, su
 		Links:     links,
 		ElysiumID: elysiumID,
 	}, nil
+}
+
+// versionPlusRecente : vrai si a > b, en comparant chaque nombre de
+// « X.Y.Z » (10.10.0 > 10.9.0, ce qu'une comparaison de chaînes rate).
+// Un segment non numérique compte pour 0.
+func versionPlusRecente(a, b string) bool {
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var na, nb int
+		if i < len(pa) {
+			na, _ = strconv.Atoi(strings.TrimSpace(pa[i]))
+		}
+		if i < len(pb) {
+			nb, _ = strconv.Atoi(strings.TrimSpace(pb[i]))
+		}
+		if na != nb {
+			return na > nb
+		}
+	}
+	return false
 }
