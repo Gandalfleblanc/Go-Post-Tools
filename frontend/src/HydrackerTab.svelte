@@ -1026,7 +1026,9 @@
       if (isLight) {
         qualID = findQual('web', '1080p', 'light') || findQual('webrip', '1080p', 'light') || FB.WEB_1080P_LIGHT
       } else {
-        if (isH265) qualID = findQual('web', '1080p', 'x265') || findQual('webrip', '1080p', 'x265') || findQual('web', 'x265') || findQual('webrip', 'x265')
+        // WEBRip x265 → « WEBRip 1080p (x265) » (qualité Elysium créée le 12/11/2026)
+        if (isH265 && /web[-. ]?rip/i.test(file.name)) qualID = findQual('webrip', '1080p', 'x265')
+        if (isH265 && !qualID) qualID = findQual('web', '1080p', 'x265') || findQual('webrip', '1080p', 'x265') || findQual('web', 'x265') || findQual('webrip', 'x265')
         if (!qualID && is1080p) qualID = findQual('web', '1080p') || findQual('webrip', '1080p')
         if (!qualID) qualID = FB.WEB
       }

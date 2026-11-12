@@ -54,6 +54,7 @@ export const QUALITIES = [
   { id: 71, name: "NSP" },
   { id: 76, name: "Blu-Ray 1080p (x265)" },
   { id: 83, name: "WEB 1080p (x265)" },
+  { id: 83, name: "WEBRip 1080p (x265)" },
   { id: 86, name: "HDLight 1080p (x265)" },
   { id: 89, name: "REMUX UHD" },
   { id: 92, name: "REMUX DVD" },
