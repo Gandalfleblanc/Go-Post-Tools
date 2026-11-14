@@ -347,6 +347,9 @@ func (c *Client) GetByID(id int, mediaType string) (*Movie, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := erreurProxy(body); err != nil {
+		return nil, err
+	}
 	var movie Movie
 	if err := json.Unmarshal(body, &movie); err != nil {
 		return nil, err
@@ -363,6 +366,9 @@ func (c *Client) GetByImdbID(imdbID string) (*Movie, error) {
 	params.Set("q", imdbID)
 	body, err := c.doGet(params)
 	if err != nil {
+		return nil, err
+	}
+	if err := erreurProxy(body); err != nil {
 		return nil, err
 	}
 	var movie Movie
@@ -429,4 +435,19 @@ func truncate(s string, n int) string {
 		return s[:n] + "…"
 	}
 	return s
+}
+
+// erreurProxy : le proxy répond HTTP 200 avec {"error":"Not found"} pour un
+// ID qu'il ne connaît pas (film trop récent pour son index, par exemple).
+// Décodé tel quel, ce corps donnait une fiche VIDE — ID 0, titre vide — que
+// l'interface fusionnait par-dessus la bonne : l'ID passait à 0, la fiche
+// Elysium n'était jamais cherchée et le bouton Lancer restait grisé.
+func erreurProxy(body []byte) error {
+	var probe struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &probe) == nil && probe.Error != "" {
+		return fmt.Errorf("proxytmdb: %s", probe.Error)
+	}
+	return nil
 }

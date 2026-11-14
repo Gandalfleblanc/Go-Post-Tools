@@ -1832,7 +1832,14 @@
     if (movie._from_mediasearch && movie.id) {
       try {
         const full = await TMDBGetByID(movie.id, movie.media_type || 'movie')
-        if (full) { movie = { ...movie, ...full } }
+        // Seuls les champs REMPLIS de TMDB complètent la fiche. Une réponse
+        // vide écrasait sinon l'ID (→ 0) et le titre : la fiche Elysium
+        // n'était plus cherchée et Lancer restait grisé, sans message.
+        if (full) {
+          const utiles = Object.fromEntries(Object.entries(full)
+            .filter(([k, v]) => k !== 'id' && v !== '' && v !== null && v !== undefined && v !== 0))
+          movie = { ...movie, ...utiles }
+        }
       } catch(e) { console.error('enrich TMDB:', e) }
     }
     selectedTMDB = movie
@@ -2209,6 +2216,7 @@
     const q = tmdbSearchQuery.trim()
     if (!q) return
     unifiedLoading = true
+    rechercheMessage = ''   // l'échec de la recherche auto ne vaut plus pour celle-ci
     unifiedResults = []
     hydrackerResults = []
     tmdbResults = []
@@ -2477,6 +2485,25 @@
             </div>
           </div>
           <button class="btn-x" style="margin-left:auto" on:click={deselectHydracker}>✕</button>
+        </div>
+      {:else if hydrackerResults.length > 0}
+        <!-- Plusieurs fiches Elysium correspondent au titre : on demande.
+             Ce choix avait disparu en v9.1.0 — les résultats restaient en
+             mémoire sans être affichés, et Lancer restait grisé. -->
+        <div class="hyd-choix">
+          <div class="hyd-choix-title">{hydrackerResults.length} fiches Elysium correspondent — choisis la bonne</div>
+          <div class="hydracker-results">
+            {#each hydrackerResults as t}
+              <button class="hydracker-item" on:click={() => { hydrackerResults = []; selectHydracker(t) }}>
+                <span class="hyd-name">{t.name}</span>
+                <span class="hyd-year">{(t.release_date || '').slice(0, 4)}</span>
+                <span class="hyd-type badge-{t.type}">{t.type}</span>
+              </button>
+            {/each}
+            <button class="hydracker-item hyd-create-btn" on:click={() => { hydrackerResults = []; hydrackerNotFound = true }}>
+              <span class="hyd-name">Aucune de ces fiches</span>
+            </button>
+          </div>
         </div>
       {:else if hydrackerNotFound && selectedTMDB}
         <div class="hyd-create-box">
@@ -4461,6 +4488,15 @@
   .fiche-title { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: -.015em; }
   .fiche-year { font-family: var(--font-mono); }
   .selected-hyd { color: var(--success); background: rgba(61, 220, 151, .07); border-color: rgba(61, 220, 151, .3); border-radius: 12px; }
+
+  .hyd-choix {
+    margin-top: 8px; padding: 11px 12px;
+    background: rgba(var(--accent-rgb), .06);
+    border: 1px solid rgba(var(--accent-rgb), .35); border-radius: 12px;
+  }
+  .hyd-choix-title { font-size: 12px; font-weight: 650; color: var(--ember-hi); }
+  .hyd-choix .hydracker-results { margin-top: 8px; }
+  .hyd-create-btn .hyd-name { color: var(--text2); font-size: 12px; }
 
   @media (prefers-reduced-motion: reduce) { .pp-now .pp-dot { animation: none; } }
 </style>
