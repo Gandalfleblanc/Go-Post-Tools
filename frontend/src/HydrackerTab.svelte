@@ -4498,5 +4498,18 @@
   .hyd-choix .hydracker-results { margin-top: 8px; }
   .hyd-create-btn .hyd-name { color: var(--text2); font-size: 12px; }
 
+  /* Barre Lancer / Stop / Réinitialiser collée en haut pendant le défilement :
+     plus besoin de remonter tout l'écran pour réinitialiser après un post.
+     Fond plein et pas de flou — la WebView tourne pendant parpar et nyuu. */
+  /* top négatif = le padding haut de .hydracker-tab (24 px) : la barre colle
+     au bord du conteneur et pas 24 px plus bas, sinon le contenu défilait
+     visiblement dans cette bande. Un masque par ombre portée recouvrait,
+     lui, la ligne du fichier quand on n'avait pas encore défilé. */
+  .post-actions {
+    position: sticky; top: -24px; z-index: 30;
+    margin: 0 -8px; padding: 10px 8px;
+    background: linear-gradient(180deg, var(--bg) 78%, rgba(8, 8, 10, 0));
+  }
+
   @media (prefers-reduced-motion: reduce) { .pp-now .pp-dot { animation: none; } }
 </style>
