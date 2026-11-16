@@ -86,7 +86,7 @@ html, body{
   font-family: var(--font-body);
   font-size: 13.5px;
   line-height: 1.45;
-  height: 100vh;
+  height: calc(100vh / var(--ui-zoom, 1));
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -115,7 +115,7 @@ body::after{
     radial-gradient(ellipse 70% 50% at 8% -10%, rgba(var(--accent-rgb),.10), transparent 60%),
     radial-gradient(ellipse 60% 45% at 105% 110%, rgba(255,74,61,.07), transparent 65%);
 }
-#app{ position: relative; z-index: 1; height: 100vh; }
+#app{ position: relative; z-index: 1; height: calc(100vh / var(--ui-zoom, 1)); }
 
 /* ── Contrôles ── */
 button{

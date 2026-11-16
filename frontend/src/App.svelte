@@ -1715,7 +1715,7 @@
     font-size: 13px;
     color: var(--text);
     background: var(--bg);
-    height: 100vh;
+    height: calc(100vh / var(--ui-zoom, 1));
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -1746,7 +1746,7 @@
   :global(::-webkit-scrollbar-thumb) { background: rgba(255,255,255,0.1); border-radius: 3px; }
   :global(::-webkit-scrollbar-thumb:hover) { background: rgba(255,255,255,0.2); }
 
-  .layout { display: flex; flex-direction: column; height: 100vh; position: relative; z-index: 2; }
+  .layout { display: flex; flex-direction: column; height: calc(100vh / var(--ui-zoom, 1)); position: relative; z-index: 2; }
 
   /* ── En-tête : marque · onglets · mise à jour ── */
   .topbar {
@@ -1832,7 +1832,7 @@
   .hist-type-btns { display:flex; gap:4px; }
   .hist-type-btns button { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:8px; color:var(--text2); font-size:12px; cursor:pointer; }
   .hist-type-btns button.active { background:rgba(var(--accent-rgb),0.12); border-color:rgba(var(--accent-rgb),0.55); color:var(--ember); }
-  .hist-list { display:flex; flex-direction:column; gap:6px; max-height:calc(100vh - 260px); overflow-y:auto; }
+  .hist-list { display:flex; flex-direction:column; gap:6px; max-height:calc(100vh / var(--ui-zoom, 1) - 260px); overflow-y:auto; }
   .hist-row { display:grid; grid-template-columns:110px 70px 1fr 80px 24px; gap:12px; padding:10px 14px; background:rgba(255,255,255,0.025); border:1px solid var(--border); border-radius:8px; align-items:start; transition:border-color .14s, background .14s; }
   .hist-row:hover { border-color:rgba(var(--accent-rgb), 0.3); background:rgba(var(--accent-rgb), 0.03); }
   .hist-row.err { border-color:rgba(239,68,68,0.3); background:rgba(239,68,68,0.05); }
@@ -1852,7 +1852,7 @@
   .hist-empty { padding:40px; text-align:center; color:var(--text3); font-size:13px; background:rgba(255,255,255,0.02); border-radius:8px; }
 
   .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; z-index:9999; }
-  .modal-card { background:var(--bg3); border:1px solid rgba(255,255,255,0.1); border-radius:12px; width:min(90vw, 520px); box-shadow:0 20px 60px rgba(0,0,0,0.5); }
+  .modal-card { background:var(--bg3); border:1px solid rgba(255,255,255,0.1); border-radius:12px; width:min(calc(90vw / var(--ui-zoom, 1)), 520px); box-shadow:0 20px 60px rgba(0,0,0,0.5); }
   .modal-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid rgba(255,255,255,0.08); }
   .modal-header h3 { margin:0; font-size:16px; color:var(--text1); }
   .modal-close { background:transparent; border:0; color:var(--text3); font-size:18px; cursor:pointer; }
@@ -2009,7 +2009,7 @@
   }
   .nfo-modal-card {
     background: var(--bg2); border: 1px solid var(--border-strong);
-    border-radius: 12px; max-width: 880px; width: 100%; max-height: 85vh;
+    border-radius: 12px; max-width: 880px; width: 100%; max-height: calc(85vh / var(--ui-zoom, 1));
     display: flex; flex-direction: column; overflow: hidden;
     box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   }
@@ -2127,7 +2127,7 @@
     padding: 20px 24px;
     max-width: 480px;
     width: 90%;
-    max-height: 85vh;
+    max-height: calc(85vh / var(--ui-zoom, 1));
     overflow-y: auto;
   }
   .modal-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; letter-spacing: .04em; }
