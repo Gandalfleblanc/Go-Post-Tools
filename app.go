@@ -62,7 +62,7 @@ import (
 // IMPORTANT : doit être en sync avec wails.json `productVersion`. Si tu bump
 // l'un, bump l'autre — sinon l'auto-update boucle (compare current=Version
 // vs latest=tag GitHub).
-const Version = "11.1.1"
+const Version = "11.1.2"
 
 type App struct {
 	ctx         context.Context
@@ -454,14 +454,46 @@ nohup %q >/dev/null 2>&1 &
 			return fmt.Errorf("unzip: %w", err)
 		}
 		newExe := filepath.Join(tmp, "Go Post Tools.exe")
+		if _, err := os.Stat(newExe); err != nil {
+			return fmt.Errorf("zip ne contient pas Go Post Tools.exe : %w", err)
+		}
 		helper := filepath.Join(tmp, "install.bat")
-		// timeout + move + relaunch + suppression du bat
+		logPath := filepath.Join(tmp, "install.log")
+		// ⚠ Pas de « timeout » : sans console attachée (lancé depuis une app
+		// GUI), il échoue aussitôt (« redirection d'entrée non prise en
+		// charge ») → le move partait alors que l'exe était encore verrouillé
+		// et l'ancienne version était relancée. On attend la fin du PID via
+		// tasklist, pause d'1 s par ping, puis move réessayé jusqu'à 30 fois.
 		script := fmt.Sprintf(`@echo off
-timeout /t 2 /nobreak > NUL
-move /Y "%s" "%s"
+setlocal
+set PID=%d
+set /a w=0
+:wait
+tasklist /FI "PID eq %%PID%%" /NH 2>NUL | find "%%PID%%" >NUL
+if errorlevel 1 goto moved_wait
+set /a w+=1
+if %%w%% GEQ 30 goto moved_wait
+ping -n 2 127.0.0.1 >NUL
+goto wait
+:moved_wait
+set /a n=0
+:retry
+move /Y "%s" "%s" >> "%s" 2>&1
+if not errorlevel 1 goto ok
+set /a n+=1
+if %%n%% GEQ 30 goto fail
+ping -n 2 127.0.0.1 >NUL
+goto retry
+:ok
+echo update OK >> "%s"
 start "" "%s"
 del "%%~f0"
-`, newExe, exe, exe)
+exit /b 0
+:fail
+echo ERREUR : impossible de remplacer l'exe >> "%s"
+start "" "%s"
+exit /b 1
+`, os.Getpid(), newExe, exe, logPath, logPath, exe, logPath, exe)
 		if err := os.WriteFile(helper, []byte(script), 0755); err != nil {
 			return err
 		}
