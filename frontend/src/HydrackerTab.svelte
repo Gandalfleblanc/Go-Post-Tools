@@ -577,10 +577,10 @@
       // dispatcher un drop de N fichiers en N events séparés dans un ordre
       // arbitraire — sans debounce, la preview finit sur le mauvais épisode.
       valid.forEach(p => enqueueOnly(p))
-      addLog('QUEUE', `DEBUG drop: valid=${valid.length}, queue.length=${queue.length}, queue[0]=${queue[0]?.split('/').pop().slice(0,40) || '?'}`)
+      addLog('QUEUE', `DEBUG drop: valid=${valid.length}, queue.length=${queue.length}, queue[0]=${queue[0]?.split(/[\\/]/).pop().slice(0,40) || '?'}`)
       clearTimeout(dropDebounce)
       dropDebounce = setTimeout(() => {
-        const first = queue[0]?.split('/').pop().slice(0,40) || '?'
+        const first = queue[0]?.split(/[\\/]/).pop().slice(0,40) || '?'
         addLog('QUEUE', `DEBUG debounce fire: queue.length=${queue.length}, queue[0]=${first}, queueProcessing=${queueProcessing}`)
         if (queue.length >= 1 && !queueProcessing) {
           loadFileFromPath(queue[0], null)
@@ -668,10 +668,10 @@
   // Insert + sort sans toucher la preview (utilisé en batch via forEach)
   function enqueueOnly(path) {
     queue = [...queue, path].sort((a, b) =>
-      a.split('/').pop().localeCompare(b.split('/').pop(), undefined, { numeric: true })
+      a.split(/[\\/]/).pop().localeCompare(b.split(/[\\/]/).pop(), undefined, { numeric: true })
     )
     queueTotal = queueDone + queue.length + (queueProcessing ? 1 : 0)
-    addLog('QUEUE', `+ ${path.split('/').pop()} (${queue.length} en attente) — clique sur ▶ Lancer pour démarrer`)
+    addLog('QUEUE', `+ ${path.split(/[\\/]/).pop()} (${queue.length} en attente) — clique sur ▶ Lancer pour démarrer`)
   }
   function enqueue(path) {
     enqueueOnly(path)
@@ -722,7 +722,7 @@
     // (cas où l'user drop E1 seul d'abord, puis E2/E3 ensuite — sinon E1 skip)
     if (mkvFilePath && !queue.includes(mkvFilePath)) {
       queue = [...queue, mkvFilePath].sort((a, b) =>
-        a.split('/').pop().localeCompare(b.split('/').pop(), undefined, { numeric: true })
+        a.split(/[\\/]/).pop().localeCompare(b.split(/[\\/]/).pop(), undefined, { numeric: true })
       )
     }
     if (queue.length === 0) return
@@ -743,7 +743,7 @@
       const path = queue.shift()
       queue = queue
       queueCurrent = path
-      const fname = path.split('/').pop()
+      const fname = path.split(/[\\/]/).pop()
       addLog('QUEUE', `▶ ${fname}`)
       try {
         // Si ce fichier est déjà chargé en preview avec fiches sélectionnées,
@@ -1332,7 +1332,7 @@
       if (isFolder) {
         try {
           miPath = await FindFirstMkvInFolder(path)
-          addLog('MI', `📂 saison : analyse du 1er épisode → ${miPath.split('/').pop()}`)
+          addLog('MI', `📂 saison : analyse du 1er épisode → ${miPath.split(/[\\/]/).pop()}`)
         } catch(e) {
           addLog('MI', `⚠ pas de MKV trouvé dans le dossier : ${e}`)
           miPath = ''
@@ -1451,7 +1451,7 @@
       }
     }
 
-    addLog('MI', `analyse : ${path.split('/').pop()}`)
+    addLog('MI', `analyse : ${path.split(/[\\/]/).pop()}`)
     try {
       // Ordre inversé (v9.2.3) : binaire natif embarqué EN PREMIER — instantané
       // sur les MKV LiHDL (x265/H265) qui font planter le WASM avec exit(NNN),
@@ -2366,7 +2366,7 @@
           {#each queue as path, i}
             <div class="queue-item">
               <span class="queue-idx">#{i + 1}</span>
-              <code class="queue-name">{path.split('/').pop()}</code>
+              <code class="queue-name">{path.split(/[\\/]/).pop()}</code>
               <button class="btn-x" on:click={() => dequeueAt(i)}>✕</button>
             </div>
           {/each}
@@ -2388,7 +2388,7 @@
             try {
               const tempFolder = await PrepareSeasonFolder(paths)
               loadFileFromPath(tempFolder, null, { isFolder: true })
-              addLog('QUEUE', `📚 ${paths.length} MKV regroupés en saison → ${tempFolder.split('/').pop()}`)
+              addLog('QUEUE', `📚 ${paths.length} MKV regroupés en saison → ${tempFolder.split(/[\\/]/).pop()}`)
             } catch(e) { addLog('QUEUE', `✗ PrepareSeasonFolder : ${e}`) }
           }}>
             <div class="multi-btn-emoji">📦</div>
@@ -2716,7 +2716,7 @@
           <div class="release-body">
             <div class="release-line">
               <span class="release-current-label">▶ {queueProcessing ? 'Release en cours' : 'Post en cours'}</span>
-              <code class="release-current-name">{(queueCurrent || file?.name || '').split('/').pop()}</code>
+              <code class="release-current-name">{(queueCurrent || file?.name || '').split(/[\\/]/).pop()}</code>
               {#if queueProcessing && queue.length > 0}
                 <button class="btn-skip-ep" on:click={async () => { try { await SkipCurrentEpisode() } catch(e) {} }} title="Abandonner cet épisode et passer au suivant dans la queue">
                   ⏭ Skip épisode
