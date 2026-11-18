@@ -1008,6 +1008,10 @@
     if (/-xander(\.(mkv|mp4))?$/i.test(file.name)) {
       // -XANDER → toujours ULTRA HDLight x265
       qualID = findQual('ultra', 'hdlight', 'x265') || FB.ULTRA_HDLIGHT_X265
+    } else if (is2160p && isAv1 && !is4KLight && !/\bremux\b/i.test(name) && exactQual('ULTRA HD (AV1)')) {
+      // 2160p AV1 → « ULTRA HD (AV1) » (qualité Elysium créée le 18/11/2026). Avant la règle
+      // « 2160p + débit < 8000 = Light » : le débit bas est normal en AV1.
+      qualID = exactQual('ULTRA HD (AV1)')
     } else if (is4KLight || (is2160p && bitrate > 0 && bitrate < 8000)) {
       // 4KLight OU (2160p + bitrate<8000) → ULTRA HDLight
       qualID = findQual('ultra', 'hdlight', 'x265') || FB.ULTRA_HDLIGHT_X265
