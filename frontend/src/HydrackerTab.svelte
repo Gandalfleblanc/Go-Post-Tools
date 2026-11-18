@@ -977,6 +977,9 @@
     const name = file.name.toLowerCase()
     const bitrate = parseInt(String(mediaInfo?.bitrate || '').replace(/[^0-9]/g, '')) || 0
     const isH265 = /\b(x265|h\.?265|hevc)\b/i.test(file.name)
+    const isAv1 = /(^|[^a-z0-9])av1([^a-z0-9]|$)/i.test(file.name)
+    // Nom exact d'une qualité Elysium (sinon 0)
+    const exactQual = (label) => qualityOptions.find(o => o.name.toLowerCase() === label.toLowerCase())?.id || 0
     // Cherche un quality par mots-clés présents dans le nom (insensible à la casse/espaces)
     const findQual = (...kw) => {
       const lc = kw.map(k => k.toLowerCase().replace(/[\s-]/g, ''))
@@ -1019,11 +1022,25 @@
         return n.includes('ultrahd') && n.includes('x265') && !n.includes('light')
       })
       qualID = o?.id || FB.ULTRA_HD_X265
+    } else if (/\bhdtv\b/i.test(name)) {
+      // HDTV : AV1 → « HDTV 1080p (AV1) » (qualité Elysium créée le 18/11/2026), x265 → « HDTV 1080p (x265) »
+      const is1080p = /\b1080p\b/i.test(file.name)
+      if (is1080p && isAv1) qualID = exactQual('HDTV 1080p (AV1)')
+      if (is1080p && isH265 && !qualID) qualID = exactQual('HDTV 1080p (x265)')
+      if (!qualID && is1080p) qualID = exactQual('HDTV 1080p')
+      if (!qualID && /\b720p\b/i.test(file.name)) qualID = exactQual('HDTV 720p')
+      if (!qualID) qualID = exactQual('HDTV')
     } else if (/\bweb([-.]?(?:rip|dl))?\b/.test(name) || name.includes('.web.')) {
       // WEB 1080p prioritaire si résolution présente (films ET séries)
       const is1080p = /\b1080p\b/i.test(file.name)
-      const isLight = !isH265 && bitrate > 0 && bitrate <= 3000
-      if (isLight) {
+      // AV1 : débit bas normal pour ce codec → jamais « Light »
+      const isLight = !isH265 && !isAv1 && bitrate > 0 && bitrate <= 3000
+      if (isAv1) {
+        qualID = (is1080p && exactQual('WEB 1080p (AV1)')) || exactQual('WEB (AV1)')
+      }
+      if (qualID) {
+        // AV1 trouvé
+      } else if (isLight) {
         qualID = findQual('web', '1080p', 'light') || findQual('webrip', '1080p', 'light') || FB.WEB_1080P_LIGHT
       } else {
         // WEBRip x265 → « WEBRip 1080p (x265) » (qualité Elysium créée le 12/11/2026)
@@ -1072,7 +1089,8 @@
     const name = file.name.toLowerCase()
     const isWeb = /\bweb([-.]?(?:rip|dl))?\b/.test(name) || name.includes('.web.')
     const isH265 = /\b(x265|h\.?265|hevc)\b/i.test(file.name)
-    if (isWeb && !isH265 && bitrate > 0 && bitrate <= 3000) {
+    const isAv1 = /(^|[^a-z0-9])av1([^a-z0-9]|$)/i.test(file.name)
+    if (isWeb && !isH265 && !isAv1 && bitrate > 0 && bitrate <= 3000) {
       const currentName = (qualityOptions.find(q => q.id === postQuality)?.name || '').toLowerCase()
       if (!currentName.includes('light')) {
         const findQual = (...kw) => {
